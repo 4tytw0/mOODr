@@ -1,0 +1,197 @@
+#:kivy 1.11.1
+
+<Settings>:
+
+<GUI>:
+
+    # """Python:Kivy-id variable conversion"""
+    # python side: kivy side
+    key_spinner: key_spinner
+    kivy_data: info
+    bpm_input: bpm_input
+    loop_length: loop_length
+
+    
+
+
+    rows: 4
+    cols: 5
+    padding: 100
+
+
+    # """Key selection spinner"""
+    Spinner:
+        id: key_spinner
+        text: 'E'
+        values: root.ns
+        text_autoupdate: True
+
+    # """Numeral selection spinners"""
+    Spinner:
+        id: first_spinner
+        text: root.get_numerals()[0]
+        values: root.get_numerals()
+        # on_select: root.update_data()
+        text_autoupdate: True
+    Spinner:
+        id: second_spinner
+        text: root.get_numerals()[1]
+        values: root.get_numerals()
+        text_autoupdate: True
+    Spinner:
+        id: third_spinner
+        text: root.get_numerals()[2]
+        values: root.get_numerals()
+        text_autoupdate: True
+    Spinner:
+        id: fourth_spinner
+        text: root.get_numerals()[3]
+        values: root.get_numerals()
+        text_autoupdate: True
+
+    BoxLayout:
+        # "GUI Variables"
+        orientation: 'vertical'
+        background_color: [0, 0, 1]
+        rows: 2
+        Label:
+            id: info
+            outline_color: [0.2, 0.2, 0.2]
+            outline_width: '1.5sp'
+            text: str(key_spinner.text + ' ' +  modeSelect.text + ('\n') + first_spinner.text + (' ') + second_spinner.text + (' ') + third_spinner.text + (' ') + fourth_spinner.text)
+            font_size: '33sp'
+
+        # "BPM Input"
+        BoxLayout:
+            # orientation: 'vertical'
+            # rows: 2
+            cols: 2
+            size_hint_y: None
+            row_default_height: 400
+            col_default_width: 400
+            Label:
+                text: 'BPM: ' # + bpm_input.text
+                valign: 'top'
+                halign: 'right'
+                font_size: '20sp'
+                # size_hint_y: 0.3
+            TextInput:
+                id: bpm_input
+                text: '80'
+                halign: 'center'
+                font_size: '20sp'
+                multiline: False
+                size_hint_y: 0.8
+
+    # "Mode selection spinner"
+    Spinner:
+        id: modeSelect
+        # background_color: [1, 1, 1]
+        text: "min7"
+        values: root.modes # ['maj', 'min', 'maj7', 'min7', 'gypsy', 'gypsy7', 'snhtri']
+
+        on_text: root.update_numerals()
+            # print: self.value
+        text_autoupdate: True
+
+
+    # "Play & Stop Buttons"
+    Button:
+        text: 'Play'
+        # on_release: print('Play Pressed')
+        on_press: root.play_seq()
+    Button:
+        text: 'Stop'
+        on_release: print('Stop Pressed')
+        on_press: root.stop_seq()
+
+    # "Loop Length selecter"
+
+    Spinner: 
+        id: loop_length
+        text: '4'
+        values: ['1','2','3','4']
+        text_autoupdate: True
+    # Button:
+    #     id: debugbtn
+    #     text: 'here' # info.text
+    #     # on_press: print(root.get_variable())
+    #         # banana = info.text
+    #         # print(info.text) # '\n', bpm_input.text)
+
+    # BoxLayout:
+    #         # orientation: 'vertical'
+    #         # rows: 2
+    #         cols: 2
+    #         size_hint_y: None
+    #         row_default_height: 400
+    #         col_default_width: 400
+    #         Label:
+    #             text: 'loop length: ' # + bpm_input.text
+    #             valign: 'top'
+    #             halign: 'right'
+    #             font_size: '20sp'
+    #             # size_hint_y: 0.3
+    #         TextInput:
+    #             # id: loop_length
+    #             text: '80'
+    #             halign: 'center'
+    #             font_size: '20sp'
+    #             multiline: False
+    #             size_hint_y: 0.8
+
+    # ProgressBar:
+    #     value: 1
+    #     max: 4
+
+<ChordButtons>:
+    cols: 7
+    row_force_default: True
+    row_default_height: 200
+    col_default_width: 200
+
+    Button:
+        id: first_chord
+        text: 'I' # root.get_intervals()[0]
+        on_press: root.chord_button(root.get_midi_ints(), 0)
+        # on_press: print(self.ids.info.text)
+        on_release: root.chord_off()
+    Button:
+        id: second_chord
+        text: 'II'
+        on_press: root.chord_button(root.get_midi_ints(), 1)
+        on_release: root.chord_off()
+    Button:
+        id: third_chord
+        text: 'III'
+        on_press: root.chord_button(root.get_midi_ints(), 2)
+        on_release: root.chord_off()
+    Button:
+        id: fourth_chord
+        text: 'IV'
+        on_press: root.chord_button(root.get_midi_ints(), 3)
+        on_release: root.chord_off()
+    Button:
+        id: fifth_chord
+        text: 'V'
+        on_press: root.chord_button(root.get_midi_ints(), 4)
+        on_release: root.chord_off()
+    Button:
+        id: sixth_chord
+        text: 'VI'
+        on_press: root.chord_button(root.get_midi_ints(), 5)
+        on_release: root.chord_off()
+    Button:
+        id: seventh_chord
+        # text: str(mOODr_app.ui_conv(mOODr_app.backend_notenumeral)[6])
+        text: 'VII'
+        on_press: root.chord_button(root.get_midi_ints(), 6)
+        on_release: root.chord_off()
+
+
+
+
+<DebugLabels>:
+    Label:
+        text: '@@@@@@@@@@'
+
