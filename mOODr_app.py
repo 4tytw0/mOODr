@@ -8,7 +8,6 @@ import time
 import random
 import rtmidi
 import timeit
-import midiclock
 from collections import deque  
 from rtmidi.midiutil import open_midiinput
 
@@ -39,76 +38,12 @@ midi_channel_two_on = 0x91  # fourth digit represents channel number
 midi_channel_two_off = 0x81  # (str(midi_note_off) + str(midi_channel))
 midi_channel_three_on = 0x9B  # fourth digit represents channel number
 
-
-class MIDIClockReceiver:
-    def __init__(self, bpm=None):
-        self.bpm = bpm if bpm is not None else 120.0
-        self.sync = False
-        self.running = True
-        self._samples = deque()
-        self._last_clock = None
-
-    def __call__(self, event, data=None):
-        msg, _ = event
-
-        if msg[0] == TIMING_CLOCK:
-            now = time.time()
-
-            if self._last_clock is not None:
-                self._samples.append(now - self._last_clock)
-
-            self._last_clock = now
-
-            if len(self._samples) > 24:
-                self._samples.popleft()
-
-            if len(self._samples) >= 2:
-                self.bpm = 2.5 / (sum(self._samples) / len(self._samples))
-                self.sync = True
-
-        elif msg[0] in (SONG_CONTINUE, SONG_START):
-            self.running = True
-            print("START/CONTINUE received.")
-        elif msg[0] == SONG_STOP:
-            self.running = False
-            print("STOP received.")
-
-
-def main(args=None):
-    clock = MIDIClockReceiver(float(args[0]) if args else None)
-
-    try:
-        m_in, port_name = open_midiinput(args[0] if args else None)
-    except (EOFError, KeyboardInterrupt):
-        return 1
-
-    m_in.set_callback(clock)
-    # Important: enable reception of MIDI Clock messages (status 0xF8)
-    m_in.ignore_types(timing=False)
-
-    try:
-        print("Waiting for clock sync...")
-        while True:
-            time.sleep(1)
-
-            if clock.running:
-                if clock.sync:
-                    print("%.2f bpm" % clock.bpm)
-                else:
-                    print("%.2f bpm (no sync)" % clock.bpm)
-
-    except KeyboardInterrupt:
-        pass
-    finally:
-        m_in.close_port()
-        del m_in
-
 # print(midi_channel_one_on)
 
 Note_Dict = ['C', 'C#', 'D', 'D#', 'E', 'F',
              'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-Modes = ['maj', 'min', 'maj7', 'min7', 'gypsy', 'gypsy7', 'snhtri', 'snhtri7']
+Modes = ['Major', 'Major 7', 'Minor', 'Minor 7', 'Byzintine', 'Byzintine7', 'snhtri', 'snhtri7']
 
 progression_conversions = {1: 'I',
                            2: 'II',
@@ -127,7 +62,8 @@ major_intervals = {"I": 0,
                    "V": 2,
                    "vi": 2,
                    "vii°": 2,
-                   "2I": 1}  # Option,Shift,8 = °
+                   "2I": 1
+                   }  # Option,Shift,8 = °
 minor_intervals = {"i": 0,
                    "ii°": 2,  # Option,Shift,8 = °
                    "III": 1,
@@ -135,15 +71,18 @@ minor_intervals = {"i": 0,
                    "v": 2,
                    "VI": 1,
                    "VII": 2,
-                   "2i": 2}
-gypsy_intervals = {"I": 0,
-                   "ii": 2,
-                   "III": 2,
-                   "IV": 1,
-                   "V": 1,
-                   "vi": 2,
-                   "VII°": 2,
-                   "2I": 2}
+                   "2i": 2
+                   }
+byzintine_intervals = {
+                    "I": 0,
+                    "ii": 2,
+                    "III": 2,
+                    "IV": 1,
+                    "V": 1,
+                    "vi": 2,
+                    "VII°": 2,
+                    "2I": 2
+                    }
 
 def snhtri():
     xlist = []
@@ -158,14 +97,16 @@ def snhtri():
 
 seed = snhtri()
 
-snh_intervals = {"I": 0,
+snh_intervals = {
+                "I": 0,
                 'ii': seed[1], # 
                 'III': seed[2], # "III": seed()[2],
                 'IV': seed[3], # "IV": snhtri()[3],
                 'V': seed[4], # "V": snhtri()[4],
                 'VI': seed[5], # "vi": snhtri()[5],
                 'VII': seed[6], # "VII°": snhtri()[6],
-                '2I': seed[7]} # "2I": snhtri()[7]
+                '2I': seed[7] # "2I": snhtri()[7]
+                }
 # print(seed)
 # print('snh intervals', snh_intervals)
 
@@ -188,8 +129,8 @@ def determine_mode(key):
         return major_intervals
     elif "min" in key.lower():
         return minor_intervals
-    elif 'gypsy' in key.lower():
-        return gypsy_intervals
+    elif 'byz' in key.lower():
+        return byzintine_intervals
     elif 'snhtri' in key.lower():
         return snh_intervals
 
@@ -372,7 +313,7 @@ class GUI(GridLayout):
 
     def get_numerals(self):
         temp_list = list(selected_mode(self.ids.info.text).keys())
-        print(temp_list)
+        # print(temp_list)
         return temp_list
 
     def update_numerals(self):
