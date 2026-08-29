@@ -1,0 +1,9 @@
+[project]
+name = "m00dr"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "customtkinter>=6.0.0",
+    "python-rtmidi>=1.5.8",
+]
