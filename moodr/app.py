@@ -33,7 +33,7 @@ DEFAULT_BPM = "80"
 LOOP_LENGTHS = ["1", "2", "3", "4"]
 NUM_NUMERAL_SLOTS = 4
 NUM_CHORD_BUTTONS = 7
-OCTAVE_SHIFT_RANGE = (-2, 2)
+OCTAVE_SHIFT_RANGE = (-1, 1)
 
 
 def generate_full_scale(key: str, mode: str):

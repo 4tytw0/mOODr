@@ -270,8 +270,9 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
       by whole octaves. `midi_message_gen()`/`bass_message_gen()` gained an `octave_shift: int
       = 0` parameter (each unit = +/-12 semitones, added on top of the existing +1/-1 octave
       chord/bass split); `PlaybackEngine` exposes it as a live-adjustable `octave_shift`
-      attribute; the GUI has an "Octave: N" spinbox (range -2..+2) wired to both Play and the
-      chord-preview buttons. **Correctness fix beyond the literal +12/-12 ask**: turning the
+      attribute; the GUI has an "Octave: N" spinbox (range -1..+1, one octave either way) wired
+      to both Play and the chord-preview buttons. **Correctness fix beyond the literal
+      +12/-12 ask**: turning the
       octave knob while a chord is still sustaining could otherwise send a note-off to the
       *new* octave instead of the one actually sounding, leaving the real notes stuck --
       fixed by capturing the octave_shift in effect at note-on time
