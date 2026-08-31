@@ -34,8 +34,13 @@ this is the part of the project that already works and is liked:
 ## Phases
 
 ### Phase 0 — Audit & environment
-- [ ] Confirm `python-rtmidi` installs and opens a port on the current machine/OS
-- [ ] Decide on Python version / venv setup, add `requirements.txt` or `pyproject.toml`
+- [x] Initialize git repo in the project folder, add `.gitignore` (`.venv/`, `__pycache__/`, etc.)
+- [x] Set up project tooling with `uv` (`pyproject.toml` + `uv.lock`, Python 3.12 pinned via
+      `.python-version`) instead of a manually created `venv`; `customtkinter` and
+      `python-rtmidi` added as dependencies and verified to import via `uv run`
+- [ ] Confirm `python-rtmidi` actually opens a MIDI port and sends messages on the current
+      machine (import-only was verified; real port I/O was not)
+- [x] Decide on Python version / venv setup, add `requirements.txt` or `pyproject.toml`
 - [ ] Read through `OLD mOODr_app.py` end-to-end and note every behavior to preserve
       (loop length, BPM field, per-chord buttons, bass note on channel 2, velocity
       randomization, latency-correction in the old clock, etc.)
