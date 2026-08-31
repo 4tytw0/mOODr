@@ -120,6 +120,30 @@ def test_reset_clears_position_without_sending_midi():
     assert output.sent == []
 
 
+def test_set_clock_swaps_the_clock_while_stopped():
+    output, clock, engine = make_engine()
+    other_clock = FakeClock()
+
+    engine.set_clock(other_clock)
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+
+    assert other_clock.started
+    assert not clock.started  # the original clock was never touched
+
+
+def test_set_clock_raises_while_playing():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+
+    try:
+        engine.set_clock(FakeClock())
+        assert False, "expected RuntimeError"
+    except RuntimeError:
+        pass
+
+
 def test_humanize_velocity_defaults_true_and_can_be_disabled():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])

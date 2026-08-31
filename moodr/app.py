@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import midi_io, theory
-from .clock import MidiClock
+from .clock import MidiClock, MidiClockSlave
 from .playback import BASS_CHANNEL, CHORD_CHANNEL, PlaybackEngine
 
 DEFAULT_KEY = "E"
@@ -48,10 +48,25 @@ def generate_full_scale(key: str, mode: str):
 
 
 class TickSignal(QObject):
-    """Marshals MidiClock's background-thread tick callback onto the GUI
-    thread via Qt's queued connections."""
+    """Marshals a clock's background-thread tick callback onto the GUI
+    thread via Qt's queued connections. Used for both MidiClock (its own
+    background thread) and MidiClockSlave (rtmidi's background thread) --
+    either way, tick callbacks fire off the GUI thread."""
 
     ticked = Signal(int)
+
+
+class EngineSignals(QObject):
+    """Marshals PlaybackEngine/MidiClockSlave callbacks that touch GUI
+    state (reading widget selections, calling engine.start()/stop()) from
+    a background thread onto the GUI thread. Needed for on_loop_complete
+    even in master-mode-only use, since MidiClock's tick callbacks -- and
+    so PlaybackEngine._advance(), which calls on_loop_complete -- already
+    run on MidiClock's own background thread, not the GUI thread."""
+
+    looped = Signal()
+    external_start = Signal()
+    external_stop = Signal()
 
 
 class MainWindow(QWidget):
@@ -63,13 +78,25 @@ class MainWindow(QWidget):
         if not self._midi_output.is_open:
             self._midi_output.open()
 
-        self._clock = MidiClock(self._midi_output)
-        self._engine = PlaybackEngine(self._midi_output, self._clock,
-                                       on_loop_complete=self._reload_progression)
+        self._engine_signals = EngineSignals()
+        self._engine_signals.looped.connect(self._reload_progression)
+        self._engine_signals.external_start.connect(self._on_play)
+        self._engine_signals.external_stop.connect(self._on_stop)
+
+        self._master_clock = MidiClock(self._midi_output)
+        self._active_clock = self._master_clock
+        # MIDI clock slave mode: following an external clock (e.g. Ableton
+        # set as clock master) instead of generating one. Opened lazily,
+        # only once "External clock sync" is actually checked.
+        self._slave_input: midi_io.MidiInput | None = None
+        self._slave_clock: MidiClockSlave | None = None
+
+        self._engine = PlaybackEngine(self._midi_output, self._master_clock,
+                                       on_loop_complete=self._engine_signals.looped.emit)
 
         self._tick_signal = TickSignal()
         self._tick_signal.ticked.connect(self._on_tick)
-        self._clock.add_tick_callback(self._tick_signal.ticked.emit)
+        self._master_clock.add_tick_callback(self._tick_signal.ticked.emit)
 
         self._full_chords: list[list[int]] = []
         self._full_roots: list[int] = []
@@ -111,10 +138,17 @@ class MainWindow(QWidget):
         self.humanize_checkbox.setChecked(True)
         self.humanize_checkbox.toggled.connect(self._on_humanize_toggled)
 
+        self.external_sync_checkbox = QCheckBox("External clock sync")
+        self.external_sync_checkbox.setToolTip(
+            "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
+            "generating one. Enable \"Sync\" for the \"m00Dr In\" port in Ableton's "
+            "Link/Tempo/MIDI preferences.")
+        self.external_sync_checkbox.toggled.connect(self._on_sync_mode_toggled)
+
         top_row = QHBoxLayout()
         for widget in (self.key_box, self.mode_box, self.bpm_edit,
                        self.loop_length_box, play_button, stop_button,
-                       self.humanize_checkbox):
+                       self.humanize_checkbox, self.external_sync_checkbox):
             top_row.addWidget(widget)
 
         self.numeral_boxes = [QComboBox() for _ in range(NUM_NUMERAL_SLOTS)]
@@ -180,21 +214,62 @@ class MainWindow(QWidget):
     # -- actions -------------------------------------------------------------
 
     def _on_play(self) -> None:
-        try:
-            bpm = float(self.bpm_edit.text())
-        except ValueError:
-            return
-        self._clock.bpm = bpm
+        if self._active_clock is self._master_clock:
+            try:
+                bpm = float(self.bpm_edit.text())
+            except ValueError:
+                return
+            self._master_clock.bpm = bpm
         chords, roots = self._selected_progression()
         self._engine.load_progression(chords, roots)
         self._engine.start()
+        self.external_sync_checkbox.setEnabled(False)
 
     def _on_stop(self) -> None:
         self._engine.stop()
-        self._clock.stop()
+        if self._active_clock is self._master_clock:
+            # A slave clock keeps listening through Stop, so a later
+            # external Start can still be noticed and followed -- only the
+            # master clock's own ticking thread needs to actually halt.
+            self._master_clock.stop()
+        self.external_sync_checkbox.setEnabled(True)
 
     def _on_humanize_toggled(self, checked: bool) -> None:
         self._engine.humanize_velocity = checked
+
+    def _on_sync_mode_toggled(self, external: bool) -> None:
+        """Switches PlaybackEngine between the internal master MidiClock
+        and an external MidiClockSlave following a MIDI input named
+        "m00Dr In" (created the same way MidiOutput creates "m00Dr" for
+        note output). Only reachable while stopped -- the checkbox is
+        disabled during playback, see _on_play()/_on_stop()."""
+        self._active_clock.remove_tick_callback(self._tick_signal.ticked.emit)
+
+        if external:
+            if self._slave_clock is None:
+                self._slave_input = midi_io.MidiInput()
+                self._slave_input.open()
+                self._slave_clock = MidiClockSlave(
+                    self._slave_input,
+                    on_start=self._engine_signals.external_start.emit,
+                    on_stop=self._engine_signals.external_stop.emit,
+                    on_continue=self._engine_signals.external_start.emit,
+                )
+            new_clock = self._slave_clock
+            # Starts listening immediately, independent of local Play/Stop,
+            # so an external Start message can actually be noticed -- not
+            # just once playback (which an external Start is meant to
+            # trigger) has already begun.
+            new_clock.start()
+        else:
+            if self._slave_clock is not None and self._slave_clock.is_running:
+                self._slave_clock.stop()
+            new_clock = self._master_clock
+
+        self._engine.set_clock(new_clock)
+        new_clock.add_tick_callback(self._tick_signal.ticked.emit)
+        self._active_clock = new_clock
+        self.bpm_edit.setEnabled(not external)
 
     def _on_chord_pressed(self, index: int) -> None:
         if index >= len(self._full_chords):
@@ -242,8 +317,10 @@ class MainWindow(QWidget):
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         self._engine.stop()
-        self._clock.stop()
+        self._active_clock.stop()
         self._midi_output.close()
+        if self._slave_input is not None:
+            self._slave_input.close()
         super().closeEvent(event)
 
 

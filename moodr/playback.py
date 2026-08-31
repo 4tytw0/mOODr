@@ -52,6 +52,15 @@ class PlaybackEngine:
         """Index of the chord that will play at the next bar boundary."""
         return self._position
 
+    def set_clock(self, clock) -> None:
+        """Swaps the clock this engine is driven by -- e.g. switching
+        between the internal master MidiClock and an external
+        MidiClockSlave. Only valid while stopped, since a tick callback is
+        registered on whichever clock is currently attached while playing."""
+        if self._playing:
+            raise RuntimeError("cannot change clocks while playing; call stop() first")
+        self._clock = clock
+
     def load_progression(self, chords: list[list[int]], roots: list[int]) -> None:
         if len(chords) != len(roots):
             raise ValueError("chords and roots must be the same length")

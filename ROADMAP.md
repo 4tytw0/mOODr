@@ -236,7 +236,36 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
       notes remain fixed at 127 either way, matching the OLD app. 3 new tests (40 total).
 
 ### Phase 6 — Stretch goals (post-parity)
-- [ ] MIDI clock **slave** mode (sync to external clock instead of only generating one)
+- [x] MIDI clock **slave** mode (sync to external clock instead of only generating one) —
+      `moodr/clock.py`'s `MidiClockSlave` follows an external MIDI clock via a new
+      `moodr/midi_io.py MidiInput` (mirrors `MidiOutput`, including its virtual-port quirks;
+      defaults to creating a virtual destination named `"m00Dr In"` so Ableton can select it
+      directly under Sync in Link/Tempo/MIDI preferences, symmetric with `"m00Dr"` on the
+      output side). `PlaybackEngine` gained `set_clock()` so the GUI can swap between the
+      internal master clock and the external slave clock (only while stopped). The GUI's new
+      "External clock sync" checkbox starts the slave clock *listening* immediately on check
+      (independent of local Play/Stop) so an incoming external Start can actually be noticed;
+      an external Start/Continue triggers local playback the same as pressing Play, an
+      external Stop triggers local Stop, and — unlike the master clock — local Stop leaves the
+      slave still listening so a later external Start keeps working without re-checking the
+      box. Verified end-to-end (not just against fakes): opened the real `"m00Dr In"` virtual
+      port, drove it from a *separate* `rtmidi.MidiOut` (simulating Ableton) sending real
+      Start/Clock/Stop bytes, and confirmed correct note-on/off output through the actual
+      `MainWindow`. 15 new unit tests against fakes (`MidiInput` open/close, `MidiClockSlave`
+      tick/transport dispatch, `PlaybackEngine.set_clock`), 54 total.
+      **Bug found and fixed while building this**: `PlaybackEngine`'s `on_loop_complete` hook
+      (added in Phase 4) was being invoked directly from whichever background thread ticks
+      the attached clock (already true for the master `MidiClock`'s own thread, not just the
+      new slave clock) — meaning `MainWindow._reload_progression()` was reading `QComboBox`
+      widget state from a non-GUI thread the whole time since Phase 4, a real Qt thread-safety
+      violation that happened not to crash in testing so far. Fixed by routing
+      `on_loop_complete` (and the new external Start/Stop hooks) through a Qt signal
+      (`EngineSignals`), the same queued-connection pattern already used for the tick counter.
+- [ ] Ableton Link support as an alternative to raw MIDI clock for DAW sync — more robust
+      (network-based, bidirectional tempo/transport, no MIDI port routing needed; Ableton has
+      a built-in Link toggle). Would need a new native dependency (`abl_link`). Considered
+      during the MIDI clock slave mode work above and deliberately deferred: bigger scope,
+      separate stretch goal.
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity

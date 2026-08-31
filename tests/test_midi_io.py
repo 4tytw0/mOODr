@@ -77,3 +77,43 @@ def test_midi_message_gen_humanize_true_randomizes_velocity():
 def test_bass_message_gen_offsets_octave_down_with_fixed_velocity():
     assert midi_io.bass_message_gen(0x91, [48, 53, 55], 0) == [0x91, 36, 127]
     assert midi_io.bass_message_gen(0x81, [48, 53, 55], 1) == [0x81, 41, 127]
+
+
+def test_midi_input_opens_and_closes():
+    midi_input = midi_io.MidiInput()
+    assert not midi_input.is_open
+    midi_input.open()
+    assert midi_input.is_open
+    midi_input.close()
+    assert not midi_input.is_open
+
+
+def test_midi_input_default_open_creates_a_named_virtual_port():
+    """So m00Dr shows up as a selectable Sync destination in DAWs like
+    Ableton, the same way MidiOutput does for note output."""
+    midi_input = midi_io.MidiInput()
+    midi_input.open()
+    assert midi_input.port_name == "m00Dr In"
+    midi_input.close()
+
+
+def test_midi_input_can_open_a_specific_real_port_by_index():
+    ports = midi_io.MidiInput.list_ports()
+    if not ports:
+        return  # no real ports on this machine to test against
+    midi_input = midi_io.MidiInput()
+    midi_input.open(port_index=0)
+    assert midi_input.port_name == ports[0]
+    midi_input.close()
+
+
+def test_midi_input_reopen_after_close_works():
+    """Regression check for the virtual-port delete()/reuse quirk: opening,
+    closing, and reopening (as happens toggling sync mode repeatedly)
+    should not crash or leave stale state."""
+    midi_input = midi_io.MidiInput()
+    for _ in range(3):
+        midi_input.open()
+        assert midi_input.is_open
+        midi_input.close()
+        assert not midi_input.is_open

@@ -1,14 +1,14 @@
-"""Master MIDI Beat Clock engine.
+"""MIDI Beat Clock engines: a master clock (MidiClock) and a slave clock
+that follows an external one (MidiClockSlave, e.g. Ableton acting as
+clock master). Both expose the same add_tick_callback()/is_running/
+start()/stop() interface, so moodr.playback.PlaybackEngine can be driven
+by either interchangeably -- note scheduling is driven by ticks, not by
+blocking on time.sleep() like the OLD app's bar loop.
 
-Sends real 0xF8 timing-clock pulses at 24 PPQN derived from BPM, plus
-Start/Stop/Continue, on a background thread with drift-corrected
-scheduling (unlike the OLD app's time.sleep() bar loop, which only
-nudged its clock by half the measured error each bar). Master-only:
-this clock does not sync to an external MIDI clock -- see ROADMAP
-Phase 6 for slave mode as a stretch goal.
-
-Playback code (moodr.playback) hooks in via add_tick_callback() instead
-of blocking on time.sleep(), so note scheduling is driven by ticks.
+MidiClock sends real 0xF8 timing-clock pulses at 24 PPQN derived from
+BPM, plus Start/Stop/Continue, on a background thread with drift-
+corrected scheduling (unlike the OLD app's time.sleep() bar loop, which
+only nudged its clock by half the measured error each bar).
 """
 
 import threading
@@ -113,3 +113,76 @@ class MidiClock:
                 time.sleep(remaining)
             else:
                 next_tick_at = time.perf_counter()
+
+
+class MidiClockSlave:
+    """Follows an external MIDI clock arriving on a MidiInput instead of
+    generating one -- e.g. Ableton set as clock master, sending its Sync
+    output to the port this MidiInput is listening on. Ticks arrive
+    exactly when the external clock sends them, so there is no BPM or
+    tick_interval to configure here; tempo is whatever the master's is.
+
+    Tick callbacks (and on_start/on_stop/on_continue, if given) fire on
+    rtmidi's own background thread, not the caller's -- same threading
+    contract as MidiClock's background thread, so callers touching GUI
+    state must marshal back to their own thread themselves.
+    """
+
+    def __init__(self, midi_input, on_start: Callable[[], None] | None = None,
+                 on_stop: Callable[[], None] | None = None,
+                 on_continue: Callable[[], None] | None = None):
+        self._midi_input = midi_input
+        self._tick_callbacks: list[TickCallback] = []
+        self._tick_count = 0
+        self._running = False
+        self.on_start = on_start
+        self.on_stop = on_stop
+        self.on_continue = on_continue
+
+    @property
+    def tick_count(self) -> int:
+        return self._tick_count
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def add_tick_callback(self, callback: TickCallback) -> None:
+        self._tick_callbacks.append(callback)
+
+    def remove_tick_callback(self, callback: TickCallback) -> None:
+        self._tick_callbacks.remove(callback)
+
+    def start(self) -> None:
+        """Starts listening for the external clock. Unlike MidiClock,
+        nothing is sent -- there's no local clock to start, this just
+        subscribes to messages already arriving on the MIDI input."""
+        if self._running:
+            return
+        self._running = True
+        self._tick_count = 0
+        self._midi_input.set_callback(self._on_message)
+
+    def stop(self) -> None:
+        if not self._running:
+            return
+        self._running = False
+        self._midi_input.cancel_callback()
+
+    def _on_message(self, message: list[int], _delta_time: float) -> None:
+        status = message[0]
+        if status == TIMING_CLOCK:
+            tick = self._tick_count
+            self._tick_count += 1
+            for callback in list(self._tick_callbacks):
+                callback(tick)
+        elif status == START:
+            self._tick_count = 0
+            if self.on_start is not None:
+                self.on_start()
+        elif status == STOP:
+            if self.on_stop is not None:
+                self.on_stop()
+        elif status == CONTINUE:
+            if self.on_continue is not None:
+                self.on_continue()
