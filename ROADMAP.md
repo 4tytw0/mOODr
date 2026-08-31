@@ -261,6 +261,19 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
       violation that happened not to crash in testing so far. Fixed by routing
       `on_loop_complete` (and the new external Start/Stop hooks) through a Qt signal
       (`EngineSignals`), the same queued-connection pattern already used for the tick counter.
+
+**Investigated (2026-08-31): a "noticeable delay" reported when recording m00Dr's output into
+Ableton (MIDI clock slave mode), where the recorded chord lands a fixed ~150-400ms after the
+clip's start (not audible in real time, not explained by Count-In (None) or Ableton's reported
+14.8ms audio latency). Ruled out on m00Dr's side with real timestamps, not just theory: from
+Ableton's actual Start message arriving to m00Dr sending its first note-on was 0.6ms in the
+user's own session; a separate loopback test measured m00Dr's `MidiOutput.send()` to a receiver
+actually getting the message at 0.44ms. Both directions of the pipeline m00Dr controls are
+sub-millisecond. The remaining delay must be inside Ableton's own handling/timestamping of
+incoming MIDI when recording, which is outside m00Dr's code and wasn't pursued further** — the
+user is fine with current performance. If revisited, the next diagnostic step would be
+recording a different MIDI source (e.g. a MIDI keyboard, or Ableton's Computer Keyboard input)
+into the same track to check whether the same fixed offset shows up for non-m00Dr input too.
 - [ ] Ableton Link support as an alternative to raw MIDI clock for DAW sync — more robust
       (network-based, bidirectional tempo/transport, no MIDI port routing needed; Ableton has
       a built-in Link toggle). Would need a new native dependency (`abl_link`). Considered
