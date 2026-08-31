@@ -211,7 +211,10 @@ repeated open/close cycles (e.g. repeated Play/Stop). 2 new tests cover this in
 port instead of the default virtual one) remains a Phase 6 stretch goal.
 
 ### Phase 5 — Feature parity check
-- [ ] Play a progression end-to-end at a chosen BPM and loop length, confirm it matches OLD behavior
+- [x] Play a progression end-to-end at a chosen BPM and loop length, confirm it matches OLD
+      behavior — confirmed live in Ableton Live (2026-08-30): MIDI recorded from m00Dr's
+      virtual port shows the expected once-per-bar chord changes (3-4 note voicings) with a
+      sustained bass note underneath each chord
 - [ ] Confirm individual chord-preview buttons work and release cleanly (all-notes-off)
 - [ ] Confirm bass note (channel 2) and the extra channel-3 click/reference note behavior
       are intentionally kept or deliberately dropped (decide, don't silently lose it)
