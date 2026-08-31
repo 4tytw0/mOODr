@@ -7,8 +7,8 @@ implementation into a modern, maintained app while keeping the music-theory core
 
 | File | Status | Role |
 |---|---|---|
-| `OLD mOODr_app.py` | reference only, do not extend | Full working logic: MIDI I/O, chord generation, playback loop, Kivy App class |
-| `OLD mOODr_Kivy_app.kv` | reference only, being replaced | Kivy UI layout |
+| `archive/OLD mOODr_app.py` | reference only, do not extend | Full working logic: MIDI I/O, chord generation, playback loop, Kivy App class |
+| `archive/OLD mOODr_Kivy_app.kv` | reference only, being replaced | Kivy UI layout |
 | `m00Dr.py` | in-progress rewrite target | Partial CustomTkinter shell (Gemini-assisted restart), no logic wired up yet |
 
 ## What we're keeping as-is
@@ -31,7 +31,7 @@ this is the part of the project that already works and is liked:
   explicit start/stop/reset, not reliant on global mutable state (`gui`, `midi_progression`,
   `loop`, `bar` as module globals)
 
-## Behaviors & bugs found reading `OLD mOODr_app.py` end-to-end
+## Behaviors & bugs found reading `archive/OLD mOODr_app.py` end-to-end
 
 **Channels & messages**
 - Channel 1 (`0x90`/`0x80`) = chord notes, offset **+12** (up an octave) from the raw MIDI root.
@@ -90,7 +90,7 @@ this is the part of the project that already works and is liked:
       machine — verified by opening the "IAC Driver Bus 1" virtual port for both out and in
       and looping a note-on/note-off through it; both messages were received back
 - [x] Decide on Python version / venv setup, add `requirements.txt` or `pyproject.toml`
-- [x] Read through `OLD mOODr_app.py` end-to-end and note every behavior to preserve
+- [x] Read through `archive/OLD mOODr_app.py` end-to-end and note every behavior to preserve
       (loop length, BPM field, per-chord buttons, bass note on channel 2, velocity
       randomization, latency-correction in the old clock, etc.) — see "Behaviors & bugs
       found" section above
@@ -121,7 +121,7 @@ this is the part of the project that already works and is liked:
 - [ ] Record the decision and reasoning here once made
 
 ### Phase 4 — GUI rebuild on chosen library
-- [ ] Rebuild the layout from `OLD mOODr_Kivy_app.kv` (key spinner, mode spinner, 4 numeral
+- [ ] Rebuild the layout from `archive/OLD mOODr_Kivy_app.kv` (key spinner, mode spinner, 4 numeral
       spinners, BPM input, loop-length selector, play/stop, 7 chord buttons) in the chosen library
 - [ ] Wire widgets to Phase 1 theory module + Phase 2 clock/MIDI engine
 - [ ] Replace the `key_spinner + 'mode' + '\n' + numerals` string-encoding hack (see
