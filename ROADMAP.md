@@ -186,17 +186,29 @@ less so for a personal-use MIDI utility.
       string — `MainWindow` reads `QComboBox`/`QLineEdit` widget state directly
       (`_selected_progression()`); no packed/parsed string exists anywhere in the new code
 
-**Deliberate deviations from the OLD app, flagged for Phase 5 confirmation:**
-- Chord-preview buttons now send a real note-off for the exact chord/bass notes on release,
+**Deliberate deviations from the OLD app (confirmed, 2026-08-30):**
+- Chord-preview buttons send a real note-off for the exact chord/bass notes on release,
   instead of the OLD app's blunt all-notes-off CC on channel 1. The CC approach would also
-  silence a progression actively playing via Play, which seemed like an unintended side effect
-  to keep rather than a behavior worth preserving.
+  silence a progression actively playing via Play.
 - Mode-change resets all 4 numeral dropdowns to fresh default selections (index 0-3 of the new
   mode's scale degrees) rather than the OLD Kivy Spinner's quirk of keeping stale selected text
   that may not exist in the new value list.
-- `main.py`/`moodr/app.py`'s real `MidiOutput` opens the default port (or falls back to a
-  virtual port) the same way the OLD app did; not yet exposed as a GUI port-selection control
-  (tracked as a stretch goal in Phase 6).
+
+**Bug found during real-hardware testing (fixed same day):** testing against Ableton Live
+showed "m00Dr" never appeared as a selectable MIDI input source. Cause: `MidiOutput.open()`
+only created a named virtual port as a *fallback* when zero real ports existed on the machine
+-- since this machine already has `IAC Driver Bus 1`/`Network Session 1`, it silently opened
+`Network Session 1` (port index 0) instead. Fixed: `MidiOutput.open()` now creates a virtual
+port named `"m00Dr"` by default (so it's always selectable in DAWs), and only opens a specific
+real port when a `port_index` is explicitly passed (falls back to a real port on platforms
+without virtual-port support, e.g. Windows). While fixing this, also found and fixed a real
+`python-rtmidi` bug: `close_port()` is a no-op for virtual ports (`is_port_open()` stays `True`
+forever after "closing" one), and reusing a `delete()`-d port object segfaults the process --
+`MidiOutput.close()` now branches on whether the open port was virtual, deleting and replacing
+the underlying `rtmidi.MidiOut()` in that case so the wrapper stays safely reusable across
+repeated open/close cycles (e.g. repeated Play/Stop). 2 new tests cover this in
+`tests/test_midi_io.py` (37 tests total). GUI port selection (choosing a specific real
+port instead of the default virtual one) remains a Phase 6 stretch goal.
 
 ### Phase 5 — Feature parity check
 - [ ] Play a progression end-to-end at a chosen BPM and loop length, confirm it matches OLD behavior

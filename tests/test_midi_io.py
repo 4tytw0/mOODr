@@ -13,6 +13,25 @@ def test_midi_output_opens_and_closes():
     assert not output.is_open
 
 
+def test_midi_output_default_open_creates_a_named_virtual_port():
+    """So m00Dr shows up as a selectable MIDI input source in DAWs like
+    Ableton, instead of silently opening whatever real port is at index 0."""
+    output = midi_io.MidiOutput()
+    output.open()
+    assert output.port_name == "m00Dr"
+    output.close()
+
+
+def test_midi_output_can_open_a_specific_real_port_by_index():
+    ports = midi_io.MidiOutput.list_ports()
+    if not ports:
+        return  # no real ports on this machine to test against
+    output = midi_io.MidiOutput()
+    output.open(port_index=0)
+    assert output.port_name == ports[0]
+    output.close()
+
+
 def test_midi_output_context_manager():
     with midi_io.MidiOutput() as output:
         assert output.is_open

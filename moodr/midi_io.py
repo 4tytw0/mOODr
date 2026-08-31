@@ -17,6 +17,7 @@ class MidiOutput:
     def __init__(self):
         self._port = rtmidi.MidiOut()
         self._port_name: str | None = None
+        self._is_virtual = False
 
     @staticmethod
     def list_ports() -> list[str]:
@@ -24,25 +25,54 @@ class MidiOutput:
 
     @property
     def is_open(self) -> bool:
-        return self._port.is_port_open()
+        # rtmidi's is_port_open() is unreliable for virtual ports (stays
+        # True even after close_port(), since close_port() is a no-op for
+        # them -- see close() below), so open/closed state is tracked here
+        # instead of trusting it.
+        return self._port_name is not None
 
     @property
     def port_name(self) -> str | None:
         return self._port_name
 
-    def open(self, port_index: int = 0, virtual_name: str = "m00Dr virtual output") -> None:
-        ports = self._port.get_ports()
-        if ports:
+    def open(self, port_index: int | None = None, virtual_name: str = "m00Dr") -> None:
+        """Opens the given real port by index, or -- by default -- creates a
+        virtual port named "m00Dr" so DAWs like Ableton can select m00Dr as a
+        MIDI input source, instead of silently opening whatever real port
+        happens to be at index 0. Falls back to a real port if the platform
+        doesn't support virtual ports (e.g. Windows, where python-rtmidi
+        raises NotImplementedError)."""
+        if port_index is not None:
             self._port.open_port(port_index)
-            self._port_name = ports[port_index]
-        else:
+            self._port_name = self._port.get_ports()[port_index]
+            self._is_virtual = False
+            return
+        try:
             self._port.open_virtual_port(virtual_name)
             self._port_name = virtual_name
+            self._is_virtual = True
+        except NotImplementedError:
+            ports = self._port.get_ports()
+            if not ports:
+                raise
+            self._port.open_port(0)
+            self._port_name = ports[0]
+            self._is_virtual = False
 
     def close(self) -> None:
-        if self.is_open:
+        if not self.is_open:
+            return
+        if self._is_virtual:
+            # close_port() is a no-op for virtual ports -- they can only be
+            # torn down by deleting the underlying port object, which then
+            # can't be reused (reusing a deleted rtmidi object segfaults),
+            # so a fresh one takes its place to keep this MidiOutput reusable.
+            self._port.delete()
+            self._port = rtmidi.MidiOut()
+        else:
             self._port.close_port()
         self._port_name = None
+        self._is_virtual = False
 
     def send(self, message: list[int]) -> None:
         self._port.send_message(message)
