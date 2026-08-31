@@ -244,6 +244,9 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
 - [ ] Dedicated drum-trigger output: a proper replacement for the OLD app's channel-3 hack
       (a fixed note sent every bar, never turned off, used to trigger a drum track) — likely
       a configurable channel/note plus a real note-off, rather than a hanging note
+- [ ] Top menu bar for lesser-used settings (e.g. humanize velocity, MIDI port selection once
+      that exists, clock sync mode), so the main window stays focused on the controls used
+      every session
 
 ## Decisions log
 
