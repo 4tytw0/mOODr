@@ -30,6 +30,13 @@ class PlaybackEngine:
         self._roots: list[int] = []
         self._position = 0
         self._sounding_position: int | None = None
+        # The octave_shift in effect when the currently-sounding chord was
+        # turned on -- captured so its note-off always targets the exact
+        # notes that were turned on, even if octave_shift changes (a live
+        # performance knob) while that chord is still sustaining. Using the
+        # then-current octave_shift instead would send a note-off to notes
+        # that were never turned on, leaving the real ones stuck.
+        self._sounding_octave_shift = 0
         self._ticks_since_advance = 0
         self._playing = False
         # Fires once the loaded progression has played all the way through
@@ -42,6 +49,12 @@ class PlaybackEngine:
         # a touch of human feel, as the OLD app always did. False: every
         # chord note at full velocity. Freely toggleable during playback.
         self.humanize_velocity = True
+        # Shifts the whole progression (chords and bass) by this many
+        # additional octaves, +/-, on top of the OLD app's fixed +1/-1
+        # octave chord/bass split. Freely adjustable during playback --
+        # see _sounding_octave_shift above for why note-off doesn't just
+        # read this directly.
+        self.octave_shift = 0
 
     @property
     def is_playing(self) -> bool:
@@ -71,6 +84,7 @@ class PlaybackEngine:
     def reset(self) -> None:
         self._position = 0
         self._sounding_position = None
+        self._sounding_octave_shift = 0
 
     def start(self) -> None:
         if self._playing or not self._chords:
@@ -103,14 +117,16 @@ class PlaybackEngine:
         if looped_back and self.on_loop_complete is not None:
             self.on_loop_complete()
 
+        octave_shift = self.octave_shift
         for message in midi_io.midi_message_gen(
                 0x90 | self._chord_channel, self._chords, self._position,
-                self._rng, self.humanize_velocity):
+                self._rng, self.humanize_velocity, octave_shift):
             self._midi_output.send(message)
         self._midi_output.send(midi_io.bass_message_gen(
-            0x90 | self._bass_channel, self._roots, self._position))
+            0x90 | self._bass_channel, self._roots, self._position, octave_shift))
 
         self._sounding_position = self._position
+        self._sounding_octave_shift = octave_shift
         self._position = (self._position + 1) % len(self._chords)
 
     def _turn_off_sounding(self) -> None:
@@ -118,8 +134,9 @@ class PlaybackEngine:
             return
         for message in midi_io.midi_message_gen(
                 0x80 | self._chord_channel, self._chords, self._sounding_position,
-                self._rng, self.humanize_velocity):
+                self._rng, self.humanize_velocity, self._sounding_octave_shift):
             self._midi_output.send(message)
         self._midi_output.send(midi_io.bass_message_gen(
-            0x80 | self._bass_channel, self._roots, self._sounding_position))
+            0x80 | self._bass_channel, self._roots, self._sounding_position,
+            self._sounding_octave_shift))
         self._sounding_position = None

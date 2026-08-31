@@ -79,6 +79,19 @@ def test_bass_message_gen_offsets_octave_down_with_fixed_velocity():
     assert midi_io.bass_message_gen(0x81, [48, 53, 55], 1) == [0x81, 41, 127]
 
 
+def test_midi_message_gen_octave_shift_moves_the_whole_chord():
+    messages = midi_io.midi_message_gen(0x90, [[48, 52, 55]], 0, humanize=False, octave_shift=1)
+    assert [m[1] for m in messages] == [72, 76, 79]  # +12 (baseline) + 12 (one octave up)
+
+    messages = midi_io.midi_message_gen(0x90, [[48, 52, 55]], 0, humanize=False, octave_shift=-2)
+    assert [m[1] for m in messages] == [36, 40, 43]  # +12 (baseline) - 24 (two octaves down)
+
+
+def test_bass_message_gen_octave_shift_moves_the_bass_note():
+    assert midi_io.bass_message_gen(0x91, [48], 0, octave_shift=1) == [0x91, 48, 127]
+    assert midi_io.bass_message_gen(0x91, [48], 0, octave_shift=-1) == [0x91, 24, 127]
+
+
 def test_midi_input_opens_and_closes():
     midi_input = midi_io.MidiInput()
     assert not midi_input.is_open

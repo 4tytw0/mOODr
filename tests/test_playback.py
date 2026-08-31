@@ -120,6 +120,42 @@ def test_reset_clears_position_without_sending_midi():
     assert output.sent == []
 
 
+def test_octave_shift_defaults_to_zero_and_moves_the_progression():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    assert engine.octave_shift == 0
+
+    engine.octave_shift = 1
+    engine.start()
+
+    chord_on = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    bass_on = [m for m in output.sent if m[0] == 0x90 | BASS_CHANNEL]
+    assert [m[1] for m in chord_on] == [84, 88, 91]  # +12 baseline + 12 (one octave up)
+    assert bass_on == [[0x90 | BASS_CHANNEL, 48, 127]]  # -12 baseline + 12
+
+
+def test_changing_octave_shift_mid_sustain_does_not_orphan_the_old_notes():
+    """Regression test: note-off must target the exact notes a note-on
+    used, even if octave_shift changes while that chord is still
+    sounding -- otherwise the real notes get stuck and a note-off is sent
+    to pitches that were never on."""
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.octave_shift = 0
+    engine.start()  # turns on the first chord at octave_shift=0
+
+    engine.octave_shift = 2  # the user turns the knob mid-sustain
+    output.sent.clear()
+    clock.tick(TICKS_PER_BAR)  # bar boundary: turn off chord 1, turn on chord 2
+
+    off_messages = [m for m in output.sent if m[0] == 0x80 | CHORD_CHANNEL]
+    on_messages = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    # off targets what was actually turned on (octave_shift=0 at the time)
+    assert [m[1] for m in off_messages] == [72, 76, 79]
+    # the new chord uses the now-current octave_shift=2
+    assert [m[1] for m in on_messages] == [101, 105, 108]
+
+
 def test_set_clock_swaps_the_clock_while_stopped():
     output, clock, engine = make_engine()
     other_clock = FakeClock()

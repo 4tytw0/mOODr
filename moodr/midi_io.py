@@ -153,15 +153,21 @@ def bpm_conversion(tempo: float) -> float:
 
 
 def midi_message_gen(state: int, midi_list: list[list[int]], position: int,
-                      rng: random.Random | None = None, humanize: bool = True) -> list[list[int]]:
-    """Chord note-on/off triples for one progression position, up an octave.
+                      rng: random.Random | None = None, humanize: bool = True,
+                      octave_shift: int = 0) -> list[list[int]]:
+    """Chord note-on/off triples for one progression position, up an octave
+    (plus octave_shift additional octaves, +/-, for the whole progression).
     humanize=True (default) randomizes each note's velocity in the OLD
     app's 72-108 range for a touch of human feel; humanize=False sends
     every note at FULL_VELOCITY instead."""
-    return [[state, note + 12, random_velocity(rng) if humanize else FULL_VELOCITY]
+    offset = 12 + octave_shift * 12
+    return [[state, note + offset, random_velocity(rng) if humanize else FULL_VELOCITY]
             for note in midi_list[position]]
 
 
-def bass_message_gen(state: int, midi_list: list[int], position: int) -> list[int]:
-    """Bass note-on/off triple for one progression position, down an octave."""
-    return [state, midi_list[position] - 12, 127]
+def bass_message_gen(state: int, midi_list: list[int], position: int,
+                      octave_shift: int = 0) -> list[int]:
+    """Bass note-on/off triple for one progression position, down an octave
+    (plus octave_shift additional octaves, +/-, for the whole progression)."""
+    offset = -12 + octave_shift * 12
+    return [state, midi_list[position] + offset, 127]

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -32,6 +33,7 @@ DEFAULT_BPM = "80"
 LOOP_LENGTHS = ["1", "2", "3", "4"]
 NUM_NUMERAL_SLOTS = 4
 NUM_CHORD_BUTTONS = 7
+OCTAVE_SHIFT_RANGE = (-2, 2)
 
 
 def generate_full_scale(key: str, mode: str):
@@ -101,6 +103,7 @@ class MainWindow(QWidget):
         self._full_chords: list[list[int]] = []
         self._full_roots: list[int] = []
         self._numerals: list[str] = []
+        self._preview_octave_shift: dict[int, int] = {}
 
         self._build_widgets()
         self._on_mode_changed()
@@ -138,6 +141,12 @@ class MainWindow(QWidget):
         self.humanize_checkbox.setChecked(True)
         self.humanize_checkbox.toggled.connect(self._on_humanize_toggled)
 
+        self.octave_spinbox = QSpinBox()
+        self.octave_spinbox.setRange(*OCTAVE_SHIFT_RANGE)
+        self.octave_spinbox.setValue(0)
+        self.octave_spinbox.setPrefix("Octave: ")
+        self.octave_spinbox.valueChanged.connect(self._on_octave_shift_changed)
+
         self.external_sync_checkbox = QCheckBox("External clock sync")
         self.external_sync_checkbox.setToolTip(
             "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
@@ -148,7 +157,8 @@ class MainWindow(QWidget):
         top_row = QHBoxLayout()
         for widget in (self.key_box, self.mode_box, self.bpm_edit,
                        self.loop_length_box, play_button, stop_button,
-                       self.humanize_checkbox, self.external_sync_checkbox):
+                       self.humanize_checkbox, self.octave_spinbox,
+                       self.external_sync_checkbox):
             top_row.addWidget(widget)
 
         self.numeral_boxes = [QComboBox() for _ in range(NUM_NUMERAL_SLOTS)]
@@ -237,6 +247,9 @@ class MainWindow(QWidget):
     def _on_humanize_toggled(self, checked: bool) -> None:
         self._engine.humanize_velocity = checked
 
+    def _on_octave_shift_changed(self, value: int) -> None:
+        self._engine.octave_shift = value
+
     def _on_sync_mode_toggled(self, external: bool) -> None:
         """Switches PlaybackEngine between the internal master MidiClock
         and an external MidiClockSlave following a MIDI input named
@@ -275,20 +288,28 @@ class MainWindow(QWidget):
         if index >= len(self._full_chords):
             return
         humanize = self.humanize_checkbox.isChecked()
+        # Captured per-index so release always turns off the exact notes
+        # press turned on, even if the octave spinbox changes in between
+        # (see PlaybackEngine._sounding_octave_shift for the same reasoning).
+        octave_shift = self.octave_spinbox.value()
+        self._preview_octave_shift[index] = octave_shift
         for message in midi_io.midi_message_gen(0x90 | CHORD_CHANNEL, self._full_chords, index,
-                                                  humanize=humanize):
+                                                  humanize=humanize, octave_shift=octave_shift):
             self._midi_output.send(message)
-        self._midi_output.send(midi_io.bass_message_gen(0x90 | BASS_CHANNEL, self._full_roots, index))
+        self._midi_output.send(midi_io.bass_message_gen(
+            0x90 | BASS_CHANNEL, self._full_roots, index, octave_shift))
         self.status_label.setText(f"previewing chord {self._numerals[index]}")
 
     def _on_chord_released(self, index: int) -> None:
         if index >= len(self._full_chords):
             return
         humanize = self.humanize_checkbox.isChecked()
+        octave_shift = self._preview_octave_shift.pop(index, self.octave_spinbox.value())
         for message in midi_io.midi_message_gen(0x80 | CHORD_CHANNEL, self._full_chords, index,
-                                                  humanize=humanize):
+                                                  humanize=humanize, octave_shift=octave_shift):
             self._midi_output.send(message)
-        self._midi_output.send(midi_io.bass_message_gen(0x80 | BASS_CHANNEL, self._full_roots, index))
+        self._midi_output.send(midi_io.bass_message_gen(
+            0x80 | BASS_CHANNEL, self._full_roots, index, octave_shift))
 
     def _on_tick(self, tick: int) -> None:
         self.tick_label.setText(f"ticks: {tick}")
