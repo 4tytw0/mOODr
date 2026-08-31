@@ -310,6 +310,10 @@ into the same track to check whether the same fixed offset shows up for non-m00D
 - [ ] Top menu bar for lesser-used settings (e.g. humanize velocity, MIDI port selection once
       that exists, clock sync mode), so the main window stays focused on the controls used
       every session
+- [ ] **UI/UX polish (next session's starting point, per user, 2026-08-30)**: larger buttons
+      (chord-preview and Play/Stop are currently small, default-sized `QPushButton`s), and
+      window/layout proportion scaling (the window is currently a fixed `640x260` with no
+      responsive resizing behavior -- widgets don't grow/rearrange with the window)
 
 ## Decisions log
 
