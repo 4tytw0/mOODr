@@ -86,8 +86,9 @@ this is the part of the project that already works and is liked:
 - [x] Set up project tooling with `uv` (`pyproject.toml` + `uv.lock`, Python 3.12 pinned via
       `.python-version`) instead of a manually created `venv`; `customtkinter` and
       `python-rtmidi` added as dependencies and verified to import via `uv run`
-- [ ] Confirm `python-rtmidi` actually opens a MIDI port and sends messages on the current
-      machine (import-only was verified; real port I/O was not)
+- [x] Confirm `python-rtmidi` actually opens a MIDI port and sends messages on the current
+      machine — verified by opening the "IAC Driver Bus 1" virtual port for both out and in
+      and looping a note-on/note-off through it; both messages were received back
 - [x] Decide on Python version / venv setup, add `requirements.txt` or `pyproject.toml`
 - [x] Read through `OLD mOODr_app.py` end-to-end and note every behavior to preserve
       (loop length, BPM field, per-chord buttons, bass note on channel 2, velocity
