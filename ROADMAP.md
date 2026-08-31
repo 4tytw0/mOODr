@@ -134,12 +134,37 @@ this is the part of the project that already works and is liked:
       above
 
 ### Phase 3 — GUI library evaluation
-- [ ] Prototype the same 3-4 widgets (key/mode dropdowns, BPM field, play/stop, 7 chord
+- [x] Prototype the same 3-4 widgets (key/mode dropdowns, BPM field, play/stop, 7 chord
       buttons) in at least CustomTkinter and one alternative (e.g. PySide6/Qt or DearPyGui)
-- [ ] Compare on: packaging/distribution story, responsiveness under the new clock thread,
+      — `prototypes/customtkinter_prototype.py` and `prototypes/pyside6_prototype.py`, both
+      built on shared, toolkit-agnostic logic in `prototypes/shared.py` (theory-module
+      progression generation + a real `MidiClock`/`PlaybackEngine` wired to a silent
+      `NullMidiOutput`) so the comparison is about the toolkits, not duplicated logic. Both
+      launched and ran cleanly with no exceptions; headlessly exercising the shared Play-button
+      logic (load a 4-chord C-major progression, start the engine/clock, run briefly, stop)
+      confirmed correct MIDI output. Interactive click-through and screenshots weren't possible
+      in this sandboxed session (no Screen Recording/Accessibility permission), so this was
+      verified by launch-and-log-check plus a headless logic run, not visually — worth a quick
+      manual click-through before committing further.
+- [x] Compare on: packaging/distribution story, responsiveness under the new clock thread,
       how well it fits a "press a button while a clock runs in the background" app, and
-      maintenance activity
-- [ ] Record the decision and reasoning here once made
+      maintenance activity — see comparison notes below
+- [x] Record the decision and reasoning here once made — see Decisions log
+
+**Comparison notes**
+
+| | CustomTkinter | PySide6/Qt |
+|---|---|---|
+| Packaging/distribution | Thin theming layer over stdlib Tkinter; small footprint, no extra native libs to bundle beyond what Python already ships | `pyside6-essentials` + `pyside6-addons` alone are ~420MB to download as dependencies; a packaged app (PyInstaller/briefcase) will be tens-to-100+MB larger than the Tkinter equivalent |
+| Responsiveness under the new clock thread | Tkinter widgets are **not thread-safe** — the prototype has to push clock-thread tick events onto a `queue.Queue` and drain it via a periodic `self.after(50, poll)` call on the GUI thread; that plumbing has to be repeated everywhere a background thread needs to touch a widget | Qt's signals/slots auto-marshal a signal emitted from a background thread into a queued, thread-safe call on the GUI thread — the prototype's tick handling is one line (`clock.add_tick_callback(signal.emit)`), no manual queue/poll loop needed |
+| Fit for "press a button while a clock runs in background" | Workable, but all thread-safety is the app's responsibility to get right and keep right as the app grows | This is Qt's home turf — `QThread`/signals-and-slots was designed around exactly this pattern |
+| Maintenance activity | Actively used, single primary maintainer; underlying Tkinter itself is CPython-maintained and rock solid, so worst case this is a thin, replaceable layer | Backed directly by The Qt Company, very active release cadence, large ecosystem, extensive docs |
+
+Given Phase 2 made a background MIDI clock thread the center of this app's architecture, the
+threading/responsiveness column matters more here than for a typical form-and-button app, and
+PySide6 needs meaningfully less manual plumbing to stay safe under it. The cost is a much
+heavier install/package size, which mostly matters if this were being distributed broadly —
+less so for a personal-use MIDI utility.
 
 ### Phase 4 — GUI rebuild on chosen library
 - [ ] Rebuild the layout from `archive/OLD mOODr_Kivy_app.kv` (key spinner, mode spinner, 4 numeral
@@ -166,6 +191,14 @@ this is the part of the project that already works and is liked:
 
 - **MIDI clock scope**: Full MIDI Beat Clock output (real `0xF8` sync messages, not just
   accurate internal timing), so m00Dr can act as a clock master for external gear. (2026-08-29)
-- **GUI library**: Not yet decided — Phase 3 will evaluate CustomTkinter vs. alternatives
-  before committing. `m00Dr.py`'s existing CustomTkinter shell is a starting prototype,
-  not a final choice. (2026-08-29)
+- **GUI library**: **PySide6/Qt**, decided after prototyping both in Phase 3 (see the
+  comparison table above). The deciding factor was thread safety: Qt's signals/slots
+  auto-marshal calls from the background MIDI clock thread to the GUI thread with almost no
+  extra code, where Tkinter/CustomTkinter would need a manual `queue.Queue` + polling loop
+  at every point the clock thread touches a widget — a meaningfully bigger risk surface for
+  an app whose core architecture (Phase 2) is a background clock ticking continuously while
+  the user interacts. PySide6 is LGPLv3-licensed (free for this project, including
+  commercial/closed-source use, unlike PyQt's GPL-or-paid-commercial model) at the cost of a
+  much heavier install (~420MB of Qt dependencies) and larger packaged app size, which was
+  judged an acceptable tradeoff for a personal-use utility. `m00Dr.py`'s old CustomTkinter
+  shell will be replaced in Phase 4. (2026-08-30)

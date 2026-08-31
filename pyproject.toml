@@ -19,3 +19,6 @@ packages = ["moodr"]
 dev = [
     "pytest>=9.1.1",
 ]
+gui-eval = [
+    "pyside6>=6.11.2",
+]
