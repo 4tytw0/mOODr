@@ -88,6 +88,9 @@ class MidiOutput:
         self.close()
 
 
+FULL_VELOCITY = 127
+
+
 def random_velocity(rng: random.Random | None = None) -> int:
     """Random note velocity in the OLD app's 72-108 range."""
     source = rng if rng is not None else random
@@ -100,9 +103,13 @@ def bpm_conversion(tempo: float) -> float:
 
 
 def midi_message_gen(state: int, midi_list: list[list[int]], position: int,
-                      rng: random.Random | None = None) -> list[list[int]]:
-    """Chord note-on/off triples for one progression position, up an octave."""
-    return [[state, note + 12, random_velocity(rng)] for note in midi_list[position]]
+                      rng: random.Random | None = None, humanize: bool = True) -> list[list[int]]:
+    """Chord note-on/off triples for one progression position, up an octave.
+    humanize=True (default) randomizes each note's velocity in the OLD
+    app's 72-108 range for a touch of human feel; humanize=False sends
+    every note at FULL_VELOCITY instead."""
+    return [[state, note + 12, random_velocity(rng) if humanize else FULL_VELOCITY]
+            for note in midi_list[position]]
 
 
 def bass_message_gen(state: int, midi_list: list[int], position: int) -> list[int]:

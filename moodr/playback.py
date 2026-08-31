@@ -38,6 +38,10 @@ class PlaybackEngine:
         # boundary, matching the OLD app's live-GUI-reread-at-loop-boundary
         # behavior without this engine needing to know about GUI state.
         self.on_loop_complete = on_loop_complete
+        # True (default): randomize each chord note's velocity (72-108) for
+        # a touch of human feel, as the OLD app always did. False: every
+        # chord note at full velocity. Freely toggleable during playback.
+        self.humanize_velocity = True
 
     @property
     def is_playing(self) -> bool:
@@ -91,7 +95,8 @@ class PlaybackEngine:
             self.on_loop_complete()
 
         for message in midi_io.midi_message_gen(
-                0x90 | self._chord_channel, self._chords, self._position, self._rng):
+                0x90 | self._chord_channel, self._chords, self._position,
+                self._rng, self.humanize_velocity):
             self._midi_output.send(message)
         self._midi_output.send(midi_io.bass_message_gen(
             0x90 | self._bass_channel, self._roots, self._position))
@@ -103,7 +108,8 @@ class PlaybackEngine:
         if self._sounding_position is None:
             return
         for message in midi_io.midi_message_gen(
-                0x80 | self._chord_channel, self._chords, self._sounding_position, self._rng):
+                0x80 | self._chord_channel, self._chords, self._sounding_position,
+                self._rng, self.humanize_velocity):
             self._midi_output.send(message)
         self._midi_output.send(midi_io.bass_message_gen(
             0x80 | self._bass_channel, self._roots, self._sounding_position))

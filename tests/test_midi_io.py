@@ -64,6 +64,16 @@ def test_midi_message_gen_selects_requested_position():
     assert [m[1] for m in messages] == [62]
 
 
+def test_midi_message_gen_humanize_false_uses_full_velocity():
+    messages = midi_io.midi_message_gen(0x90, [[48, 52, 55]], 0, humanize=False)
+    assert [m[2] for m in messages] == [midi_io.FULL_VELOCITY] * 3
+
+
+def test_midi_message_gen_humanize_true_randomizes_velocity():
+    messages = midi_io.midi_message_gen(0x90, [[48, 52, 55]], 0, rng=random.Random(1), humanize=True)
+    assert all(72 <= m[2] <= 108 for m in messages)
+
+
 def test_bass_message_gen_offsets_octave_down_with_fixed_velocity():
     assert midi_io.bass_message_gen(0x91, [48, 53, 55], 0) == [0x91, 36, 127]
     assert midi_io.bass_message_gen(0x81, [48, 53, 55], 1) == [0x81, 41, 127]

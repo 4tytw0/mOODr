@@ -1,3 +1,4 @@
+from moodr.midi_io import FULL_VELOCITY
 from moodr.playback import BASS_CHANNEL, CHORD_CHANNEL, TICKS_PER_BAR, PlaybackEngine
 
 
@@ -117,6 +118,19 @@ def test_reset_clears_position_without_sending_midi():
 
     assert engine.position == 0
     assert output.sent == []
+
+
+def test_humanize_velocity_defaults_true_and_can_be_disabled():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+
+    assert engine.humanize_velocity is True
+
+    engine.humanize_velocity = False
+    engine.start()
+
+    chord_on = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    assert [m[2] for m in chord_on] == [FULL_VELOCITY] * 3
 
 
 def test_start_without_a_loaded_progression_is_a_no_op():

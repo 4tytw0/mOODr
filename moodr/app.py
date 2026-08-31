@@ -12,6 +12,7 @@ import sys
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -101,9 +102,14 @@ class MainWindow(QWidget):
         stop_button = QPushButton("Stop")
         stop_button.clicked.connect(self._on_stop)
 
+        self.humanize_checkbox = QCheckBox("Humanize velocity")
+        self.humanize_checkbox.setChecked(True)
+        self.humanize_checkbox.toggled.connect(self._on_humanize_toggled)
+
         top_row = QHBoxLayout()
         for widget in (self.key_box, self.mode_box, self.bpm_edit,
-                       self.loop_length_box, play_button, stop_button):
+                       self.loop_length_box, play_button, stop_button,
+                       self.humanize_checkbox):
             top_row.addWidget(widget)
 
         self.numeral_boxes = [QComboBox() for _ in range(NUM_NUMERAL_SLOTS)]
@@ -182,10 +188,15 @@ class MainWindow(QWidget):
         self._engine.stop()
         self._clock.stop()
 
+    def _on_humanize_toggled(self, checked: bool) -> None:
+        self._engine.humanize_velocity = checked
+
     def _on_chord_pressed(self, index: int) -> None:
         if index >= len(self._full_chords):
             return
-        for message in midi_io.midi_message_gen(0x90 | CHORD_CHANNEL, self._full_chords, index):
+        humanize = self.humanize_checkbox.isChecked()
+        for message in midi_io.midi_message_gen(0x90 | CHORD_CHANNEL, self._full_chords, index,
+                                                  humanize=humanize):
             self._midi_output.send(message)
         self._midi_output.send(midi_io.bass_message_gen(0x90 | BASS_CHANNEL, self._full_roots, index))
         self.status_label.setText(f"previewing chord {self._numerals[index]}")
@@ -193,7 +204,9 @@ class MainWindow(QWidget):
     def _on_chord_released(self, index: int) -> None:
         if index >= len(self._full_chords):
             return
-        for message in midi_io.midi_message_gen(0x80 | CHORD_CHANNEL, self._full_chords, index):
+        humanize = self.humanize_checkbox.isChecked()
+        for message in midi_io.midi_message_gen(0x80 | CHORD_CHANNEL, self._full_chords, index,
+                                                  humanize=humanize):
             self._midi_output.send(message)
         self._midi_output.send(midi_io.bass_message_gen(0x80 | BASS_CHANNEL, self._full_roots, index))
 

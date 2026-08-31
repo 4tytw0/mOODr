@@ -222,7 +222,13 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
       channel 3 confirmed as a hacked-together drum trigger (not a bug), intentionally left
       out of the Phase 4 rebuild; a proper drum-trigger output is planned for a later phase
       (see Phase 6)
-- [ ] Confirm velocity randomization range (72-108) is preserved or intentionally changed
+- [x] Confirm velocity randomization range (72-108) is preserved or intentionally changed —
+      kept as the default (it's liked, as a touch of human feel), but made toggleable rather
+      than baked in: `midi_message_gen()` gained a `humanize: bool = True` parameter
+      (`False` sends every chord note at `FULL_VELOCITY` = 127 instead), `PlaybackEngine`
+      exposes it as a live-toggleable `humanize_velocity` attribute, and the GUI has a
+      "Humanize velocity" checkbox wired to both Play and the chord-preview buttons. Bass
+      notes remain fixed at 127 either way, matching the OLD app. 3 new tests (40 total).
 
 ### Phase 6 — Stretch goals (post-parity)
 - [ ] MIDI clock **slave** mode (sync to external clock instead of only generating one)
