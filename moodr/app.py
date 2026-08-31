@@ -9,7 +9,7 @@ state -- there is no string to parse anywhere in this module.
 
 import sys
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -77,6 +77,11 @@ class MainWindow(QWidget):
 
         self._build_widgets()
         self._on_mode_changed()
+
+        # Lets the 1-7 number keys trigger chord previews (see key{Press,
+        # Release}Event below) while a text field like bpm_edit doesn't have
+        # focus and is intercepting keystrokes.
+        self.setFocusPolicy(Qt.StrongFocus)
 
     # -- widget construction --------------------------------------------
 
@@ -212,6 +217,28 @@ class MainWindow(QWidget):
 
     def _on_tick(self, tick: int) -> None:
         self.tick_label.setText(f"ticks: {tick}")
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        index = self._chord_index_for_key(event.key())
+        if index is not None and not event.isAutoRepeat():
+            self.chord_buttons[index].setDown(True)
+            self._on_chord_pressed(index)
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        index = self._chord_index_for_key(event.key())
+        if index is not None and not event.isAutoRepeat():
+            self.chord_buttons[index].setDown(False)
+            self._on_chord_released(index)
+            return
+        super().keyReleaseEvent(event)
+
+    @staticmethod
+    def _chord_index_for_key(key: int) -> int | None:
+        if Qt.Key_1 <= key <= Qt.Key_7:
+            return key - Qt.Key_1
+        return None
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         self._engine.stop()

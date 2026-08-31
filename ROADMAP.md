@@ -216,7 +216,12 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
       behavior — confirmed live in Ableton Live (2026-08-30): MIDI recorded from m00Dr's
       virtual port shows the expected once-per-bar chord changes (3-4 note voicings) with a
       sustained bass note underneath each chord
-- [ ] Confirm individual chord-preview buttons work and release cleanly (all-notes-off)
+- [x] Confirm individual chord-preview buttons work and release cleanly (all-notes-off) —
+      confirmed working via mouse in Ableton Live (2026-08-30). Also added number-key (1-7)
+      shortcuts for the same 7 chord-preview buttons (`MainWindow.keyPressEvent`/
+      `keyReleaseEvent`), verified headlessly with `QTest.keyPress`/`keyRelease`. Note: a
+      focused text field (e.g. the BPM box) intercepts number keys as normal typing, same as
+      any text input -- shortcuts fire when focus is elsewhere in the window.
 - [x] Confirm bass note (channel 2) and the extra channel-3 click/reference note behavior
       are intentionally kept or deliberately dropped (decide, don't silently lose it) —
       channel 3 confirmed as a hacked-together drum trigger (not a bug), intentionally left
