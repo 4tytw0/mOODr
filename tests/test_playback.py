@@ -1,0 +1,128 @@
+from moodr.playback import BASS_CHANNEL, CHORD_CHANNEL, TICKS_PER_BAR, PlaybackEngine
+
+
+class RecordingOutput:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, message):
+        self.sent.append(list(message))
+
+    def all_notes_off(self, channel):
+        self.sent.append(["all_off", channel])
+
+
+class FakeClock:
+    """Drives tick callbacks synchronously, on demand, for deterministic tests."""
+
+    def __init__(self):
+        self.callbacks = []
+        self.is_running = False
+        self.started = False
+
+    def add_tick_callback(self, callback):
+        self.callbacks.append(callback)
+
+    def remove_tick_callback(self, callback):
+        self.callbacks.remove(callback)
+
+    def start(self):
+        self.started = True
+        self.is_running = True
+
+    def tick(self, count=1):
+        for _ in range(count):
+            for callback in list(self.callbacks):
+                callback(0)
+
+
+def make_engine():
+    output = RecordingOutput()
+    clock = FakeClock()
+    engine = PlaybackEngine(output, clock)
+    return output, clock, engine
+
+
+def test_start_plays_first_chord_and_bass_immediately():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+
+    engine.start()
+
+    chord_on = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    bass_on = [m for m in output.sent if m[0] == 0x90 | BASS_CHANNEL]
+    assert [m[1] for m in chord_on] == [72, 76, 79]
+    assert all(72 <= m[2] <= 108 for m in chord_on)
+    assert bass_on == [[0x90 | BASS_CHANNEL, 36, 127]]
+    assert clock.started
+    assert engine.is_playing
+
+
+def test_bar_boundary_turns_previous_chord_off_and_next_one_on():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(TICKS_PER_BAR)
+
+    off_messages = [m for m in output.sent if m[0] == 0x80 | CHORD_CHANNEL]
+    on_messages = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    assert [m[1] for m in off_messages] == [72, 76, 79]
+    assert [m[1] for m in on_messages] == [77, 81, 84]
+
+
+def test_progression_wraps_around_to_the_first_chord():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.start()
+    clock.tick(TICKS_PER_BAR)
+    output.sent.clear()
+
+    clock.tick(TICKS_PER_BAR)
+
+    on_messages = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    assert [m[1] for m in on_messages] == [72, 76, 79]
+
+
+def test_ticks_short_of_a_full_bar_do_not_advance():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(TICKS_PER_BAR - 1)
+
+    assert output.sent == []
+
+
+def test_stop_sends_all_notes_off_and_detaches_from_clock():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+
+    engine.stop()
+
+    assert not engine.is_playing
+    assert clock.callbacks == []
+    assert ["all_off", CHORD_CHANNEL] in output.sent
+    assert ["all_off", BASS_CHANNEL] in output.sent
+
+
+def test_reset_clears_position_without_sending_midi():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+
+    engine.reset()
+
+    assert engine.position == 0
+    assert output.sent == []
+
+
+def test_start_without_a_loaded_progression_is_a_no_op():
+    output, clock, engine = make_engine()
+
+    engine.start()
+
+    assert not engine.is_playing
+    assert output.sent == []

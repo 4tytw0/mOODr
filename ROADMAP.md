@@ -106,15 +106,32 @@ this is the part of the project that already works and is liked:
       unchanged for existing callers
 
 ### Phase 2 — MIDI I/O & clock engine rewrite
-- [ ] Wrap `rtmidi` port open/close/list in a small `MidiOutput` class (own the port,
-      not module-level globals)
-- [ ] Build a MIDI Beat Clock engine: background thread/timer sending `0xF8` at 24 PPQN
-      derived from BPM, with Start (`0xFA`)/Stop (`0xFC`)/Continue (`0xFB`) messages
-- [ ] Drive chord/bass note-on/note-off scheduling off clock ticks instead of `time.sleep()`
-- [ ] Decide master-only vs. master+slave sync (slave = follow an external MIDI clock) —
-      master-only is the Phase 2 target; note slave mode as a stretch goal (Phase 6)
-- [ ] Port over the parts of `play_loop`/`stop_loop`/`chord`/`midi_message_gen`/
-      `bass_message_gen`/`bpm_conversion` that are still needed, rebuilt on the new engine
+- [x] Wrap `rtmidi` port open/close/list in a small `MidiOutput` class (own the port,
+      not module-level globals) — `moodr/midi_io.py`
+- [x] Build a MIDI Beat Clock engine: background thread/timer sending `0xF8` at 24 PPQN
+      derived from BPM, with Start (`0xFA`)/Stop (`0xFC`)/Continue (`0xFB`) messages —
+      `moodr/clock.py`'s `MidiClock`, using drift-corrected scheduling (`next_tick_at +=
+      tick_interval`) rather than the OLD app's half-step latency nudge
+- [x] Drive chord/bass note-on/note-off scheduling off clock ticks instead of `time.sleep()`
+      — `moodr/playback.py`'s `PlaybackEngine` hooks a tick callback onto `MidiClock` and
+      advances one bar (96 ticks = 4 beats at 24 PPQN) at a time
+- [x] Decide master-only vs. master+slave sync (slave = follow an external MIDI clock) —
+      master-only implemented for Phase 2; slave mode remains a stretch goal (Phase 6)
+- [x] Port over the parts of `play_loop`/`stop_loop`/`chord`/`midi_message_gen`/
+      `bass_message_gen`/`bpm_conversion` that are still needed, rebuilt on the new engine —
+      `midi_message_gen`/`bass_message_gen`/`bpm_conversion`/`random_velocity` ported to
+      `moodr/midi_io.py` (velocity randomization now optionally seedable, same pattern as
+      Phase 1's `snhtri`); `play_loop`/`stop_loop`'s responsibilities split across
+      `PlaybackEngine.start()`/`stop()`/`reset()`, which own their own state instead of
+      module globals. `chord()` was a thin send-loop wrapper, folded directly into
+      `PlaybackEngine._advance()` rather than kept as a separate function. Progression
+      cycling (loop back to the first chord) is implemented; the OLD app's `loop_length` /
+      live-GUI-reread-at-loop-boundary behavior is intentionally deferred to Phase 4/5 since
+      it depends on GUI state that doesn't exist yet. Verified with 32 passing tests
+      (`tests/test_midi_io.py`, `tests/test_clock.py`, `tests/test_playback.py`) covering
+      message generation, clock tick/start/stop lifecycle, and bar-boundary chord advancing;
+      channel-3's OLD "click" note was deliberately left out per the Phase 5 decision noted
+      above
 
 ### Phase 3 — GUI library evaluation
 - [ ] Prototype the same 3-4 widgets (key/mode dropdowns, BPM field, play/stop, 7 chord

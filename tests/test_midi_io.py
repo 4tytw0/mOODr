@@ -1,0 +1,50 @@
+import random
+
+from moodr import midi_io
+
+
+def test_midi_output_opens_and_closes():
+    output = midi_io.MidiOutput()
+    assert not output.is_open
+    output.open()
+    assert output.is_open
+    output.send([0x90, 60, 100])
+    output.close()
+    assert not output.is_open
+
+
+def test_midi_output_context_manager():
+    with midi_io.MidiOutput() as output:
+        assert output.is_open
+        output.send([0x90, 60, 100])
+    assert not output.is_open
+
+
+def test_bpm_conversion_matches_known_values():
+    assert midi_io.bpm_conversion(60) == 4.0
+    assert midi_io.bpm_conversion(120) == 2.0
+
+
+def test_random_velocity_is_seedable_and_reproducible():
+    assert midi_io.random_velocity(random.Random(1)) == midi_io.random_velocity(random.Random(1))
+
+
+def test_random_velocity_stays_in_old_apps_range():
+    for _ in range(50):
+        assert 72 <= midi_io.random_velocity() <= 108
+
+
+def test_midi_message_gen_offsets_octave_up_and_applies_state():
+    messages = midi_io.midi_message_gen(0x90, [[48, 52, 55]], 0, rng=random.Random(1))
+    assert [m[:2] for m in messages] == [[0x90, 60], [0x90, 64], [0x90, 67]]
+    assert all(72 <= m[2] <= 108 for m in messages)
+
+
+def test_midi_message_gen_selects_requested_position():
+    messages = midi_io.midi_message_gen(0x80, [[48], [50], [52]], 1)
+    assert [m[1] for m in messages] == [62]
+
+
+def test_bass_message_gen_offsets_octave_down_with_fixed_velocity():
+    assert midi_io.bass_message_gen(0x91, [48, 53, 55], 0) == [0x91, 36, 127]
+    assert midi_io.bass_message_gen(0x81, [48, 53, 55], 1) == [0x81, 41, 127]
