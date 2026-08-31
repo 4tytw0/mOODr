@@ -126,3 +126,44 @@ def test_start_without_a_loaded_progression_is_a_no_op():
 
     assert not engine.is_playing
     assert output.sent == []
+
+
+def test_on_loop_complete_does_not_fire_before_a_full_pass():
+    output, clock, engine = make_engine()
+    calls = []
+    engine.on_loop_complete = calls.append
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+
+    engine.start()
+    clock.tick(TICKS_PER_BAR)  # advances to the second (last) chord
+
+    assert calls == []
+
+
+def test_on_loop_complete_fires_once_per_full_pass_through_the_progression():
+    output, clock, engine = make_engine()
+    calls = []
+    engine.on_loop_complete = lambda: calls.append(None)
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+
+    engine.start()
+    clock.tick(TICKS_PER_BAR * 2)  # wraps back to the first chord
+
+    assert len(calls) == 1
+
+
+def test_on_loop_complete_can_swap_in_a_new_progression_at_the_boundary():
+    output, clock, engine = make_engine()
+
+    def reload_progression():
+        engine.load_progression([[72, 76, 79]], [60])
+
+    engine.on_loop_complete = reload_progression
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(TICKS_PER_BAR * 2)  # completes the 2-chord loop, triggering the swap
+
+    on_messages = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    assert [m[1] for m in on_messages[-3:]] == [84, 88, 91]  # the new chord, +12

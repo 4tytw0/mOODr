@@ -47,7 +47,7 @@ name = "m00dr"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "customtkinter" },
+    { name = "pyside6" },
     { name = "python-rtmidi" },
 ]
 
@@ -56,18 +56,18 @@ dev = [
     { name = "pytest" },
 ]
 gui-eval = [
-    { name = "pyside6" },
+    { name = "customtkinter" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "customtkinter", specifier = ">=6.0.0" },
+    { name = "pyside6", specifier = ">=6.11.2" },
     { name = "python-rtmidi", specifier = ">=1.5.8" },
 ]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
-gui-eval = [{ name = "pyside6", specifier = ">=6.11.2" }]
+gui-eval = [{ name = "customtkinter", specifier = ">=6.0.0" }]
 
 [[package]]
 name = "packaging"

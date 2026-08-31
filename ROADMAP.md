@@ -9,7 +9,8 @@ implementation into a modern, maintained app while keeping the music-theory core
 |---|---|---|
 | `archive/OLD mOODr_app.py` | reference only, do not extend | Full working logic: MIDI I/O, chord generation, playback loop, Kivy App class |
 | `archive/OLD mOODr_Kivy_app.kv` | reference only, being replaced | Kivy UI layout |
-| `m00Dr.py` | in-progress rewrite target | Partial CustomTkinter shell (Gemini-assisted restart), no logic wired up yet |
+| `moodr/app.py` | the real app (Phase 4) | PySide6 `MainWindow`, wired to `moodr/theory.py` + `moodr/clock.py` + `moodr/playback.py` |
+| `main.py` | entry point | `uv run python main.py` launches the real app (also runnable as `uv run python -m moodr`) |
 
 ## What we're keeping as-is
 
@@ -167,11 +168,35 @@ heavier install/package size, which mostly matters if this were being distribute
 less so for a personal-use MIDI utility.
 
 ### Phase 4 — GUI rebuild on chosen library
-- [ ] Rebuild the layout from `archive/OLD mOODr_Kivy_app.kv` (key spinner, mode spinner, 4 numeral
+- [x] Rebuild the layout from `archive/OLD mOODr_Kivy_app.kv` (key spinner, mode spinner, 4 numeral
       spinners, BPM input, loop-length selector, play/stop, 7 chord buttons) in the chosen library
-- [ ] Wire widgets to Phase 1 theory module + Phase 2 clock/MIDI engine
-- [ ] Replace the `key_spinner + 'mode' + '\n' + numerals` string-encoding hack (see
-      `selected_key`/`selected_mode`/`selected_prog`) with real state, not a parsed label string
+      — `moodr/app.py`'s `MainWindow`, PySide6
+- [x] Wire widgets to Phase 1 theory module + Phase 2 clock/MIDI engine — `PlaybackEngine`
+      gained an `on_loop_complete` hook (fires once the loaded progression wraps back to its
+      first chord) so `MainWindow._reload_progression()` can re-read the numeral/loop-length
+      dropdowns live at the loop boundary, matching the OLD app's behavior, without the engine
+      itself knowing anything about GUI state. Verified headlessly (Qt's offscreen platform,
+      no display needed): constructing `MainWindow`, pressing/releasing chord-preview buttons,
+      Play/Stop, and changing key/mode all produce correct MIDI messages against a fake
+      recorder, and separately against a **real** `rtmidi` port looped back through "IAC Driver
+      Bus 1" (note-on/off messages received matched what was sent). 3 new tests cover
+      `on_loop_complete` in `tests/test_playback.py` (35 tests total).
+- [x] Replace the `key_spinner + 'mode' + '\n' + numerals` string-encoding hack (see
+      `selected_key`/`selected_mode`/`selected_prog`) with real state, not a parsed label
+      string — `MainWindow` reads `QComboBox`/`QLineEdit` widget state directly
+      (`_selected_progression()`); no packed/parsed string exists anywhere in the new code
+
+**Deliberate deviations from the OLD app, flagged for Phase 5 confirmation:**
+- Chord-preview buttons now send a real note-off for the exact chord/bass notes on release,
+  instead of the OLD app's blunt all-notes-off CC on channel 1. The CC approach would also
+  silence a progression actively playing via Play, which seemed like an unintended side effect
+  to keep rather than a behavior worth preserving.
+- Mode-change resets all 4 numeral dropdowns to fresh default selections (index 0-3 of the new
+  mode's scale degrees) rather than the OLD Kivy Spinner's quirk of keeping stale selected text
+  that may not exist in the new value list.
+- `main.py`/`moodr/app.py`'s real `MidiOutput` opens the default port (or falls back to a
+  virtual port) the same way the OLD app did; not yet exposed as a GUI port-selection control
+  (tracked as a stretch goal in Phase 6).
 
 ### Phase 5 — Feature parity check
 - [ ] Play a progression end-to-end at a chosen BPM and loop length, confirm it matches OLD behavior
