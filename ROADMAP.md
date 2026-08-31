@@ -96,10 +96,14 @@ this is the part of the project that already works and is liked:
       found" section above
 
 ### Phase 1 — Extract the music-theory core (no GUI, no MIDI I/O)
-- [ ] Create a standalone module (e.g. `moodr/theory.py`) containing the dictionaries and
+- [x] Create a standalone module (`moodr/theory.py`) containing the dictionaries and
       conversion functions listed above, with no dependency on Kivy, rtmidi, or any GUI
-- [ ] Add basic tests/sanity checks (e.g. a known root+mode produces the expected MIDI notes)
-- [ ] Confirm `snhtri()`'s randomness is seeded/re-seedable in a way that's testable
+- [x] Add basic tests/sanity checks (e.g. a known root+mode produces the expected MIDI notes)
+      — see `tests/test_theory.py` (12 tests, run via `uv run pytest`)
+- [x] Confirm `snhtri()`'s randomness is seeded/re-seedable in a way that's testable —
+      `snhtri()`/`make_snh_intervals()` now take an optional `random.Random` instance so
+      tests can pin down deterministic output; default behavior (module-level `random`) is
+      unchanged for existing callers
 
 ### Phase 2 — MIDI I/O & clock engine rewrite
 - [ ] Wrap `rtmidi` port open/close/list in a small `MidiOutput` class (own the port,
