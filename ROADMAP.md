@@ -38,9 +38,10 @@ this is the part of the project that already works and is liked:
 - Channel 1 (`0x90`/`0x80`) = chord notes, offset **+12** (up an octave) from the raw MIDI root.
 - Channel 2 (`0x91`/`0x81`) = bass note (chord root only), offset **-12** (down an octave),
   fixed velocity 127 (not randomized).
-- Channel 3 (`0x9B`, no off variant used) = a fixed reference/click note (60, velocity 90)
-  sent once per bar and **never turned off** — a hanging note, possibly intentional as a
-  drone/reference tone, possibly a bug. Decide in Phase 5.
+- Channel 3 (`0x9B`, no off variant used) = a fixed note (60, velocity 90) sent once per bar
+  and never turned off. **Confirmed intentional** (2026-08-30): this was a hacked-together
+  drum trigger, not a bug or a reference tone. Left out of the Phase 4 rebuild for now; a
+  proper drum-trigger output is planned as a later phase (see Phase 6).
 - All-notes-off is CC `0x7B` on channel 1 (`0xB0`) and channel 2 (`0xB1`), sent on stop,
   chord-button release, and `KeyboardInterrupt`. Channel 3 is never silenced this way.
 - Chord note velocities are randomized per note (72-108) on both note-on *and* note-off;
@@ -131,8 +132,8 @@ this is the part of the project that already works and is liked:
       it depends on GUI state that doesn't exist yet. Verified with 32 passing tests
       (`tests/test_midi_io.py`, `tests/test_clock.py`, `tests/test_playback.py`) covering
       message generation, clock tick/start/stop lifecycle, and bar-boundary chord advancing;
-      channel-3's OLD "click" note was deliberately left out per the Phase 5 decision noted
-      above
+      channel 3's OLD drum-trigger hack was deliberately left out per the Phase 5 decision
+      noted above (a proper replacement is planned for a later phase, see Phase 6)
 
 ### Phase 3 — GUI library evaluation
 - [x] Prototype the same 3-4 widgets (key/mode dropdowns, BPM field, play/stop, 7 chord
@@ -216,8 +217,11 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
       virtual port shows the expected once-per-bar chord changes (3-4 note voicings) with a
       sustained bass note underneath each chord
 - [ ] Confirm individual chord-preview buttons work and release cleanly (all-notes-off)
-- [ ] Confirm bass note (channel 2) and the extra channel-3 click/reference note behavior
-      are intentionally kept or deliberately dropped (decide, don't silently lose it)
+- [x] Confirm bass note (channel 2) and the extra channel-3 click/reference note behavior
+      are intentionally kept or deliberately dropped (decide, don't silently lose it) —
+      channel 3 confirmed as a hacked-together drum trigger (not a bug), intentionally left
+      out of the Phase 4 rebuild; a proper drum-trigger output is planned for a later phase
+      (see Phase 6)
 - [ ] Confirm velocity randomization range (72-108) is preserved or intentionally changed
 
 ### Phase 6 — Stretch goals (post-parity)
@@ -226,6 +230,9 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity
 - [ ] Config for MIDI port selection in the GUI instead of always picking port 0
+- [ ] Dedicated drum-trigger output: a proper replacement for the OLD app's channel-3 hack
+      (a fixed note sent every bar, never turned off, used to trigger a drum track) — likely
+      a configurable channel/note plus a real note-off, rather than a hanging note
 
 ## Decisions log
 
