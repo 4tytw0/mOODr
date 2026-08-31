@@ -280,6 +280,13 @@ port instead of the default virtual one) remains a Phase 6 stretch goal.
       and reusing that same value for the matching note-off, regardless of what the knob
       says by then. Verified with a live headless test that changes the octave mid-hold and
       confirms release still turns off the originally-sounding notes. 4 new tests (58 total).
+- [x] Bass on/off toggle button. `PlaybackEngine` gained a `bass_enabled` property (default
+      `True`); setting it `False` while a bass note is currently sounding sends its note-off
+      immediately (a mute should mute right away, not wait for the next bar boundary) --
+      captured the same way as `_sounding_octave_shift` so the note-off always targets what
+      note-on actually turned on, not whatever the live setting is by the time it fires. The
+      GUI's checkable "Bass" button wires to this and to the chord-preview buttons (captured
+      per-index, same pattern as the octave shift). 5 new tests (63 total).
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity

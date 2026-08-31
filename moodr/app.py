@@ -104,6 +104,7 @@ class MainWindow(QWidget):
         self._full_roots: list[int] = []
         self._numerals: list[str] = []
         self._preview_octave_shift: dict[int, int] = {}
+        self._preview_bass_enabled: dict[int, bool] = {}
 
         self._build_widgets()
         self._on_mode_changed()
@@ -147,6 +148,11 @@ class MainWindow(QWidget):
         self.octave_spinbox.setPrefix("Octave: ")
         self.octave_spinbox.valueChanged.connect(self._on_octave_shift_changed)
 
+        self.bass_button = QPushButton("Bass")
+        self.bass_button.setCheckable(True)
+        self.bass_button.setChecked(True)
+        self.bass_button.toggled.connect(self._on_bass_toggled)
+
         self.external_sync_checkbox = QCheckBox("External clock sync")
         self.external_sync_checkbox.setToolTip(
             "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
@@ -157,7 +163,7 @@ class MainWindow(QWidget):
         top_row = QHBoxLayout()
         for widget in (self.key_box, self.mode_box, self.bpm_edit,
                        self.loop_length_box, play_button, stop_button,
-                       self.humanize_checkbox, self.octave_spinbox,
+                       self.humanize_checkbox, self.octave_spinbox, self.bass_button,
                        self.external_sync_checkbox):
             top_row.addWidget(widget)
 
@@ -250,6 +256,9 @@ class MainWindow(QWidget):
     def _on_octave_shift_changed(self, value: int) -> None:
         self._engine.octave_shift = value
 
+    def _on_bass_toggled(self, checked: bool) -> None:
+        self._engine.bass_enabled = checked
+
     def _on_sync_mode_toggled(self, external: bool) -> None:
         """Switches PlaybackEngine between the internal master MidiClock
         and an external MidiClockSlave following a MIDI input named
@@ -293,11 +302,14 @@ class MainWindow(QWidget):
         # (see PlaybackEngine._sounding_octave_shift for the same reasoning).
         octave_shift = self.octave_spinbox.value()
         self._preview_octave_shift[index] = octave_shift
+        bass_enabled = self.bass_button.isChecked()
+        self._preview_bass_enabled[index] = bass_enabled
         for message in midi_io.midi_message_gen(0x90 | CHORD_CHANNEL, self._full_chords, index,
                                                   humanize=humanize, octave_shift=octave_shift):
             self._midi_output.send(message)
-        self._midi_output.send(midi_io.bass_message_gen(
-            0x90 | BASS_CHANNEL, self._full_roots, index, octave_shift))
+        if bass_enabled:
+            self._midi_output.send(midi_io.bass_message_gen(
+                0x90 | BASS_CHANNEL, self._full_roots, index, octave_shift))
         self.status_label.setText(f"previewing chord {self._numerals[index]}")
 
     def _on_chord_released(self, index: int) -> None:
@@ -305,11 +317,13 @@ class MainWindow(QWidget):
             return
         humanize = self.humanize_checkbox.isChecked()
         octave_shift = self._preview_octave_shift.pop(index, self.octave_spinbox.value())
+        bass_enabled = self._preview_bass_enabled.pop(index, self.bass_button.isChecked())
         for message in midi_io.midi_message_gen(0x80 | CHORD_CHANNEL, self._full_chords, index,
                                                   humanize=humanize, octave_shift=octave_shift):
             self._midi_output.send(message)
-        self._midi_output.send(midi_io.bass_message_gen(
-            0x80 | BASS_CHANNEL, self._full_roots, index, octave_shift))
+        if bass_enabled:
+            self._midi_output.send(midi_io.bass_message_gen(
+                0x80 | BASS_CHANNEL, self._full_roots, index, octave_shift))
 
     def _on_tick(self, tick: int) -> None:
         self.tick_label.setText(f"ticks: {tick}")

@@ -37,6 +37,12 @@ class PlaybackEngine:
         # then-current octave_shift instead would send a note-off to notes
         # that were never turned on, leaving the real ones stuck.
         self._sounding_octave_shift = 0
+        # Whether the currently-sounding chord's bass note is actually
+        # sounding -- i.e. what bass_enabled was when it was turned on.
+        # Same reasoning as _sounding_octave_shift: note-off must match
+        # what note-on actually did, not whatever the live setting is now.
+        self._sounding_bass_enabled = False
+        self._bass_enabled = True
         self._ticks_since_advance = 0
         self._playing = False
         # Fires once the loaded progression has played all the way through
@@ -59,6 +65,24 @@ class PlaybackEngine:
     @property
     def is_playing(self) -> bool:
         return self._playing
+
+    @property
+    def bass_enabled(self) -> bool:
+        return self._bass_enabled
+
+    @bass_enabled.setter
+    def bass_enabled(self, value: bool) -> None:
+        if value == self._bass_enabled:
+            return
+        self._bass_enabled = value
+        if not value and self._sounding_bass_enabled and self._sounding_position is not None:
+            # Silence the currently-sounding bass note immediately rather
+            # than leaving it hanging until the next bar boundary -- a mute
+            # toggle should mute right away, not on a delay.
+            self._midi_output.send(midi_io.bass_message_gen(
+                0x80 | self._bass_channel, self._roots, self._sounding_position,
+                self._sounding_octave_shift))
+            self._sounding_bass_enabled = False
 
     @property
     def position(self) -> int:
@@ -85,6 +109,7 @@ class PlaybackEngine:
         self._position = 0
         self._sounding_position = None
         self._sounding_octave_shift = 0
+        self._sounding_bass_enabled = False
 
     def start(self) -> None:
         if self._playing or not self._chords:
@@ -104,6 +129,7 @@ class PlaybackEngine:
         self._midi_output.all_notes_off(self._chord_channel)
         self._midi_output.all_notes_off(self._bass_channel)
         self._sounding_position = None
+        self._sounding_bass_enabled = False
 
     def _on_tick(self, tick: int) -> None:
         self._ticks_since_advance += 1
@@ -122,11 +148,13 @@ class PlaybackEngine:
                 0x90 | self._chord_channel, self._chords, self._position,
                 self._rng, self.humanize_velocity, octave_shift):
             self._midi_output.send(message)
-        self._midi_output.send(midi_io.bass_message_gen(
-            0x90 | self._bass_channel, self._roots, self._position, octave_shift))
+        if self._bass_enabled:
+            self._midi_output.send(midi_io.bass_message_gen(
+                0x90 | self._bass_channel, self._roots, self._position, octave_shift))
 
         self._sounding_position = self._position
         self._sounding_octave_shift = octave_shift
+        self._sounding_bass_enabled = self._bass_enabled
         self._position = (self._position + 1) % len(self._chords)
 
     def _turn_off_sounding(self) -> None:
@@ -136,7 +164,9 @@ class PlaybackEngine:
                 0x80 | self._chord_channel, self._chords, self._sounding_position,
                 self._rng, self.humanize_velocity, self._sounding_octave_shift):
             self._midi_output.send(message)
-        self._midi_output.send(midi_io.bass_message_gen(
-            0x80 | self._bass_channel, self._roots, self._sounding_position,
-            self._sounding_octave_shift))
+        if self._sounding_bass_enabled:
+            self._midi_output.send(midi_io.bass_message_gen(
+                0x80 | self._bass_channel, self._roots, self._sounding_position,
+                self._sounding_octave_shift))
         self._sounding_position = None
+        self._sounding_bass_enabled = False

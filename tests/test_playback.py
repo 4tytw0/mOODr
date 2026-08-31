@@ -120,6 +120,56 @@ def test_reset_clears_position_without_sending_midi():
     assert output.sent == []
 
 
+def test_bass_enabled_defaults_true():
+    output, clock, engine = make_engine()
+    assert engine.bass_enabled is True
+
+
+def test_disabling_bass_before_play_omits_bass_messages():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.bass_enabled = False
+
+    engine.start()
+
+    bass_messages = [m for m in output.sent if m[0] == 0x90 | BASS_CHANNEL]
+    chord_on = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    assert bass_messages == []
+    assert chord_on  # chords are unaffected
+
+
+def test_disabling_bass_mid_sustain_immediately_silences_it():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    output.sent.clear()
+
+    engine.bass_enabled = False
+
+    bass_off = [m for m in output.sent if m[0] == 0x80 | BASS_CHANNEL]
+    assert bass_off == [[0x80 | BASS_CHANNEL, 36, 127]]
+
+
+def test_disabling_bass_when_none_is_sounding_sends_nothing():
+    output, clock, engine = make_engine()
+    engine.bass_enabled = False  # never started playing
+    assert output.sent == []
+
+
+def test_re_enabling_bass_takes_effect_on_the_next_bar():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.bass_enabled = False
+    engine.start()
+    output.sent.clear()
+
+    engine.bass_enabled = True
+    clock.tick(TICKS_PER_BAR)
+
+    bass_on = [m for m in output.sent if m[0] == 0x90 | BASS_CHANNEL]
+    assert bass_on == [[0x90 | BASS_CHANNEL, 41, 127]]
+
+
 def test_octave_shift_defaults_to_zero_and_moves_the_progression():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
