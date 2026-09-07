@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -34,6 +35,33 @@ LOOP_LENGTHS = ["1", "2", "3", "4"]
 NUM_NUMERAL_SLOTS = 4
 NUM_CHORD_BUTTONS = 7
 OCTAVE_SHIFT_RANGE = (-1, 1)
+
+DEFAULT_WINDOW_SIZE = (960, 560)
+MINIMUM_WINDOW_SIZE = (720, 420)
+CONTROL_HEIGHT = 36
+PRIMARY_BUTTON_HEIGHT = 48
+PRIMARY_BUTTON_MAX_HEIGHT = 72
+CHORD_BUTTON_MIN_HEIGHT = 72
+CHORD_BUTTON_MAX_HEIGHT = 120
+CONTROL_POINT_SIZE = 11
+PRIMARY_POINT_SIZE = 14
+
+
+def _grow(widget, min_height: int = CONTROL_HEIGHT, point_size: int = CONTROL_POINT_SIZE,
+          expanding: bool = False, max_height: int | None = None) -> None:
+    """Applies the app's larger-button/larger-text sizing consistently.
+    expanding=True (chord/transport buttons) lets a widget grow to fill
+    extra window space rather than staying pinned at its minimum size;
+    max_height caps how large that growth can get, so a big window doesn't
+    turn the buttons into an oversized, disproportionate block."""
+    widget.setMinimumHeight(min_height)
+    if max_height is not None:
+        widget.setMaximumHeight(max_height)
+    font = widget.font()
+    font.setPointSize(point_size)
+    widget.setFont(font)
+    if expanding:
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
 
 def generate_full_scale(key: str, mode: str):
@@ -114,6 +142,11 @@ class MainWindow(QWidget):
         # focus and is intercepting keystrokes.
         self.setFocusPolicy(Qt.StrongFocus)
 
+        # Chord/transport buttons use QSizePolicy.Expanding (see _grow()) so
+        # they grow to fill extra space -- this floor keeps the layout from
+        # getting cramped if the window is shrunk instead.
+        self.setMinimumSize(*MINIMUM_WINDOW_SIZE)
+
     # -- widget construction --------------------------------------------
 
     def _build_widgets(self) -> None:
@@ -128,6 +161,7 @@ class MainWindow(QWidget):
         self.mode_box.currentTextChanged.connect(self._on_mode_changed)
 
         self.bpm_edit = QLineEdit(DEFAULT_BPM)
+        self.bpm_edit.setAlignment(Qt.AlignCenter)
 
         self.loop_length_box = QComboBox()
         self.loop_length_box.addItems(LOOP_LENGTHS)
@@ -160,22 +194,47 @@ class MainWindow(QWidget):
             "Link/Tempo/MIDI preferences.")
         self.external_sync_checkbox.toggled.connect(self._on_sync_mode_toggled)
 
-        top_row = QHBoxLayout()
-        for widget in (self.key_box, self.mode_box, self.bpm_edit,
-                       self.loop_length_box, play_button, stop_button,
-                       self.humanize_checkbox, self.octave_spinbox, self.bass_button,
+        # Regular controls: larger than Qt's cramped defaults, but not the
+        # primary-action treatment Play/Stop and the chord buttons get below.
+        for widget in (self.key_box, self.mode_box, self.bpm_edit, self.loop_length_box,
+                       self.humanize_checkbox, self.octave_spinbox,
                        self.external_sync_checkbox):
-            top_row.addWidget(widget)
+            _grow(widget)
+
+        for button in (play_button, stop_button):
+            _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE,
+                  expanding=True, max_height=PRIMARY_BUTTON_MAX_HEIGHT)
+        # Bass sits alongside fixed-size checkboxes in performance_row, not
+        # alone in a row of its own like Play/Stop -- expanding=True there
+        # would let it swallow all the row's leftover space (it did, badly).
+        # It still gets bigger/bolder than a checkbox, just not stretchy.
+        _grow(self.bass_button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
+
+        progression_row = QHBoxLayout()
+        for widget in (self.key_box, self.mode_box):
+            progression_row.addWidget(widget)
 
         self.numeral_boxes = [QComboBox() for _ in range(NUM_NUMERAL_SLOTS)]
         numeral_row = QHBoxLayout()
         for box in self.numeral_boxes:
+            _grow(box)
             numeral_row.addWidget(box)
+
+        transport_row = QHBoxLayout()
+        for widget in (self.bpm_edit, self.loop_length_box, play_button, stop_button):
+            transport_row.addWidget(widget)
+
+        performance_row = QHBoxLayout()
+        for widget in (self.humanize_checkbox, self.octave_spinbox, self.bass_button,
+                       self.external_sync_checkbox):
+            performance_row.addWidget(widget)
 
         self.chord_buttons: list[QPushButton] = []
         chord_row = QHBoxLayout()
         for i in range(NUM_CHORD_BUTTONS):
             button = QPushButton("-")
+            _grow(button, min_height=CHORD_BUTTON_MIN_HEIGHT, point_size=PRIMARY_POINT_SIZE,
+                  expanding=True, max_height=CHORD_BUTTON_MAX_HEIGHT)
             button.pressed.connect(lambda i=i: self._on_chord_pressed(i))
             button.released.connect(lambda i=i: self._on_chord_released(i))
             chord_row.addWidget(button)
@@ -185,9 +244,13 @@ class MainWindow(QWidget):
         self.tick_label = QLabel("ticks: 0")
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top_row)
+        layout.setSpacing(10)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.addLayout(progression_row)
         layout.addLayout(numeral_row)
-        layout.addLayout(chord_row)
+        layout.addLayout(transport_row)
+        layout.addLayout(performance_row)
+        layout.addLayout(chord_row, 1)  # chord buttons get first claim on extra window space
         layout.addWidget(self.status_label)
         layout.addWidget(self.tick_label)
 
@@ -362,7 +425,7 @@ class MainWindow(QWidget):
 def main() -> int:
     app = QApplication(sys.argv)
     window = MainWindow()
-    window.resize(640, 260)
+    window.resize(*DEFAULT_WINDOW_SIZE)
     window.show()
     return app.exec()
 

@@ -310,10 +310,23 @@ into the same track to check whether the same fixed offset shows up for non-m00D
 - [ ] Top menu bar for lesser-used settings (e.g. humanize velocity, MIDI port selection once
       that exists, clock sync mode), so the main window stays focused on the controls used
       every session
-- [ ] **UI/UX polish (next session's starting point, per user, 2026-08-30)**: larger buttons
-      (chord-preview and Play/Stop are currently small, default-sized `QPushButton`s), and
-      window/layout proportion scaling (the window is currently a fixed `640x260` with no
-      responsive resizing behavior -- widgets don't grow/rearrange with the window)
+- [x] **UI/UX polish**: larger buttons and window/layout proportion scaling. Default window
+      grew from a fixed `640x260` to a resizable `960x560` with a `720x420` floor
+      (`MainWindow.setMinimumSize`). Chord-preview and Play/Stop buttons use
+      `QSizePolicy.Expanding` with min/max height bounds (chord buttons 72-120px, Play/Stop/
+      Bass 48-72px) via a new `_grow()` helper, so they genuinely grow when the window is
+      resized larger but stop at a sane cap rather than becoming disproportionate; regular
+      controls (dropdowns, BPM field, checkboxes) got a smaller but still larger-than-default
+      minimum height and font size. The single cramped 10-widget top row was split into
+      logical rows (key/mode; numeral dropdowns; BPM/loop/Play/Stop; humanize/octave/bass/
+      sync). Verified two ways: headlessly (resizing 960x560 -> 1600x900 -> 720x420 and
+      confirming chord-button height grows, caps at 120px, and floors correctly; chord preview
+      still functions) and visually, with real screenshots taken in this session (screen
+      recording permission was available this time, unlike Phase 3/4) -- the first screenshot
+      caught a real bug live (the "Bass" toggle button was stretching across almost the whole
+      window, since it was the only `Expanding`-policy widget sharing a row with fixed-size
+      checkboxes and so claimed all the leftover space), which was then fixed by only growing
+      Bass's height/font, not its width, and re-verified.
 
 ## Decisions log
 
