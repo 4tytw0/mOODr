@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from . import midi_io, theory
 from .clock import MidiClock, MidiClockSlave
-from .playback import BASS_CHANNEL, CHORD_CHANNEL, PlaybackEngine
+from .playback import ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, PlaybackEngine
 
 DEFAULT_KEY = "E"
 DEFAULT_MODE = "Minor 7"
@@ -35,6 +35,18 @@ LOOP_LENGTHS = ["1", "2", "3", "4"]
 NUM_NUMERAL_SLOTS = 4
 NUM_CHORD_BUTTONS = 7
 OCTAVE_SHIFT_RANGE = (-1, 1)
+
+# Display label -> PlaybackEngine.arp_pattern value. Dict order sets the
+# dropdown's order, with the current default ("down") listed first.
+ARP_PATTERN_LABELS = {
+    "Down": "down",
+    "Up": "up",
+    "Up-Down": "up_down",
+    "Random": "random",
+}
+DEFAULT_ARP_PATTERN_LABEL = "Down"
+ARP_RATE_LABELS = list(ARP_RATE_TICKS.keys())  # "1/4", "1/8", "1/16"
+DEFAULT_ARP_RATE = "1/8"
 
 DEFAULT_WINDOW_SIZE = (960, 560)
 MINIMUM_WINDOW_SIZE = (720, 420)
@@ -192,6 +204,16 @@ class MainWindow(QWidget):
         self.arp_button.setChecked(True)
         self.arp_button.toggled.connect(self._on_arp_toggled)
 
+        self.arp_pattern_box = QComboBox()
+        self.arp_pattern_box.addItems(ARP_PATTERN_LABELS.keys())
+        self.arp_pattern_box.setCurrentText(DEFAULT_ARP_PATTERN_LABEL)
+        self.arp_pattern_box.currentTextChanged.connect(self._on_arp_pattern_changed)
+
+        self.arp_rate_box = QComboBox()
+        self.arp_rate_box.addItems(ARP_RATE_LABELS)
+        self.arp_rate_box.setCurrentText(DEFAULT_ARP_RATE)
+        self.arp_rate_box.currentTextChanged.connect(self._on_arp_rate_changed)
+
         self.external_sync_checkbox = QCheckBox("External clock sync")
         self.external_sync_checkbox.setToolTip(
             "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
@@ -202,8 +224,8 @@ class MainWindow(QWidget):
         # Regular controls: larger than Qt's cramped defaults, but not the
         # primary-action treatment Play/Stop and the chord buttons get below.
         for widget in (self.key_box, self.mode_box, self.bpm_edit, self.loop_length_box,
-                       self.humanize_checkbox, self.octave_spinbox,
-                       self.external_sync_checkbox):
+                       self.humanize_checkbox, self.octave_spinbox, self.arp_pattern_box,
+                       self.arp_rate_box, self.external_sync_checkbox):
             _grow(widget)
 
         for button in (play_button, stop_button):
@@ -233,8 +255,12 @@ class MainWindow(QWidget):
 
         performance_row = QHBoxLayout()
         for widget in (self.humanize_checkbox, self.octave_spinbox, self.bass_button,
-                       self.arp_button, self.external_sync_checkbox):
+                       self.external_sync_checkbox):
             performance_row.addWidget(widget)
+
+        arp_row = QHBoxLayout()
+        for widget in (self.arp_button, self.arp_pattern_box, self.arp_rate_box):
+            arp_row.addWidget(widget)
 
         self.chord_buttons: list[QPushButton] = []
         chord_row = QHBoxLayout()
@@ -257,6 +283,7 @@ class MainWindow(QWidget):
         layout.addLayout(numeral_row)
         layout.addLayout(transport_row)
         layout.addLayout(performance_row)
+        layout.addLayout(arp_row)
         layout.addLayout(chord_row, 1)  # chord buttons get first claim on extra window space
         layout.addWidget(self.status_label)
         layout.addWidget(self.tick_label)
@@ -331,6 +358,12 @@ class MainWindow(QWidget):
 
     def _on_arp_toggled(self, checked: bool) -> None:
         self._engine.arp_enabled = checked
+
+    def _on_arp_pattern_changed(self, label: str) -> None:
+        self._engine.arp_pattern = ARP_PATTERN_LABELS[label]
+
+    def _on_arp_rate_changed(self, rate: str) -> None:
+        self._engine.arp_rate = rate
 
     def _on_sync_mode_toggled(self, external: bool) -> None:
         """Switches PlaybackEngine between the internal master MidiClock

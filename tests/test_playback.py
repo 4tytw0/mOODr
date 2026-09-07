@@ -1,5 +1,15 @@
+import random
+
 from moodr.midi_io import FULL_VELOCITY
-from moodr.playback import ARP_CHANNEL, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, TICKS_PER_BAR, PlaybackEngine
+from moodr.playback import (
+    ARP_CHANNEL,
+    ARP_RATE_TICKS,
+    BASS_CHANNEL,
+    CHORD_CHANNEL,
+    TICKS_PER_BAR,
+    PlaybackEngine,
+    _arp_note_for_step,
+)
 
 
 class RecordingOutput:
@@ -294,6 +304,57 @@ def test_on_loop_complete_can_swap_in_a_new_progression_at_the_boundary():
 
     on_messages = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
     assert [m[1] for m in on_messages[-3:]] == [84, 88, 91]  # the new chord, +12
+
+
+def test_arp_note_for_step_up():
+    notes = [60, 64, 67]
+    assert [_arp_note_for_step(notes, "up", i) for i in range(4)] == [60, 64, 67, 60]
+
+
+def test_arp_note_for_step_down():
+    notes = [60, 64, 67]
+    assert [_arp_note_for_step(notes, "down", i) for i in range(4)] == [67, 64, 60, 67]
+
+
+def test_arp_note_for_step_up_down_does_not_repeat_the_turnaround_notes():
+    notes = [60, 64, 67, 71]
+    assert [_arp_note_for_step(notes, "up_down", i) for i in range(8)] == \
+        [60, 64, 67, 71, 67, 64, 60, 64]
+
+
+def test_arp_note_for_step_up_down_degenerates_gracefully_for_two_notes():
+    notes = [60, 64]
+    assert [_arp_note_for_step(notes, "up_down", i) for i in range(4)] == [60, 64, 60, 64]
+
+
+def test_arp_note_for_step_random_is_seedable_and_reproducible():
+    notes = [60, 64, 67]
+    picks_a = [_arp_note_for_step(notes, "random", i, random.Random(1)) for i in range(10)]
+    picks_b = [_arp_note_for_step(notes, "random", i, random.Random(1)) for i in range(10)]
+    assert picks_a == picks_b
+    assert all(pick in notes for pick in picks_a)
+
+
+def test_arp_note_for_step_unknown_pattern_raises():
+    try:
+        _arp_note_for_step([60, 64, 67], "sideways", 0)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_engine_arp_pattern_and_rate_are_live_settable():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.arp_pattern = "up"
+    engine.arp_rate = "1/16"
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(ARP_RATE_TICKS["1/16"])
+
+    arp_on = [m[1] for m in output.sent if m[0] == 0x90 | ARP_CHANNEL]
+    assert arp_on == [72]  # "up" pattern's first (lowest) note, 60 + 12 baseline
 
 
 def test_arp_defaults_enabled():

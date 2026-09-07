@@ -17,26 +17,40 @@ CHORD_CHANNEL = 0  # MIDI channel 1
 ARP_CHANNEL = 1  # MIDI channel 2
 BASS_CHANNEL = 2  # MIDI channel 3
 
-# Ticks-per-step for each supported arp rate (24 PPQN). Only "1/8" is
-# exposed in the GUI today; the others exist so adding a rate selector
-# later is just a new dropdown, not new engine logic.
+# Ticks-per-step for each supported arp rate (24 PPQN).
 ARP_RATE_TICKS = {
     "1/4": PPQN,
     "1/8": PPQN // 2,
     "1/16": PPQN // 4,
 }
 
-# Supported arp patterns. Only "down" is implemented/exposed today; adding
-# "up"/"up_down"/"random" later means adding a branch here, nothing else.
-ARP_PATTERNS = ("down",)
+# Supported arp patterns/directions.
+ARP_PATTERNS = ("up", "down", "up_down", "random")
 
 
-def _arp_sequence(chord_notes: list[int], pattern: str) -> list[int]:
-    """The ordered notes for one full cycle of the given arp pattern
-    through a chord's raw (pre-octave-shift) notes."""
-    if pattern == "down":
-        return sorted(chord_notes, reverse=True)
-    raise ValueError(f"unknown arp pattern: {pattern!r}")
+def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
+                        rng: random.Random | None = None) -> int:
+    """The note to play for one arp step, given the pattern and how many
+    steps have played so far through the current chord. "random" picks
+    independently each call (step_index is unused for it); the other
+    patterns cycle through a fixed per-chord sequence built from the
+    chord's distinct raw (pre-octave-shift) notes, low to high."""
+    if pattern == "random":
+        source = rng if rng is not None else random
+        return source.choice(chord_notes)
+
+    notes = sorted(set(chord_notes))
+    if pattern == "up":
+        sequence = notes
+    elif pattern == "down":
+        sequence = list(reversed(notes))
+    elif pattern == "up_down":
+        # Up then down without repeating the top/bottom note at the turn,
+        # e.g. [60, 64, 67, 71] -> 60, 64, 67, 71, 67, 64, (loops to 60).
+        sequence = notes if len(notes) <= 2 else notes + list(reversed(notes[1:-1]))
+    else:
+        raise ValueError(f"unknown arp pattern: {pattern!r}")
+    return sequence[step_index % len(sequence)]
 
 
 class PlaybackEngine:
@@ -245,8 +259,7 @@ class PlaybackEngine:
         if not chord_notes:
             return
 
-        sequence = _arp_sequence(chord_notes, self.arp_pattern)
-        note = sequence[self._arp_step_index % len(sequence)]
+        note = _arp_note_for_step(chord_notes, self.arp_pattern, self._arp_step_index, self._rng)
         self._arp_step_index += 1
 
         octave_shift = self.octave_shift

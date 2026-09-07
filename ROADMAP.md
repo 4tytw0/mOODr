@@ -320,6 +320,20 @@ into the same track to check whether the same fixed offset shows up for non-m00D
       silently stop advancing after the arp's second step in initial testing -- caught by a
       full pytest run showing 5 unrelated-looking failures, not a arp-specific test.
       5 new tests (68 total).
+- [x] Arp direction and rate selectors. `_arp_sequence()` replaced by `_arp_note_for_step()`,
+      which now supports all 4 `ARP_PATTERNS`: `"up"`, `"down"`, `"up_down"` (ping-pong,
+      without repeating the top/bottom note at the turn) and `"random"` (a fresh independent
+      pick each step, using the engine's seedable `_rng` like the rest of the app). The GUI's
+      new "Arp" row has a Direction dropdown (Down/Up/Up-Down/Random, default Down) and a
+      Rate dropdown (1/4, 1/8, 1/16, default 1/8), both live-wired to
+      `PlaybackEngine.arp_pattern`/`arp_rate` -- exactly the follow-up planned when the arp
+      was first built, no engine rework needed. 7 new tests (75 total): pure pattern-sequence
+      tests for each direction plus one confirming the engine actually uses a changed
+      pattern/rate live. Confirmed working end-to-end in Ableton Live by the user (with real
+      instruments on the chord/arp/bass channels) after an initial false alarm turned out to
+      be "External clock sync" checked with Ableton not actually sending clock pulses (ticks
+      stayed at 0) -- not a bug, since master-mode playback (or slave mode once Ableton's
+      Sync is properly enabled per the earlier MIDI-clock-slave-mode section) works correctly.
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity
