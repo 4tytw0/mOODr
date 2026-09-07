@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -47,6 +48,8 @@ ARP_PATTERN_LABELS = {
 DEFAULT_ARP_PATTERN_LABEL = "Down"
 ARP_RATE_LABELS = list(ARP_RATE_TICKS.keys())  # "1/4", "1/8", "1/16"
 DEFAULT_ARP_RATE = "1/8"
+
+DEFAULT_ACID_NOISE_PERCENT = 25
 
 DEFAULT_WINDOW_SIZE = (960, 560)
 MINIMUM_WINDOW_SIZE = (720, 420)
@@ -214,6 +217,31 @@ class MainWindow(QWidget):
         self.arp_rate_box.setCurrentText(DEFAULT_ARP_RATE)
         self.arp_rate_box.currentTextChanged.connect(self._on_arp_rate_changed)
 
+        self.acid_button = QPushButton("Acid")
+        self.acid_button.setCheckable(True)
+        self.acid_button.setChecked(True)
+        self.acid_button.toggled.connect(self._on_acid_toggled)
+
+        self.acid_noise_label = QLabel()
+        self.acid_noise_slider = QSlider(Qt.Horizontal)
+        self.acid_noise_slider.setRange(0, 100)
+        self.acid_noise_slider.setValue(DEFAULT_ACID_NOISE_PERCENT)
+        self.acid_noise_slider.setToolTip(
+            "Chance per 16th-note step of a rest, and independently of a random pitch "
+            "within the scale, instead of the bar's chord root.")
+        self.acid_noise_slider.valueChanged.connect(self._on_acid_noise_changed)
+        self._update_acid_noise_label(DEFAULT_ACID_NOISE_PERCENT)
+
+        self.acid_wide_checkbox = QCheckBox("Wide deviation")
+        self.acid_wide_checkbox.setToolTip(
+            "Checked: a deviated step can be any note in the scale. Unchecked: deviated "
+            "steps stay near the home note (within 2 scale degrees).")
+        self.acid_wide_checkbox.setChecked(True)
+        self.acid_wide_checkbox.toggled.connect(self._on_acid_wide_toggled)
+
+        self.acid_randomize_button = QPushButton("Randomize")
+        self.acid_randomize_button.clicked.connect(self._on_acid_randomize_clicked)
+
         self.external_sync_checkbox = QCheckBox("External clock sync")
         self.external_sync_checkbox.setToolTip(
             "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
@@ -225,18 +253,20 @@ class MainWindow(QWidget):
         # primary-action treatment Play/Stop and the chord buttons get below.
         for widget in (self.key_box, self.mode_box, self.bpm_edit, self.loop_length_box,
                        self.humanize_checkbox, self.octave_spinbox, self.arp_pattern_box,
-                       self.arp_rate_box, self.external_sync_checkbox):
+                       self.arp_rate_box, self.acid_wide_checkbox, self.acid_noise_slider,
+                       self.external_sync_checkbox):
             _grow(widget)
 
         for button in (play_button, stop_button):
             _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE,
                   expanding=True, max_height=PRIMARY_BUTTON_MAX_HEIGHT)
-        # Bass/Arp sit alongside fixed-size checkboxes in performance_row,
+        # Bass/Arp/Acid sit alongside fixed-size checkboxes in their rows,
         # not alone in a row of their own like Play/Stop -- expanding=True
         # there would let one swallow all the row's leftover space (it did,
         # badly, for Bass originally). Still bigger/bolder than a checkbox,
         # just not stretchy.
-        for button in (self.bass_button, self.arp_button):
+        for button in (self.bass_button, self.arp_button, self.acid_button,
+                       self.acid_randomize_button):
             _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
 
         progression_row = QHBoxLayout()
@@ -262,6 +292,11 @@ class MainWindow(QWidget):
         for widget in (self.arp_button, self.arp_pattern_box, self.arp_rate_box):
             arp_row.addWidget(widget)
 
+        acid_row = QHBoxLayout()
+        for widget in (self.acid_button, self.acid_noise_label, self.acid_noise_slider,
+                       self.acid_wide_checkbox, self.acid_randomize_button):
+            acid_row.addWidget(widget)
+
         self.chord_buttons: list[QPushButton] = []
         chord_row = QHBoxLayout()
         for i in range(NUM_CHORD_BUTTONS):
@@ -284,6 +319,7 @@ class MainWindow(QWidget):
         layout.addLayout(transport_row)
         layout.addLayout(performance_row)
         layout.addLayout(arp_row)
+        layout.addLayout(acid_row)
         layout.addLayout(chord_row, 1)  # chord buttons get first claim on extra window space
         layout.addWidget(self.status_label)
         layout.addWidget(self.tick_label)
@@ -293,6 +329,7 @@ class MainWindow(QWidget):
     def _on_mode_changed(self, _value: str | None = None) -> None:
         key, mode = self.key_box.currentText(), self.mode_box.currentText()
         self._full_chords, self._full_roots, self._numerals = generate_full_scale(key, mode)
+        self._engine.set_scale(self._full_roots)
 
         for box in self.numeral_boxes:
             box.blockSignals(True)
@@ -364,6 +401,22 @@ class MainWindow(QWidget):
 
     def _on_arp_rate_changed(self, rate: str) -> None:
         self._engine.arp_rate = rate
+
+    def _on_acid_toggled(self, checked: bool) -> None:
+        self._engine.acid_enabled = checked
+
+    def _on_acid_noise_changed(self, value: int) -> None:
+        self._engine.acid_noise = value / 100
+        self._update_acid_noise_label(value)
+
+    def _update_acid_noise_label(self, percent: int) -> None:
+        self.acid_noise_label.setText(f"Noise: {percent}%")
+
+    def _on_acid_wide_toggled(self, checked: bool) -> None:
+        self._engine.acid_wide_deviation = checked
+
+    def _on_acid_randomize_clicked(self) -> None:
+        self._engine.randomize_acid_pattern()
 
     def _on_sync_mode_toggled(self, external: bool) -> None:
         """Switches PlaybackEngine between the internal master MidiClock

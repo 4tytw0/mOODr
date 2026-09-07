@@ -16,6 +16,7 @@ TICKS_PER_BAR = PPQN * BEATS_PER_BAR
 CHORD_CHANNEL = 0  # MIDI channel 1
 ARP_CHANNEL = 1  # MIDI channel 2
 BASS_CHANNEL = 2  # MIDI channel 3
+ACID_CHANNEL = 3  # MIDI channel 4
 
 # Ticks-per-step for each supported arp rate (24 PPQN).
 ARP_RATE_TICKS = {
@@ -26,6 +27,38 @@ ARP_RATE_TICKS = {
 
 # Supported arp patterns/directions.
 ARP_PATTERNS = ("up", "down", "up_down", "random")
+
+# Acid sequencer: a locked-in 16-step pattern, one step per 16th note, so
+# a full pattern is exactly one bar long (16 * 6 ticks = 96 = TICKS_PER_BAR).
+ACID_STEPS = 16
+ACID_STEP_TICKS = PPQN // 4
+# Offsets (in scale degrees from the bar's home note) narrow deviation can
+# land on. Wide deviation instead draws from every other degree in a
+# (theory.py's) 8-note scale -- see _generate_acid_pattern.
+ACID_NARROW_OFFSETS = (-2, -1, 1, 2)
+
+
+def _generate_acid_pattern(noise: float, wide_deviation: bool,
+                            rng: random.Random | None = None) -> list[int | None]:
+    """A fresh locked-in ACID_STEPS-length pattern. Each step is `None`
+    (rest), `0` (play the bar's home note -- the sounding chord's root),
+    or a nonzero scale-degree offset from that home note. noise (0.0-1.0)
+    is the independent probability of a step being a rest, and -- for
+    steps that aren't -- of it being deviated instead of the home note."""
+    source = rng if rng is not None else random
+    pattern: list[int | None] = []
+    for _ in range(ACID_STEPS):
+        if source.random() < noise:
+            pattern.append(None)
+        elif source.random() < noise:
+            if wide_deviation:
+                offset = source.choice([o for o in range(-7, 8) if o != 0])
+            else:
+                offset = source.choice(ACID_NARROW_OFFSETS)
+            pattern.append(offset)
+        else:
+            pattern.append(0)
+    return pattern
 
 
 def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
@@ -56,16 +89,22 @@ def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
 class PlaybackEngine:
     def __init__(self, midi_output, clock, chord_channel: int = CHORD_CHANNEL,
                  bass_channel: int = BASS_CHANNEL, arp_channel: int = ARP_CHANNEL,
-                 rng: random.Random | None = None,
+                 acid_channel: int = ACID_CHANNEL, rng: random.Random | None = None,
                  on_loop_complete: Callable[[], None] | None = None):
         self._midi_output = midi_output
         self._clock = clock
         self._chord_channel = chord_channel
         self._bass_channel = bass_channel
         self._arp_channel = arp_channel
+        self._acid_channel = acid_channel
         self._rng = rng
         self._chords: list[list[int]] = []
         self._roots: list[int] = []
+        # The full key/mode scale's roots (all 8 scale-degree pitches),
+        # independent of the loaded/sliced 4-chord progression above --
+        # used only so the acid sequencer's pitch deviations have a scale
+        # to draw from. Set via set_scale(), not load_progression().
+        self._scale_roots: list[int] = []
         self._position = 0
         self._sounding_position: int | None = None
         # The octave_shift in effect when the currently-sounding chord was
@@ -96,6 +135,19 @@ class PlaybackEngine:
         self._arp_enabled = True
         self.arp_pattern = "down"
         self.arp_rate = "1/8"
+        # Acid sequencer state: same tick-subdivision/note-off-before-
+        # note-on/immediate-mute shape as the arp above, but stepping
+        # through a locked-in ACID_STEPS-length pattern (see
+        # randomize_acid_pattern()) instead of the chord's own notes.
+        self._acid_ticks_since_step = 0
+        self._acid_step_index = 0
+        self._sounding_acid_note: int | None = None
+        self._sounding_acid_octave_shift = 0
+        self._acid_enabled = True
+        self.acid_noise = 0.25
+        self.acid_wide_deviation = True
+        self._acid_pattern: list[int | None] = _generate_acid_pattern(
+            self.acid_noise, self.acid_wide_deviation, self._rng)
         self._ticks_since_advance = 0
         self._playing = False
         # Fires once the loaded progression has played all the way through
@@ -152,9 +204,37 @@ class PlaybackEngine:
             self._turn_off_arp_note()
 
     @property
+    def acid_enabled(self) -> bool:
+        return self._acid_enabled
+
+    @acid_enabled.setter
+    def acid_enabled(self, value: bool) -> None:
+        if value == self._acid_enabled:
+            return
+        self._acid_enabled = value
+        if not value:
+            # A mute toggle should mute right away, not wait for the next
+            # acid step -- same reasoning as bass_enabled/arp_enabled above.
+            self._turn_off_acid_note()
+
+    @property
     def position(self) -> int:
         """Index of the chord that will play at the next bar boundary."""
         return self._position
+
+    def set_scale(self, scale_roots: list[int]) -> None:
+        """The full key/mode scale (all 8 scale-degree roots) the acid
+        sequencer's pitch deviations draw from -- distinct from
+        load_progression()'s 4-chord loaded/sliced progression."""
+        self._scale_roots = scale_roots
+
+    def randomize_acid_pattern(self) -> None:
+        """Rolls a fresh locked-in acid pattern from the current
+        acid_noise/acid_wide_deviation settings. Takes effect starting
+        from whichever step the sequencer is currently on -- it doesn't
+        wait for the next bar or restart the pattern from step 0."""
+        self._acid_pattern = _generate_acid_pattern(
+            self.acid_noise, self.acid_wide_deviation, self._rng)
 
     def set_clock(self, clock) -> None:
         """Swaps the clock this engine is driven by -- e.g. switching
@@ -187,6 +267,8 @@ class PlaybackEngine:
         self._playing = True
         self._ticks_since_advance = 0
         self._arp_ticks_since_step = 0
+        self._acid_ticks_since_step = 0
+        self._acid_step_index = 0
         self._advance()
         self._clock.add_tick_callback(self._on_tick)
         if not self._clock.is_running:
@@ -200,15 +282,22 @@ class PlaybackEngine:
         self._midi_output.all_notes_off(self._chord_channel)
         self._midi_output.all_notes_off(self._bass_channel)
         self._midi_output.all_notes_off(self._arp_channel)
+        self._midi_output.all_notes_off(self._acid_channel)
         self._sounding_position = None
         self._sounding_bass_enabled = False
         self._sounding_arp_note = None
+        self._sounding_acid_note = None
 
     def _on_tick(self, tick: int) -> None:
         self._ticks_since_advance += 1
         if self._ticks_since_advance >= TICKS_PER_BAR:
             self._ticks_since_advance = 0
             self._advance()
+
+        self._acid_ticks_since_step += 1
+        if self._acid_ticks_since_step >= ACID_STEP_TICKS:
+            self._acid_ticks_since_step = 0
+            self._advance_acid_step()
 
         self._arp_ticks_since_step += 1
         if self._arp_ticks_since_step >= ARP_RATE_TICKS[self.arp_rate]:
@@ -278,3 +367,39 @@ class PlaybackEngine:
             self.humanize_velocity, self._sounding_arp_octave_shift)[0]
         self._midi_output.send(message)
         self._sounding_arp_note = None
+
+    def _advance_acid_step(self) -> None:
+        self._turn_off_acid_note()
+
+        step_value = self._acid_pattern[self._acid_step_index % len(self._acid_pattern)]
+        self._acid_step_index = (self._acid_step_index + 1) % ACID_STEPS
+
+        if not self._acid_enabled or self._sounding_position is None or step_value is None:
+            return
+
+        home_note = self._roots[self._sounding_position]
+        if step_value == 0 or not self._scale_roots:
+            note = home_note
+        else:
+            try:
+                home_index = self._scale_roots.index(home_note)
+            except ValueError:
+                home_index = 0
+            note = self._scale_roots[(home_index + step_value) % len(self._scale_roots)]
+
+        octave_shift = self.octave_shift
+        message = midi_io.midi_message_gen(
+            0x90 | self._acid_channel, [[note]], 0, self._rng, self.humanize_velocity,
+            octave_shift)[0]
+        self._midi_output.send(message)
+        self._sounding_acid_note = note
+        self._sounding_acid_octave_shift = octave_shift
+
+    def _turn_off_acid_note(self) -> None:
+        if self._sounding_acid_note is None:
+            return
+        message = midi_io.midi_message_gen(
+            0x80 | self._acid_channel, [[self._sounding_acid_note]], 0, self._rng,
+            self.humanize_velocity, self._sounding_acid_octave_shift)[0]
+        self._midi_output.send(message)
+        self._sounding_acid_note = None

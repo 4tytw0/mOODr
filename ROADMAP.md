@@ -334,6 +334,31 @@ into the same track to check whether the same fixed offset shows up for non-m00D
       be "External clock sync" checked with Ableton not actually sending clock pulses (ticks
       stayed at 0) -- not a bug, since master-mode playback (or slave mode once Ableton's
       Sync is properly enabled per the earlier MIDI-clock-slave-mode section) works correctly.
+- [x] Acid sequencer on a 4th MIDI channel (channel 4). A locked-in 16-step pattern (one bar's
+      worth at 16th-note resolution: `ACID_STEPS=16` * `ACID_STEP_TICKS=6` = `TICKS_PER_BAR`)
+      where each step is a rest, the bar's home note (the sounding chord's root -- moves with
+      the progression, same root as Bass), or a note some number of scale degrees away from
+      that root. `PlaybackEngine.set_scale()` feeds it the full 8-degree key/mode scale
+      (separate from `load_progression()`'s sliced 4-chord progression) so deviated notes have
+      something to draw from. A single "Noise" slider (0-100%) is the *independent*
+      probability, per step, of (a) being a rest and (b) — if not a rest — being deviated
+      instead of the home note. A "Wide deviation" checkbox toggles whether deviations can
+      land on any other scale degree or stay within 2 degrees of home. Per user request, the
+      pattern does **not** regenerate every bar -- it locks in (generated once at construction,
+      and again whenever "Randomize" is clicked) and repeats until explicitly re-rolled.
+      `acid_enabled` (default `True`) mirrors `bass_enabled`/`arp_enabled`: toggling off
+      mid-note mutes immediately. Verified through the real `MainWindow` (channel 4 producing
+      note-ons) and headlessly (all control wiring, randomize producing a different pattern).
+      16 new tests (91 total): pure pattern-generation tests (zero/max noise edge cases,
+      seedable reproducibility, narrow vs. wide offset ranges) and engine-level tests (home
+      note tracks the chord root live, deviation reads through `set_scale()`, rest steps are
+      silent, immediate mute, `stop()` cleanup).
+      **Bug found and fixed while reviewing this code**: `_turn_off_arp_note()` had a leftover
+      line clearing `_sounding_bass_enabled` -- unrelated to the arp, and since arp steps fire
+      far more often than bar boundaries, this silently broke the next bar's bass note-off
+      almost every time, leaking stuck bass notes over a session. Fixed in its own commit
+      first, with a regression test confirmed to fail against the reintroduced bug before
+      confirming the fix (76 tests at that point, before acid's own 91).
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity

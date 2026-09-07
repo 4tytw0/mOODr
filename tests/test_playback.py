@@ -2,6 +2,9 @@ import random
 
 from moodr.midi_io import FULL_VELOCITY
 from moodr.playback import (
+    ACID_CHANNEL,
+    ACID_STEP_TICKS,
+    ACID_STEPS,
     ARP_CHANNEL,
     ARP_RATE_TICKS,
     BASS_CHANNEL,
@@ -9,6 +12,7 @@ from moodr.playback import (
     TICKS_PER_BAR,
     PlaybackEngine,
     _arp_note_for_step,
+    _generate_acid_pattern,
 )
 
 
@@ -435,3 +439,156 @@ def test_arp_resets_to_the_top_of_the_pattern_on_chord_change():
     # the last arp note-on before/at the bar boundary is chord 2's top note
     # ([72, 69, 65] descending), not a continuation of chord 1's sequence
     assert arp_on[-1] == 84
+
+
+def test_acid_step_count_and_rate_span_exactly_one_bar():
+    assert ACID_STEPS * ACID_STEP_TICKS == TICKS_PER_BAR
+
+
+def test_generate_acid_pattern_zero_noise_is_all_home_notes():
+    assert _generate_acid_pattern(0.0, wide_deviation=True) == [0] * ACID_STEPS
+
+
+def test_generate_acid_pattern_max_noise_is_all_rests():
+    # noise=1.0 -- random.random() < 1.0 is always true, so the rest check
+    # always wins before the deviation check ever gets a chance to run.
+    assert _generate_acid_pattern(1.0, wide_deviation=True) == [None] * ACID_STEPS
+
+
+def test_generate_acid_pattern_is_seedable_and_reproducible():
+    a = _generate_acid_pattern(0.5, True, random.Random(1))
+    b = _generate_acid_pattern(0.5, True, random.Random(1))
+    assert a == b
+    assert len(a) == ACID_STEPS
+
+
+def test_generate_acid_pattern_narrow_deviation_uses_narrow_offsets():
+    deviated = set()
+    for seed in range(50):
+        pattern = _generate_acid_pattern(0.9, wide_deviation=False, rng=random.Random(seed))
+        deviated.update(v for v in pattern if v not in (None, 0))
+    assert deviated  # at least some deviations occurred across all trials
+    assert deviated <= {-2, -1, 1, 2}
+
+
+def test_generate_acid_pattern_wide_deviation_can_reach_beyond_narrow_range():
+    deviated = set()
+    for seed in range(50):
+        pattern = _generate_acid_pattern(0.9, wide_deviation=True, rng=random.Random(seed))
+        deviated.update(v for v in pattern if v not in (None, 0))
+    assert deviated <= set(range(-7, 8)) - {0}
+    assert deviated - {-2, -1, 1, 2}  # reaches beyond narrow's range at least sometimes
+
+
+def test_acid_defaults_enabled():
+    output, clock, engine = make_engine()
+    assert engine.acid_enabled is True
+
+
+def test_acid_plays_home_note_every_step_at_zero_noise():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.acid_noise = 0.0
+    engine.randomize_acid_pattern()
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(ACID_STEP_TICKS)
+
+    acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
+    assert acid_on == [60]  # home note = bass root 48, +12 baseline
+
+
+def test_acid_rest_step_produces_no_note():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine._acid_pattern = [None] * ACID_STEPS
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(ACID_STEP_TICKS)
+
+    acid_msgs = [m for m in output.sent if m[0] in (0x90 | ACID_CHANNEL, 0x80 | ACID_CHANNEL)]
+    assert acid_msgs == []
+
+
+def test_acid_deviation_uses_the_full_scale_via_set_scale():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.set_scale([48, 50, 52, 53, 55, 57, 59, 60])
+    engine._acid_pattern = [2] + [None] * (ACID_STEPS - 1)
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(ACID_STEP_TICKS)
+
+    acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
+    # home (48) is scale index 0; +2 degrees -> scale[2]=52, +12 baseline
+    assert acid_on == [64]
+
+
+def test_acid_deviation_falls_back_gracefully_if_home_note_not_in_scale():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [999])
+    engine.set_scale([48, 50, 52])
+    engine._acid_pattern = [1] + [None] * (ACID_STEPS - 1)
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(ACID_STEP_TICKS)
+
+    acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
+    # home note isn't in the scale -- falls back to index 0, so scale[1]=50
+    assert acid_on == [62]
+
+
+def test_acid_home_note_tracks_the_current_bars_chord_root():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine._acid_pattern = [0] * ACID_STEPS
+    engine.start()
+    output.sent.clear()
+
+    clock.tick(TICKS_PER_BAR)  # advances to bar 2 partway through this span
+
+    acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
+    assert acid_on[-1] == 65  # bar 2's root (53) + 12 baseline
+
+
+def test_disabling_acid_mid_note_immediately_silences_it():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.acid_noise = 0.0
+    engine.randomize_acid_pattern()
+    engine.start()
+    clock.tick(ACID_STEP_TICKS)
+    output.sent.clear()
+
+    engine.acid_enabled = False
+
+    acid_off = [m[1] for m in output.sent if m[0] == 0x80 | ACID_CHANNEL]
+    assert acid_off == [60]
+
+
+def test_randomize_acid_pattern_replaces_the_pattern():
+    output, clock, engine = make_engine()
+    engine.acid_noise = 0.0
+    engine.randomize_acid_pattern()
+    pattern_a = list(engine._acid_pattern)
+
+    engine.acid_noise = 1.0
+    engine.randomize_acid_pattern()
+    pattern_b = list(engine._acid_pattern)
+
+    assert pattern_a == [0] * ACID_STEPS
+    assert pattern_b == [None] * ACID_STEPS
+
+
+def test_stop_sends_all_notes_off_for_acid_channel():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+
+    engine.stop()
+
+    assert ["all_off", ACID_CHANNEL] in output.sent
