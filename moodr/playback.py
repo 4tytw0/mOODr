@@ -278,4 +278,3 @@ class PlaybackEngine:
             self.humanize_velocity, self._sounding_arp_octave_shift)[0]
         self._midi_output.send(message)
         self._sounding_arp_note = None
-        self._sounding_bass_enabled = False

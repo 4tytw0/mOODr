@@ -393,6 +393,24 @@ def test_arp_turns_off_the_previous_note_before_playing_the_next():
     assert arp_events == [(0x90 | ARP_CHANNEL, 79), (0x80 | ARP_CHANNEL, 79), (0x90 | ARP_CHANNEL, 76)]
 
 
+def test_arp_note_offs_do_not_suppress_the_bass_note_off():
+    """Regression test: an arp note-off must not touch bass tracking --
+    otherwise the next bar boundary's _turn_off_sounding() would skip the
+    bass note-off (thinking bass wasn't sounding), leaking a stuck note
+    that never releases as the progression continues."""
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.start()
+
+    clock.tick(ARP_RATE_TICKS["1/8"])  # at least one arp note-off happens
+    output.sent.clear()
+
+    clock.tick(TICKS_PER_BAR - ARP_RATE_TICKS["1/8"])  # reach the bar boundary
+
+    bass_off = [m for m in output.sent if m[0] == 0x80 | BASS_CHANNEL]
+    assert bass_off == [[0x80 | BASS_CHANNEL, 36, 127]]
+
+
 def test_disabling_arp_mid_note_immediately_silences_it():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
