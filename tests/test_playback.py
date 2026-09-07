@@ -137,6 +137,50 @@ def test_reset_clears_position_without_sending_midi():
     assert output.sent == []
 
 
+def test_chords_enabled_defaults_true():
+    output, clock, engine = make_engine()
+    assert engine.chords_enabled is True
+
+
+def test_disabling_chords_before_play_omits_chord_messages():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.chords_enabled = False
+
+    engine.start()
+
+    chord_on = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    bass_on = [m for m in output.sent if m[0] == 0x90 | BASS_CHANNEL]
+    assert chord_on == []
+    assert bass_on  # bass is unaffected
+
+
+def test_disabling_chords_mid_sustain_immediately_silences_them():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    output.sent.clear()
+
+    engine.chords_enabled = False
+
+    chord_off = [m for m in output.sent if m[0] == 0x80 | CHORD_CHANNEL]
+    assert [m[1] for m in chord_off] == [72, 76, 79]
+
+
+def test_re_enabling_chords_takes_effect_on_the_next_bar():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.chords_enabled = False
+    engine.start()
+    output.sent.clear()
+
+    engine.chords_enabled = True
+    clock.tick(TICKS_PER_BAR)
+
+    chord_on = [m[1] for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    assert chord_on == [77, 81, 84]
+
+
 def test_bass_enabled_defaults_true():
     output, clock, engine = make_engine()
     assert engine.bass_enabled is True

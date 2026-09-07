@@ -114,10 +114,13 @@ class PlaybackEngine:
         # then-current octave_shift instead would send a note-off to notes
         # that were never turned on, leaving the real ones stuck.
         self._sounding_octave_shift = 0
-        # Whether the currently-sounding chord's bass note is actually
-        # sounding -- i.e. what bass_enabled was when it was turned on.
-        # Same reasoning as _sounding_octave_shift: note-off must match
-        # what note-on actually did, not whatever the live setting is now.
+        # Whether the currently-sounding bar's chord/bass notes are
+        # actually sounding -- i.e. what chords_enabled/bass_enabled were
+        # when they were turned on. Same reasoning as _sounding_octave_shift:
+        # note-off must match what note-on actually did, not whatever the
+        # live setting is now.
+        self._sounding_chords_enabled = False
+        self._chords_enabled = True
         self._sounding_bass_enabled = False
         self._bass_enabled = True
         # Arp state: steps through the currently-sounding chord's notes on
@@ -170,6 +173,25 @@ class PlaybackEngine:
     @property
     def is_playing(self) -> bool:
         return self._playing
+
+    @property
+    def chords_enabled(self) -> bool:
+        return self._chords_enabled
+
+    @chords_enabled.setter
+    def chords_enabled(self, value: bool) -> None:
+        if value == self._chords_enabled:
+            return
+        self._chords_enabled = value
+        if not value and self._sounding_chords_enabled and self._sounding_position is not None:
+            # Silence the currently-sounding chord immediately rather than
+            # leaving it hanging until the next bar boundary -- a mute
+            # toggle should mute right away, not on a delay.
+            for message in midi_io.midi_message_gen(
+                    0x80 | self._chord_channel, self._chords, self._sounding_position,
+                    self._rng, self.humanize_velocity, self._sounding_octave_shift):
+                self._midi_output.send(message)
+            self._sounding_chords_enabled = False
 
     @property
     def bass_enabled(self) -> bool:
@@ -272,6 +294,7 @@ class PlaybackEngine:
         self._position = 0
         self._sounding_position = None
         self._sounding_octave_shift = 0
+        self._sounding_chords_enabled = False
         self._sounding_bass_enabled = False
         self._arp_ticks_since_step = 0
         self._arp_step_index = 0
@@ -300,6 +323,7 @@ class PlaybackEngine:
         self._midi_output.all_notes_off(self._arp_channel)
         self._midi_output.all_notes_off(self._acid_channel)
         self._sounding_position = None
+        self._sounding_chords_enabled = False
         self._sounding_bass_enabled = False
         self._sounding_arp_note = None
         self._sounding_acid_note = None
@@ -327,16 +351,18 @@ class PlaybackEngine:
             self.on_loop_complete()
 
         octave_shift = self.octave_shift
-        for message in midi_io.midi_message_gen(
-                0x90 | self._chord_channel, self._chords, self._position,
-                self._rng, self.humanize_velocity, octave_shift):
-            self._midi_output.send(message)
+        if self._chords_enabled:
+            for message in midi_io.midi_message_gen(
+                    0x90 | self._chord_channel, self._chords, self._position,
+                    self._rng, self.humanize_velocity, octave_shift):
+                self._midi_output.send(message)
         if self._bass_enabled:
             self._midi_output.send(midi_io.bass_message_gen(
                 0x90 | self._bass_channel, self._roots, self._position, octave_shift))
 
         self._sounding_position = self._position
         self._sounding_octave_shift = octave_shift
+        self._sounding_chords_enabled = self._chords_enabled
         self._sounding_bass_enabled = self._bass_enabled
         # Each new chord's arp restarts its pattern from the top, rather
         # than continuing mid-sequence from the previous chord.
@@ -346,10 +372,11 @@ class PlaybackEngine:
     def _turn_off_sounding(self) -> None:
         if self._sounding_position is None:
             return
-        for message in midi_io.midi_message_gen(
-                0x80 | self._chord_channel, self._chords, self._sounding_position,
-                self._rng, self.humanize_velocity, self._sounding_octave_shift):
-            self._midi_output.send(message)
+        if self._sounding_chords_enabled:
+            for message in midi_io.midi_message_gen(
+                    0x80 | self._chord_channel, self._chords, self._sounding_position,
+                    self._rng, self.humanize_velocity, self._sounding_octave_shift):
+                self._midi_output.send(message)
         if self._sounding_bass_enabled:
             self._midi_output.send(midi_io.bass_message_gen(
                 0x80 | self._bass_channel, self._roots, self._sounding_position,

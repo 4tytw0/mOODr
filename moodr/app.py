@@ -147,6 +147,7 @@ class MainWindow(QWidget):
         self._full_roots: list[int] = []
         self._numerals: list[str] = []
         self._preview_octave_shift: dict[int, int] = {}
+        self._preview_chords_enabled: dict[int, bool] = {}
         self._preview_bass_enabled: dict[int, bool] = {}
 
         self._build_widgets()
@@ -196,6 +197,11 @@ class MainWindow(QWidget):
         self.octave_spinbox.setValue(0)
         self.octave_spinbox.setPrefix("Octave: ")
         self.octave_spinbox.valueChanged.connect(self._on_octave_shift_changed)
+
+        self.chords_button = QPushButton("Chords")
+        self.chords_button.setCheckable(True)
+        self.chords_button.setChecked(True)
+        self.chords_button.toggled.connect(self._on_chords_toggled)
 
         self.bass_button = QPushButton("Bass")
         self.bass_button.setCheckable(True)
@@ -265,8 +271,8 @@ class MainWindow(QWidget):
         # there would let one swallow all the row's leftover space (it did,
         # badly, for Bass originally). Still bigger/bolder than a checkbox,
         # just not stretchy.
-        for button in (self.bass_button, self.arp_button, self.acid_button,
-                       self.acid_randomize_button):
+        for button in (self.chords_button, self.bass_button, self.arp_button,
+                       self.acid_button, self.acid_randomize_button):
             _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
 
         progression_row = QHBoxLayout()
@@ -284,8 +290,8 @@ class MainWindow(QWidget):
             transport_row.addWidget(widget)
 
         performance_row = QHBoxLayout()
-        for widget in (self.humanize_checkbox, self.octave_spinbox, self.bass_button,
-                       self.external_sync_checkbox):
+        for widget in (self.humanize_checkbox, self.octave_spinbox, self.chords_button,
+                       self.bass_button, self.external_sync_checkbox):
             performance_row.addWidget(widget)
 
         arp_row = QHBoxLayout()
@@ -395,6 +401,9 @@ class MainWindow(QWidget):
     def _on_octave_shift_changed(self, value: int) -> None:
         self._engine.octave_shift = value
 
+    def _on_chords_toggled(self, checked: bool) -> None:
+        self._engine.chords_enabled = checked
+
     def _on_bass_toggled(self, checked: bool) -> None:
         self._engine.bass_enabled = checked
 
@@ -466,11 +475,15 @@ class MainWindow(QWidget):
         # (see PlaybackEngine._sounding_octave_shift for the same reasoning).
         octave_shift = self.octave_spinbox.value()
         self._preview_octave_shift[index] = octave_shift
+        chords_enabled = self.chords_button.isChecked()
+        self._preview_chords_enabled[index] = chords_enabled
         bass_enabled = self.bass_button.isChecked()
         self._preview_bass_enabled[index] = bass_enabled
-        for message in midi_io.midi_message_gen(0x90 | CHORD_CHANNEL, self._full_chords, index,
-                                                  humanize=humanize, octave_shift=octave_shift):
-            self._midi_output.send(message)
+        if chords_enabled:
+            for message in midi_io.midi_message_gen(0x90 | CHORD_CHANNEL, self._full_chords,
+                                                      index, humanize=humanize,
+                                                      octave_shift=octave_shift):
+                self._midi_output.send(message)
         if bass_enabled:
             self._midi_output.send(midi_io.bass_message_gen(
                 0x90 | BASS_CHANNEL, self._full_roots, index, octave_shift))
@@ -481,10 +494,13 @@ class MainWindow(QWidget):
             return
         humanize = self.humanize_checkbox.isChecked()
         octave_shift = self._preview_octave_shift.pop(index, self.octave_spinbox.value())
+        chords_enabled = self._preview_chords_enabled.pop(index, self.chords_button.isChecked())
         bass_enabled = self._preview_bass_enabled.pop(index, self.bass_button.isChecked())
-        for message in midi_io.midi_message_gen(0x80 | CHORD_CHANNEL, self._full_chords, index,
-                                                  humanize=humanize, octave_shift=octave_shift):
-            self._midi_output.send(message)
+        if chords_enabled:
+            for message in midi_io.midi_message_gen(0x80 | CHORD_CHANNEL, self._full_chords,
+                                                      index, humanize=humanize,
+                                                      octave_shift=octave_shift):
+                self._midi_output.send(message)
         if bass_enabled:
             self._midi_output.send(midi_io.bass_message_gen(
                 0x80 | BASS_CHANNEL, self._full_roots, index, octave_shift))

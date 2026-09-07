@@ -380,6 +380,11 @@ reset is wanted). Verified the fix resolves the real threaded-clock reproduction
 `1,2,3,4,1,2,3,4,...` afterward) and added 2 regression tests -- one of which explicitly
 simulates the delayed-arrival race deterministically and was confirmed to fail against the old
 `load_progression()`-based reload before confirming the fix (93 tests total).
+- [x] Chords on/off toggle button, for parity with Bass/Arp/Acid. `PlaybackEngine` gained a
+      `chords_enabled` property (default `True`) with the same immediate-mid-note-mute
+      behavior as the others. The GUI's "Chords" button also gates the chord-preview buttons
+      (per-index captured, same pattern as Bass/octave there), matching how Bass already did.
+      4 new tests (97 total).
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity
