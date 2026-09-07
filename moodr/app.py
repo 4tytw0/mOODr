@@ -187,6 +187,11 @@ class MainWindow(QWidget):
         self.bass_button.setChecked(True)
         self.bass_button.toggled.connect(self._on_bass_toggled)
 
+        self.arp_button = QPushButton("Arp")
+        self.arp_button.setCheckable(True)
+        self.arp_button.setChecked(True)
+        self.arp_button.toggled.connect(self._on_arp_toggled)
+
         self.external_sync_checkbox = QCheckBox("External clock sync")
         self.external_sync_checkbox.setToolTip(
             "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
@@ -204,11 +209,13 @@ class MainWindow(QWidget):
         for button in (play_button, stop_button):
             _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE,
                   expanding=True, max_height=PRIMARY_BUTTON_MAX_HEIGHT)
-        # Bass sits alongside fixed-size checkboxes in performance_row, not
-        # alone in a row of its own like Play/Stop -- expanding=True there
-        # would let it swallow all the row's leftover space (it did, badly).
-        # It still gets bigger/bolder than a checkbox, just not stretchy.
-        _grow(self.bass_button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
+        # Bass/Arp sit alongside fixed-size checkboxes in performance_row,
+        # not alone in a row of their own like Play/Stop -- expanding=True
+        # there would let one swallow all the row's leftover space (it did,
+        # badly, for Bass originally). Still bigger/bolder than a checkbox,
+        # just not stretchy.
+        for button in (self.bass_button, self.arp_button):
+            _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
 
         progression_row = QHBoxLayout()
         for widget in (self.key_box, self.mode_box):
@@ -226,7 +233,7 @@ class MainWindow(QWidget):
 
         performance_row = QHBoxLayout()
         for widget in (self.humanize_checkbox, self.octave_spinbox, self.bass_button,
-                       self.external_sync_checkbox):
+                       self.arp_button, self.external_sync_checkbox):
             performance_row.addWidget(widget)
 
         self.chord_buttons: list[QPushButton] = []
@@ -321,6 +328,9 @@ class MainWindow(QWidget):
 
     def _on_bass_toggled(self, checked: bool) -> None:
         self._engine.bass_enabled = checked
+
+    def _on_arp_toggled(self, checked: bool) -> None:
+        self._engine.arp_enabled = checked
 
     def _on_sync_mode_toggled(self, external: bool) -> None:
         """Switches PlaybackEngine between the internal master MidiClock

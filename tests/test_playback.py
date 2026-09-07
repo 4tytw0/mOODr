@@ -1,5 +1,5 @@
 from moodr.midi_io import FULL_VELOCITY
-from moodr.playback import BASS_CHANNEL, CHORD_CHANNEL, TICKS_PER_BAR, PlaybackEngine
+from moodr.playback import ARP_CHANNEL, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, TICKS_PER_BAR, PlaybackEngine
 
 
 class RecordingOutput:
@@ -94,7 +94,10 @@ def test_ticks_short_of_a_full_bar_do_not_advance():
 
     clock.tick(TICKS_PER_BAR - 1)
 
-    assert output.sent == []
+    chord_messages = [m for m in output.sent if m[0] in (0x90 | CHORD_CHANNEL, 0x80 | CHORD_CHANNEL)]
+    bass_messages = [m for m in output.sent if m[0] in (0x90 | BASS_CHANNEL, 0x80 | BASS_CHANNEL)]
+    assert chord_messages == []
+    assert bass_messages == []
 
 
 def test_stop_sends_all_notes_off_and_detaches_from_clock():
@@ -291,3 +294,65 @@ def test_on_loop_complete_can_swap_in_a_new_progression_at_the_boundary():
 
     on_messages = [m for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
     assert [m[1] for m in on_messages[-3:]] == [84, 88, 91]  # the new chord, +12
+
+
+def test_arp_defaults_enabled():
+    output, clock, engine = make_engine()
+    assert engine.arp_enabled is True
+
+
+def test_arp_steps_down_through_chord_notes_at_eighth_note_rate():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    output.sent.clear()
+
+    step_ticks = ARP_RATE_TICKS["1/8"]
+    clock.tick(step_ticks)
+    clock.tick(step_ticks)
+    clock.tick(step_ticks)
+    clock.tick(step_ticks)
+
+    on_notes = [m[1] for m in output.sent if m[0] == 0x90 | ARP_CHANNEL]
+    # descending through [67, 64, 60] (+12 baseline octave), then wraps
+    assert on_notes == [79, 76, 72, 79]
+
+
+def test_arp_turns_off_the_previous_note_before_playing_the_next():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    output.sent.clear()
+
+    step_ticks = ARP_RATE_TICKS["1/8"]
+    clock.tick(step_ticks)
+    clock.tick(step_ticks)
+
+    arp_events = [(m[0], m[1]) for m in output.sent if m[0] in (0x90 | ARP_CHANNEL, 0x80 | ARP_CHANNEL)]
+    assert arp_events == [(0x90 | ARP_CHANNEL, 79), (0x80 | ARP_CHANNEL, 79), (0x90 | ARP_CHANNEL, 76)]
+
+
+def test_disabling_arp_mid_note_immediately_silences_it():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    clock.tick(ARP_RATE_TICKS["1/8"])  # first arp note-on fires
+    output.sent.clear()
+
+    engine.arp_enabled = False
+
+    arp_off = [m[1] for m in output.sent if m[0] == 0x80 | ARP_CHANNEL]
+    assert arp_off == [79]
+
+
+def test_arp_resets_to_the_top_of_the_pattern_on_chord_change():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+    engine.start()
+
+    clock.tick(TICKS_PER_BAR)  # advances to chord 2, resetting the arp pattern
+
+    arp_on = [m[1] for m in output.sent if m[0] == 0x90 | ARP_CHANNEL]
+    # the last arp note-on before/at the bar boundary is chord 2's top note
+    # ([72, 69, 65] descending), not a continuation of chord 1's sequence
+    assert arp_on[-1] == 84

@@ -300,6 +300,26 @@ into the same track to check whether the same fixed offset shows up for non-m00D
       note-on actually turned on, not whatever the live setting is by the time it fires. The
       GUI's checkable "Bass" button wires to this and to the chord-preview buttons (captured
       per-index, same pattern as the octave shift). 5 new tests (63 total).
+- [x] Arpeggiator on its own MIDI channel, with channels reassigned to chords=1, arp=2,
+      bass=3 (previously chords=1, bass=2). `moodr/playback.py` gained `ARP_CHANNEL`,
+      `ARP_RATE_TICKS` (a dict of rate-name -> ticks-per-step, only `"1/8"` used today) and
+      `ARP_PATTERNS`/`_arp_sequence()` (only `"down"` implemented today) so a rate/pattern
+      selector can be added later as GUI dropdowns wired to `PlaybackEngine.arp_rate`/
+      `arp_pattern` attributes, with no engine changes needed. The arp steps through the
+      currently-sounding chord's notes on its own tick subdivision, independent of the
+      once-per-bar chord advance; each new chord resets the pattern to its top rather than
+      continuing mid-sequence. `arp_enabled` (default `True`) is a property mirroring
+      `bass_enabled`: toggling it off mid-note immediately silences the sounding arp note
+      instead of waiting for the next step. The GUI has a checkable "Arp" button (matching
+      Bass's non-expanding sizing, not wired to the chord-preview buttons -- those stay
+      chord+bass only, since arp is a playback-only voice). Verified through the real
+      `MainWindow` (all 3 channels producing distinct note-ons) and headlessly (toggle
+      wiring, chord-preview buttons confirmed arp-free). **Bug found and fixed while
+      building this**: `_turn_off_arp_note()` had a copy-paste line that also cleared
+      `_sounding_position` (the *chord* tracking, not arp's), which caused the chord to
+      silently stop advancing after the arp's second step in initial testing -- caught by a
+      full pytest run showing 5 unrelated-looking failures, not a arp-specific test.
+      5 new tests (68 total).
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity
