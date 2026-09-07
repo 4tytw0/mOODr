@@ -310,6 +310,49 @@ def test_on_loop_complete_can_swap_in_a_new_progression_at_the_boundary():
     assert [m[1] for m in on_messages[-3:]] == [84, 88, 91]  # the new chord, +12
 
 
+def test_set_progression_does_not_reset_position_or_sounding_state():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60], [65], [70], [75]], [48, 53, 58, 63])
+    engine.start()
+    clock.tick(TICKS_PER_BAR * 2)  # 2 bar advances since start()'s own initial one
+
+    engine.set_progression([[60], [65], [70], [75]], [48, 53, 58, 63])
+
+    assert engine.position == 3  # unaffected by set_progression -- not reset to 0
+
+
+def test_late_on_loop_complete_reload_does_not_replay_the_first_chord():
+    """Regression test for a real race condition: on_loop_complete fires as
+    a queued cross-thread Qt signal in the real app, so the GUI's reload
+    can arrive *after* the clock thread has already advanced one or more
+    further bars past the loop boundary that triggered it. Using
+    load_progression() (which resets position to 0) for that reload would
+    rewind an already-advanced position, replaying the first chord an
+    extra time -- exactly the "1 2 3 4 1 1 2 3 4 1" bug a user reported.
+    This simulates the delay explicitly: on_loop_complete only records
+    that a reload was requested, and the test applies it (via
+    set_progression, as the real MainWindow now does) only after ticking
+    an extra bar past the boundary -- mimicking the reload arriving late.
+    """
+    output, clock, engine = make_engine()
+    progression = ([[60], [65], [70], [75]], [48, 53, 58, 63])
+    reload_requested = []
+    engine.on_loop_complete = lambda: reload_requested.append(True)
+    engine.load_progression(*progression)
+    engine.start()
+
+    clock.tick(TICKS_PER_BAR * 4)  # completes one full loop -- on_loop_complete fires
+    assert reload_requested
+    clock.tick(TICKS_PER_BAR)  # the clock advances another bar before the reload "arrives"
+
+    engine.set_progression(*progression)  # the delayed reload finally applies
+    output.sent.clear()
+    clock.tick(TICKS_PER_BAR)
+
+    on_messages = [m[1] for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL]
+    assert on_messages == [82]  # chords[2] (70+12), continuing on -- not a repeat of chord 1
+
+
 def test_arp_note_for_step_up():
     notes = [60, 64, 67]
     assert [_arp_note_for_step(notes, "up", i) for i in range(4)] == [60, 64, 67, 60]

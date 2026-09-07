@@ -359,6 +359,27 @@ into the same track to check whether the same fixed offset shows up for non-m00D
       almost every time, leaking stuck bass notes over a session. Fixed in its own commit
       first, with a regression test confirmed to fail against the reintroduced bug before
       confirming the fix (76 tests at that point, before acid's own 91).
+
+**Bug found and fixed (2026-09-06): a real loop-boundary race condition**, reported by the
+user as the chord progression audibly playing "1 2 3 4 1 1 2 3 4 1" -- chord 1 doubling once
+per cycle. Root cause: `on_loop_complete` (the hook `MainWindow._reload_progression()` uses to
+re-read the numeral/loop-length dropdowns live at each loop boundary) fires as a **queued
+cross-thread Qt signal** in real usage, since the real clock ticks on its own background
+thread and reading `QComboBox` state must stay on the GUI thread. That means the reload can
+arrive *after* the clock thread has already advanced one or more further bars past the
+boundary that triggered it -- and `_reload_progression()` was calling `load_progression()`,
+whose `reset()` unconditionally snapped `position` back to `0`, replaying the first chord.
+Reproduced exactly (byte-for-byte matching the user's reported "1 2 3 4 1 1 2 3 4 1 1"
+sequence) using the real threaded `MidiClock` + real `MainWindow`, after two earlier,
+simpler synchronous-clock tests (which don't have this race at all -- same-thread Qt signals
+are delivered synchronously, not queued) came back clean and didn't reproduce it. Fixed with a
+new `PlaybackEngine.set_progression()` that swaps in new chord/root data without resetting
+position or in-flight sounding-note tracking; `_reload_progression()` now uses it instead of
+`load_progression()` (which remains correct for the initial Play-press load, where a real
+reset is wanted). Verified the fix resolves the real threaded-clock reproduction (clean
+`1,2,3,4,1,2,3,4,...` afterward) and added 2 regression tests -- one of which explicitly
+simulates the delayed-arrival race deterministically and was confirmed to fail against the old
+`load_progression()`-based reload before confirming the fix (93 tests total).
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity

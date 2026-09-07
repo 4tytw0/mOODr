@@ -252,6 +252,22 @@ class PlaybackEngine:
         self._roots = roots
         self.reset()
 
+    def set_progression(self, chords: list[list[int]], roots: list[int]) -> None:
+        """Swaps in new chord/root data WITHOUT resetting playback position
+        or in-flight sounding-note tracking. Use this (not load_progression)
+        from an on_loop_complete callback: that callback is typically a
+        queued cross-thread signal (needed for thread-safe GUI access), so
+        it can arrive after the clock thread has already advanced one or
+        more further bars past the loop boundary that triggered it.
+        load_progression()'s reset() would then snap position back to 0,
+        replaying the first chord an extra time -- this doesn't."""
+        if len(chords) != len(roots):
+            raise ValueError("chords and roots must be the same length")
+        self._chords = chords
+        self._roots = roots
+        if self._chords:
+            self._position %= len(self._chords)
+
     def reset(self) -> None:
         self._position = 0
         self._sounding_position = None

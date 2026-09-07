@@ -357,9 +357,14 @@ class MainWindow(QWidget):
     def _reload_progression(self) -> None:
         """Called by PlaybackEngine right as its loaded progression wraps
         back to its first chord -- re-reads the numeral/loop-length
-        dropdowns live, matching the OLD app's loop-boundary GUI reread."""
+        dropdowns live, matching the OLD app's loop-boundary GUI reread.
+        Uses set_progression(), not load_progression(): this fires via a
+        queued cross-thread signal, so it can arrive after the clock
+        thread has already advanced past the boundary that triggered it --
+        load_progression()'s reset() would then rewind playback position,
+        replaying the first chord an extra time."""
         chords, roots = self._selected_progression()
-        self._engine.load_progression(chords, roots)
+        self._engine.set_progression(chords, roots)
 
     # -- actions -------------------------------------------------------------
 
