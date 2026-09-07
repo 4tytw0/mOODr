@@ -3,6 +3,31 @@
 MIDI chord-progression generator. Tracking the resurrection of the old Kivy/time.sleep()
 implementation into a modern, maintained app while keeping the music-theory core intact.
 
+## Session summary (2026-09-06 → 2026-09-07)
+
+Added three new instrument voices, each on its own MIDI channel, plus on/off toggle buttons
+for all four: **chords** (ch. 1), **arpeggiator** (ch. 2 — with Up/Down/Up-Down/Random
+direction and 1/4-1/8-1/16 rate selectors), **bass** (ch. 3, moved off ch. 2 to make room for
+arp), and an **acid sequencer** (ch. 4 — a locked-in 16-step pattern with a Noise slider for
+rests/pitch deviation, a Wide/Narrow deviation toggle, and a Randomize button, per user
+request). Also added a live octave-shift control, MIDI clock **slave** mode (m00Dr can follow
+Ableton's own clock instead of only generating one), and a UI pass (bigger buttons, a
+resizable window). Three real bugs were found and fixed along the way: a Qt thread-safety
+violation (GUI state read off the GUI thread), an arp/bass sounding-state tracking cross-wire,
+and a loop-boundary race condition that doubled the first chord every cycle (user-reported as
+"1 2 3 4 1 1 2 3 4 1", reproduced byte-for-byte with the real threaded clock before fixing).
+Full details for each are under their Phase 6 entries below. Running total: **97 tests, all
+passing** (`uv run pytest`).
+
+**Open for next time** (stretch goals, no particular priority set):
+- Ableton Link support as an alternative to raw MIDI clock (needs a new dependency, `abl_link`)
+- Save/load chord progressions and settings
+- Additional modes beyond Major/Minor/Byzantine/snhtri
+- Swing/humanization on note *timing* (velocity humanization already exists)
+- GUI control for MIDI port selection (currently always the default virtual port)
+- A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
+- A top menu bar to hold lesser-used settings, decluttering the main window
+
 ## Source files
 
 | File | Status | Role |
