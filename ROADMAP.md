@@ -35,6 +35,7 @@ passing** (`uv run pytest`).
 | `archive/OLD mOODr_app.py` | reference only, do not extend | Full working logic: MIDI I/O, chord generation, playback loop, Kivy App class |
 | `archive/OLD mOODr_Kivy_app.kv` | reference only, being replaced | Kivy UI layout |
 | `moodr/app.py` | the real app (Phase 4) | PySide6 `MainWindow`, wired to `moodr/theory.py` + `moodr/clock.py` + `moodr/playback.py` |
+| `moodr/midi_status.py` | Phase 6 | Non-Qt MIDI service status/reset (port listing, `MIDIServer` reset on macOS); `app.py`'s `MidiStatusDialog` is the Qt view onto it |
 | `main.py` | entry point | `uv run python main.py` launches the real app (also runnable as `uv run python -m moodr`) |
 
 ## What we're keeping as-is
@@ -410,6 +411,81 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
       behavior as the others. The GUI's "Chords" button also gates the chord-preview buttons
       (per-index captured, same pattern as Bass/octave there), matching how Bass already did.
       4 new tests (97 total).
+- [x] Channel reassignment (2026-09-19, for M8 hardware use): chords stay ch1, but
+      **bass = ch2** (was ch3), **arp = ch3** (was ch2), **acid = ch5** (was ch4, ch4 left
+      unused) — `moodr/playback.py`'s `CHORD_CHANNEL`/`BASS_CHANNEL`/`ARP_CHANNEL`/
+      `ACID_CHANNEL`. Found and fixed a real conflict while making this change: bumping
+      `ARP_CHANNEL` to channel 3 collided with `BASS_CHANNEL`'s old default (also channel 3)
+      whenever the "Bass→Ch2" toggle was left off (its default state) — fixed by moving
+      `BASS_CHANNEL`'s own default to channel 2 rather than relying on that toggle, so the
+      new channel map holds with no extra step. That leaves the "Bass→Ch2" toggle currently a
+      no-op (kept in place in case a future Circuit-specific map diverges from this default
+      again — see its updated tooltip/comment in `app.py`). All 97 existing tests still pass
+      unmodified (they reference the channel constants symbolically, not literal numbers).
+- [x] MIDI Status dialog + MIDI service reset. `moodr/midi_status.py` (no Qt dependency,
+      same split as `clock.py`/`midi_io.py`): `list_ports()` and `reset_midi_server()` (kills
+      macOS's CoreMIDI `MIDIServer`; a no-op returning `False` on other platforms). `app.py`'s
+      new `MidiStatusDialog` (opened via a "MIDI Status" button in the performance row) shows
+      live input/output port lists and whether this app's own expected ports ("m00Dr", and
+      "m00Dr In" if external clock sync has ever been enabled) are currently present, plus a
+      "Reset MIDI Server" button. `MainWindow._on_reset_midi_server` does the real work: resets
+      the service, then reopens this app's own ports on it (a MIDIServer reset invalidates
+      every virtual port open in *any* process, not just this one — the slave clock is
+      stopped/reopened/restarted through its normal lifecycle methods rather than by touching
+      its MIDI input directly, so it re-subscribes its callback correctly). Does **not** and
+      cannot restart other MIDI apps/bridges on the same machine; the dialog's tooltip says so.
+      Verified headlessly: constructing the dialog, refreshing its port lists, and — with
+      `reset_midi_server()` mocked out so the test doesn't kill the real service — driving
+      `_on_reset_midi_server()` end-to-end with external clock sync active beforehand,
+      confirming the output port, the slave input port, and the slave clock's running state
+      all come back correctly afterward. 3 new tests for `midi_status.py` (100 total); the
+      dialog/reset-flow itself isn't in the permanent suite, following this project's existing
+      practice of verifying `MainWindow`-level Qt behavior via headless one-off runs rather
+      than a committed `test_app.py`.
+- [x] Removed the "ticks: N" and chord-preview status-line debug labels from the main window
+      (`tick_label`/`status_label`, plus the now-unused `TickSignal` class and its
+      add/remove_tick_callback wiring in `_on_sync_mode_toggled` -- nothing else consumed tick
+      events once the label was gone). `PlaybackEngine`'s own internal `_on_tick` (its
+      scheduling logic, not the GUI's) is untouched.
+- [x] "Open M8 UI" + "Change..." buttons on the MIDI Status dialog, to launch the M8 display
+      client (m8c) alongside m00Dr. Since this repo is public and m8c's install location is
+      per-machine, the path isn't hardcoded: the first click prompts via `QFileDialog`
+      (`.app` bundles selectable on macOS) and remembers the choice in `QSettings`
+      (`org="m00Dr", app="m00Dr"`, key `m8_ui_path`); later clicks launch directly, and
+      re-prompt automatically if the remembered path no longer exists. Verified headlessly
+      with `QSettings` repointed at a scratch ini file and both `QFileDialog.getOpenFileName`
+      and `subprocess.Popen` mocked: first click prompts and launches (`open <path>.app` on
+      macOS, the raw executable otherwise) and persists the choice; a second click launches
+      directly with no re-prompt.
+
+      **Bug found and fixed same day**: reported as "Open M8 UI opens a Finder window, not
+      m8c" — native file-dialog handling of `.app` bundles isn't fully reliable across
+      Qt/macOS versions, so a user can end up selecting something *inside* the bundle (or a
+      plain folder) instead of the bundle itself; the un-resolved path then didn't end in
+      `.app`, and `open`-ing a plain folder is exactly what shows a Finder window instead of
+      erroring. Fixed with `midi_status.resolve_app_bundle()` (moved there from `app.py`
+      since it's pure path logic, no Qt needed, same split as everything else in that
+      module): climbs back out to the nearest `.app` ancestor if the picked path is inside
+      one, otherwise leaves it unchanged. `_launch_m8_ui` also now explicitly rejects a plain
+      folder with a clear warning dialog instead of silently calling `open` on it. 3 new
+      tests for `resolve_app_bundle()` (103 total); verified headlessly end-to-end for both
+      the "picked something inside the bundle" case (resolves and launches correctly) and
+      the "cached path is a plain folder" case (warns instead of opening Finder).
+
+      **That fix didn't resolve the real report, though** — still "opens a Finder window"
+      after a fresh restart. The actual root cause was one level up: `QSettings(SETTINGS_ORG,
+      SETTINGS_APP)` on macOS defaults to NativeFormat, i.e. CFPreferences/NSUserDefaults,
+      which needs the process to be a properly registered app bundle to persist reliably. A
+      bare `uv run python main.py` process isn't one — confirmed directly with `defaults read
+      com.m00dr.m00Dr`, which reported the domain not existing at all despite the app calling
+      `setValue()`. So the remembered path was never actually being read back, meaning
+      `_on_open_m8_ui_clicked` likely fell through to the file-picker prompt on *every*
+      click, not just the first — which is what probably looked like "a Finder window"
+      opening. Fixed by forcing `QSettings.IniFormat` (a new `_m8_ui_settings()` helper) so
+      the M8 UI path is stored in a plain, inspectable `.ini` file under Qt's per-user config
+      dir instead of the OS-native store; confirmed the value now round-trips correctly
+      across separate process runs, including checking the file's actual on-disk contents
+      directly (not just Qt's own read-back).
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity

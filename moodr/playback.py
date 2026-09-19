@@ -14,9 +14,9 @@ BEATS_PER_BAR = 4  # the OLD app treats one "bar" as a whole note (4 beats)
 TICKS_PER_BAR = PPQN * BEATS_PER_BAR
 
 CHORD_CHANNEL = 0  # MIDI channel 1
-ARP_CHANNEL = 1  # MIDI channel 2
-BASS_CHANNEL = 2  # MIDI channel 3
-ACID_CHANNEL = 3  # MIDI channel 4
+BASS_CHANNEL = 1  # MIDI channel 2
+ARP_CHANNEL = 2  # MIDI channel 3
+ACID_CHANNEL = 4  # MIDI channel 5
 
 # Ticks-per-step for each supported arp rate (24 PPQN).
 ARP_RATE_TICKS = {
@@ -27,6 +27,13 @@ ARP_RATE_TICKS = {
 
 # Supported arp patterns/directions.
 ARP_PATTERNS = ("up", "down", "up_down", "random")
+
+# House-style off-beat chord stabs: the full chord retriggers as a short
+# punchy hit on the "and" of each beat (4 stabs per bar) instead of
+# sustaining continuously -- e.g. Robin S "Show Me Love"-style piano.
+# Gate length is a 16th note: short enough to breathe before the next
+# stab even at the fastest 1/16 arp rate shares ticks with.
+STAB_GATE_TICKS = PPQN // 4
 
 # Acid sequencer: a locked-in 16-step pattern, one step per 16th note, so
 # a full pattern is exactly one bar long (16 * 6 ticks = 96 = TICKS_PER_BAR).
@@ -123,6 +130,16 @@ class PlaybackEngine:
         self._chords_enabled = True
         self._sounding_bass_enabled = False
         self._bass_enabled = True
+        # Off-beat stab state: same "always turn off what was last played
+        # before playing the next one, or immediately on mute" shape as the
+        # arp/acid state below, but retriggering the whole sounding chord
+        # (all its notes) rather than one note at a time, only on the
+        # offbeat ticks -- see _advance_stab(). Takes effect at the next
+        # bar boundary when toggled, same as arp_pattern/arp_rate changes.
+        self._stab_enabled = False
+        self._sounding_stab_notes: list[int] | None = None
+        self._sounding_stab_octave_shift = 0
+        self._stab_ticks_since_on = 0
         # Arp state: steps through the currently-sounding chord's notes on
         # its own tick subdivision (independent of the once-per-bar chord
         # advance), always turning off whatever note it last played before
@@ -192,6 +209,22 @@ class PlaybackEngine:
                     self._rng, self.humanize_velocity, self._sounding_octave_shift):
                 self._midi_output.send(message)
             self._sounding_chords_enabled = False
+        if not value:
+            self._turn_off_stab()
+
+    @property
+    def stab_enabled(self) -> bool:
+        return self._stab_enabled
+
+    @stab_enabled.setter
+    def stab_enabled(self, value: bool) -> None:
+        if value == self._stab_enabled:
+            return
+        self._stab_enabled = value
+        if not value:
+            # A mute toggle should mute right away, not wait for the next
+            # offbeat -- same reasoning as arp_enabled/acid_enabled above.
+            self._turn_off_stab()
 
     @property
     def bass_enabled(self) -> bool:
@@ -210,6 +243,43 @@ class PlaybackEngine:
                 0x80 | self._bass_channel, self._roots, self._sounding_position,
                 self._sounding_octave_shift))
             self._sounding_bass_enabled = False
+
+    @property
+    def chord_channel(self) -> int:
+        return self._chord_channel
+
+    @chord_channel.setter
+    def chord_channel(self, value: int) -> None:
+        if value == self._chord_channel:
+            return
+        # Silence whatever's currently sounding on the old channel (regular
+        # sustain or stab hits) before switching -- otherwise a note turned
+        # on pre-switch would get its note-off sent on the *new* channel
+        # instead, leaving the real one stuck sounding. Same reasoning as
+        # chords_enabled's setter above.
+        if self._sounding_chords_enabled and self._sounding_position is not None:
+            for message in midi_io.midi_message_gen(
+                    0x80 | self._chord_channel, self._chords, self._sounding_position,
+                    self._rng, self.humanize_velocity, self._sounding_octave_shift):
+                self._midi_output.send(message)
+            self._sounding_chords_enabled = False
+        self._turn_off_stab()
+        self._chord_channel = value
+
+    @property
+    def bass_channel(self) -> int:
+        return self._bass_channel
+
+    @bass_channel.setter
+    def bass_channel(self, value: int) -> None:
+        if value == self._bass_channel:
+            return
+        if self._sounding_bass_enabled and self._sounding_position is not None:
+            self._midi_output.send(midi_io.bass_message_gen(
+                    0x80 | self._bass_channel, self._roots, self._sounding_position,
+                    self._sounding_octave_shift))
+            self._sounding_bass_enabled = False
+        self._bass_channel = value
 
     @property
     def arp_enabled(self) -> bool:
@@ -299,6 +369,8 @@ class PlaybackEngine:
         self._arp_ticks_since_step = 0
         self._arp_step_index = 0
         self._sounding_arp_note = None
+        self._sounding_stab_notes = None
+        self._stab_ticks_since_on = 0
 
     def start(self) -> None:
         if self._playing or not self._chords:
@@ -327,6 +399,7 @@ class PlaybackEngine:
         self._sounding_bass_enabled = False
         self._sounding_arp_note = None
         self._sounding_acid_note = None
+        self._sounding_stab_notes = None
 
     def _on_tick(self, tick: int) -> None:
         self._ticks_since_advance += 1
@@ -344,6 +417,11 @@ class PlaybackEngine:
             self._arp_ticks_since_step = 0
             self._advance_arp_step()
 
+        if self._chords_enabled and self._stab_enabled:
+            self._advance_stab()
+        elif self._sounding_stab_notes is not None:
+            self._turn_off_stab()
+
     def _advance(self) -> None:
         looped_back = self._position == 0 and self._sounding_position is not None
         self._turn_off_sounding()
@@ -351,7 +429,11 @@ class PlaybackEngine:
             self.on_loop_complete()
 
         octave_shift = self.octave_shift
-        if self._chords_enabled:
+        # While stab mode is on, the chord voice is driven entirely by
+        # _advance_stab()'s offbeat retriggers instead of one continuous
+        # sustained note-on -- sending both would double-trigger the same
+        # notes on the same channel.
+        if self._chords_enabled and not self._stab_enabled:
             for message in midi_io.midi_message_gen(
                     0x90 | self._chord_channel, self._chords, self._position,
                     self._rng, self.humanize_velocity, octave_shift):
@@ -362,7 +444,7 @@ class PlaybackEngine:
 
         self._sounding_position = self._position
         self._sounding_octave_shift = octave_shift
-        self._sounding_chords_enabled = self._chords_enabled
+        self._sounding_chords_enabled = self._chords_enabled and not self._stab_enabled
         self._sounding_bass_enabled = self._bass_enabled
         # Each new chord's arp restarts its pattern from the top, rather
         # than continuing mid-sequence from the previous chord.
@@ -410,6 +492,44 @@ class PlaybackEngine:
             self.humanize_velocity, self._sounding_arp_octave_shift)[0]
         self._midi_output.send(message)
         self._sounding_arp_note = None
+
+    def _advance_stab(self) -> None:
+        """Offbeat chord-stab step, called every tick while stab mode is on
+        (see _on_tick). Retriggers the whole sounding chord for a short,
+        punchy STAB_GATE_TICKS-long gate on each beat's offbeat (halfway
+        through every PPQN-tick beat -- 4 stabs per TICKS_PER_BAR-tick bar),
+        and turns it back off once that gate elapses."""
+        tick_in_beat = self._ticks_since_advance % PPQN
+        if tick_in_beat == PPQN // 2:
+            self._turn_off_stab()
+            if self._sounding_position is None:
+                return
+            chord_notes = self._chords[self._sounding_position]
+            if not chord_notes:
+                return
+            octave_shift = self.octave_shift
+            for message in midi_io.midi_message_gen(
+                    0x90 | self._chord_channel, self._chords, self._sounding_position,
+                    self._rng, self.humanize_velocity, octave_shift):
+                self._midi_output.send(message)
+            self._sounding_stab_notes = chord_notes
+            self._sounding_stab_octave_shift = octave_shift
+            self._stab_ticks_since_on = 0
+            return
+
+        if self._sounding_stab_notes is not None:
+            self._stab_ticks_since_on += 1
+            if self._stab_ticks_since_on >= STAB_GATE_TICKS:
+                self._turn_off_stab()
+
+    def _turn_off_stab(self) -> None:
+        if self._sounding_stab_notes is None:
+            return
+        for message in midi_io.midi_message_gen(
+                0x80 | self._chord_channel, [self._sounding_stab_notes], 0,
+                self._rng, self.humanize_velocity, self._sounding_stab_octave_shift):
+            self._midi_output.send(message)
+        self._sounding_stab_notes = None
 
     def _advance_acid_step(self) -> None:
         self._turn_off_acid_note()
