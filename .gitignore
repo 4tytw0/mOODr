@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 .pytest_cache/
 *.egg-info/
+
+# m8-project-gen (Node): dependencies and generated output, not source
+node_modules/
+m8-project-gen/*.m8s
