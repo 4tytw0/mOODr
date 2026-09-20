@@ -58,6 +58,11 @@ M8_UI_PATH_SETTING = "m8_ui_path"
 # failing to come back in real use (see MainWindow._on_reset_midi_server).
 RESET_SETTLE_SECONDS = 0.5
 
+# How often MidiStatusDialog rescans the process table for bridges started
+# outside this app. Slower than the 1s uptime-label tick because a scan
+# shells out to `ps` and reads every process on the machine.
+BRIDGE_SCAN_INTERVAL_MS = 3000
+
 
 def _m8_ui_settings() -> QSettings:
     """A QSettings instance for the M8 UI path, forced onto IniFormat
@@ -343,9 +348,11 @@ class MidiStatusDialog(QDialog):
                 _grow(status_label)
                 button = QPushButton()
                 button.setToolTip(
-                    "Only bridges started through this dialog are tracked here -- one "
-                    "already running in its own terminal is invisible to this app until "
-                    "restarted through here instead.")
+                    "Restart covers bridges started in their own terminal too, not just "
+                    "ones launched from here: m00Dr finds them in the process table, stops "
+                    "them, and starts a fresh copy it owns. A bridge can survive a MIDI "
+                    "server reset without crashing and still hold a dead connection, so "
+                    "restarting it is often the actual fix.")
                 _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
                 button.clicked.connect(lambda _checked=False, b=bridge: self._on_bridge_clicked(b))
                 self._bridge_status_labels[bridge.name] = status_label
@@ -356,11 +363,17 @@ class MidiStatusDialog(QDialog):
                 layout.addLayout(row)
             self._refresh_bridge_buttons()
             # Ticks the uptime text live without re-querying CoreMIDI every
-            # second the way a full refresh() would -- this only touches
-            # the bridges' own in-process state.
+            # second the way a full refresh() would -- this only reads the
+            # bridges' already-known state.
             self._bridge_tick_timer = QTimer(self)
             self._bridge_tick_timer.timeout.connect(self._refresh_bridge_labels)
             self._bridge_tick_timer.start(1000)
+            # Finding externally-started bridges means scanning the whole
+            # process table (~30ms), so it runs on its own slower timer
+            # rather than every second alongside the cheap label tick.
+            self._bridge_scan_timer = QTimer(self)
+            self._bridge_scan_timer.timeout.connect(self._rescan_bridges)
+            self._bridge_scan_timer.start(BRIDGE_SCAN_INTERVAL_MS)
 
         layout.addWidget(close_button)
 
@@ -384,11 +397,20 @@ class MidiStatusDialog(QDialog):
             parts.append(f'"{self._own_input_name}" (clock sync in): '
                          f'{"found" if found else "MISSING"}')
         self.own_ports_label.setText(" | ".join(parts))
-        self._refresh_bridge_labels()
+        if self._bridges:
+            self._rescan_bridges()
 
     def _refresh_bridge_labels(self) -> None:
         for bridge in self._bridges:
             self._bridge_status_labels[bridge.name].setText(bridge_manager.format_status(bridge))
+
+    def _rescan_bridges(self) -> None:
+        """Re-reads which bridges are running anywhere on the machine, so
+        one started (or quit) in a terminal shows up here without the
+        dialog being reopened."""
+        bridge_manager.refresh_all(self._bridges)
+        self._refresh_bridge_labels()
+        self._refresh_bridge_buttons()
 
     def _refresh_bridge_buttons(self) -> None:
         for bridge in self._bridges:
@@ -1092,15 +1114,23 @@ class MainWindow(QWidget):
         rather than failing fast. Moved onto a background thread instead of
         adding yet another synchronous retry.
 
-        Also restarts any of this app's *own* managed bridges (see
-        bridge_manager.py) that were running before the reset -- found in
-        real use that a long-lived bridge process can survive a MIDIServer
-        reset without crashing, yet still end up with a permanently stale
-        CoreMIDI connection of its own (confirmed: its log showed zero
-        successful reconnects for nearly an hour, while a brand new process
-        queried at the same moment saw the port it was looking for just
-        fine). A bridge process not crashing was never proof it was
-        healthy."""
+        Also restarts every bridge that was running before the reset --
+        found in real use that a long-lived bridge process can survive a
+        MIDIServer reset without crashing, yet still end up with a
+        permanently stale CoreMIDI connection of its own (confirmed: its
+        log showed zero successful reconnects for nearly an hour, while a
+        brand new process queried at the same moment saw the port it was
+        looking for just fine). A bridge process not crashing was never
+        proof it was healthy.
+
+        That restart now reaches bridges started *outside* this app (the
+        way M8-SETUP.md tells you to run them, in their own terminal), not
+        just ones launched from the dialog -- which is the case that
+        mattered most, since the untouchable bridge was exactly the one
+        likely to have been running long enough to go stale. The scan
+        happens after the MIDIServer reset so it also catches a bridge that
+        crashed as a result of it, rather than restarting a process that is
+        about to die."""
         midi_status.reset_midi_server()
         time.sleep(RESET_SETTLE_SECONDS)
 
@@ -1120,6 +1150,11 @@ class MainWindow(QWidget):
             if was_running:
                 self._slave_clock.start()
 
+        # The dialog's own timer may be scanning on the GUI thread at the
+        # same moment. Both only assign whole values to _external/_process,
+        # so the worst case is the dialog briefly showing pre-restart state
+        # and correcting itself on its next tick.
+        bridge_manager.refresh_all(self._bridges)
         for bridge in self._bridges:
             if bridge.is_running:
                 bridge.restart()

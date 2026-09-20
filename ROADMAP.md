@@ -548,7 +548,8 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
       dialog: **only a bridge started through this dialog is tracked** -- one already running
       in its own terminal (how these scripts were run all session, including the one that went
       stale) is invisible to this app until restarted through here instead; there's no way to
-      discover or adopt a process this app didn't start itself. 10 new tests
+      discover or adopt a process this app didn't start itself. **(Lifted 2026-09-20 --
+      see "Reset bridges started outside m00Dr" below.)** 10 new tests
       (`tests/test_bridge_manager.py`, 113 total) against a real harmless sleep-script
       subprocess, not mocks -- start/is_running/uptime, stop actually terminates the OS process
       (checked via `os.kill(pid, 0)` raising `ProcessLookupError`), restart replaces the PID and
@@ -609,6 +610,48 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
         the threaded-clock run still walks the highlight 0→1→2→3→0, and screenshots were taken
         at the new minimum (nothing overlapping or clipped), at the new default, and in a
         forced light palette.
+- [x] **Reset bridges started outside m00Dr** (2026-09-20), asked for as "can we make m00Dr
+      able to reset the midi bridge on the desktop?". Lifts the limitation logged above: until
+      now only a bridge *launched from the dialog* could be restarted, while M8-SETUP.md tells
+      you to run them in their own terminal — so the one process most likely to have been up
+      long enough to go stale was exactly the one the app could not touch, and "Restart" would
+      have cheerfully started a second copy fighting it for the same ports.
+      - `bridge_manager.scan_processes()` reads the whole process table in one `ps` call
+        (`pid,ppid,etime,command`); `ManagedBridge.refresh_external()` picks out copies of its
+        own script. `is_running` is now "running at all, whoever started it", which is what
+        lets `start()` refuse to create a duplicate, and `stop()`/`restart()` SIGTERM then
+        SIGKILL external processes (polling with signal 0, since they aren't children and
+        there's no `waitpid` to call). `restart()` hands ownership to the app.
+      - **The matching rule is the whole safety story here, and the first version was
+        dangerous.** Matching "python" and the script name anywhere in the command line looked
+        reasonable and was not: it also matches a shell running a one-liner that merely
+        mentions both. This was found the hard way — the test run killed its own shell, twice,
+        because the harness executes commands as `zsh -c '<script>'` and the script text
+        contained both strings. An editor holding the file open or a `tail` of its log would
+        have gone the same way. The rule now tests **argv[0] specifically**: the process must
+        *be* a Python interpreter with the script among its arguments, or the script itself for
+        a shebang launch. `ancestor_pids()` adds a second layer, excluding this process and
+        everything up its ppid chain, so a bridge can never resolve to the terminal or IDE that
+        launched m00Dr.
+      - `uv run python -u <script>` is two processes: the `uv` wrapper (argv[0] "uv", not
+        matched) and the interpreter it spawns (matched). Verified that killing the interpreter
+        takes the wrapper with it, so nothing is left behind.
+      - The dialog rescans on its own 3s timer rather than the 1s uptime tick, because a scan
+        shells out to `ps` and reads ~900 processes (~30ms). Status reads "Running since
+        13:42:05 (3s) (outside m00Dr)" for one the app didn't start. "Reset MIDI Server" now
+        rescans and restarts those too — the case that actually mattered — after the server
+        reset rather than before, so it also catches a bridge the reset itself killed.
+      - The two Circuit bridge scripts were added to `KNOWN_BRIDGE_SCRIPTS` alongside the M8
+        pair, since `discover_bridges()` already skips scripts that don't exist and there was
+        no reason the Circuit rig couldn't be managed the same way.
+      - 14 new tests (137 total): etime parsing in all four ps formats, the matcher against
+        real launch shapes *and* against the shell/editor/tail false positives that motivated
+        it, ancestor walking including a ppid cycle, and end-to-end against genuinely orphaned
+        processes (spawned via a shell that exits, so they are not children of the test — a
+        killed child that nobody reaps stays a zombie and still answers signal 0, which would
+        have made the kill look like it worked when it hadn't). Plus a 13-check script driving
+        the real dialog against the real `moodr_to_m8_bridge.py` launched the documented way.
+
 - [ ] UI/UX pass 3, what pass 2/2b left: the rows still have no labels, so "E"/"Minor 7",
       the BPM field and the loop-length box are unlabelled (captions over the selector blocks
       would also make the empty space to the right of the key/scale row read as deliberate
