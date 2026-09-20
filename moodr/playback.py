@@ -97,7 +97,8 @@ class PlaybackEngine:
     def __init__(self, midi_output, clock, chord_channel: int = CHORD_CHANNEL,
                  bass_channel: int = BASS_CHANNEL, arp_channel: int = ARP_CHANNEL,
                  acid_channel: int = ACID_CHANNEL, rng: random.Random | None = None,
-                 on_loop_complete: Callable[[], None] | None = None):
+                 on_loop_complete: Callable[[], None] | None = None,
+                 on_chord_change: Callable[[int | None], None] | None = None):
         self._midi_output = midi_output
         self._clock = clock
         self._chord_channel = chord_channel
@@ -176,6 +177,15 @@ class PlaybackEngine:
         # boundary, matching the OLD app's live-GUI-reread-at-loop-boundary
         # behavior without this engine needing to know about GUI state.
         self.on_loop_complete = on_loop_complete
+        # Fires with the progression index of each chord as it starts
+        # sounding, and with None once nothing is sounding any more
+        # (stop()) -- lets a caller show which chord is currently playing
+        # without polling. Purely informational: it is called after the
+        # chord's note-ons have already been sent, so a slow or throwing
+        # callback can't delay or break playback timing. Like every other
+        # engine callback it runs on the clock's thread, so a GUI caller
+        # must marshal it onto the GUI thread (see app.py EngineSignals).
+        self.on_chord_change = on_chord_change
         # True (default): randomize each chord note's velocity (72-108) for
         # a touch of human feel, as the OLD app always did. False: every
         # chord note at full velocity. Freely toggleable during playback.
@@ -400,6 +410,8 @@ class PlaybackEngine:
         self._sounding_arp_note = None
         self._sounding_acid_note = None
         self._sounding_stab_notes = None
+        if self.on_chord_change is not None:
+            self.on_chord_change(None)
 
     def _on_tick(self, tick: int) -> None:
         self._ticks_since_advance += 1
@@ -450,6 +462,8 @@ class PlaybackEngine:
         # than continuing mid-sequence from the previous chord.
         self._arp_step_index = 0
         self._position = (self._position + 1) % len(self._chords)
+        if self.on_chord_change is not None:
+            self.on_chord_change(self._sounding_position)
 
     def _turn_off_sounding(self) -> None:
         if self._sounding_position is None:

@@ -189,3 +189,49 @@ def root_mode_to_midi_chord(roots, backend_list, sel_key):
         progression_index += 1
         func_list.append(func_item)
     return func_list
+
+
+# Chord-quality suffixes, keyed by (is_seventh, quality). The qualities
+# here are exactly the three branches root_mode_to_midi_chord() picks
+# between, in the same order, so a displayed name can never describe a
+# different chord than the notes actually being sent.
+CHORD_NAME_SUFFIXES = {
+    ("major", False): "",
+    ("major", True): "maj7",
+    ("dim", False): "°",       # root, +3, +6  -- diminished triad
+    ("dim", True): "m7b5",          # root, +3, +6, +10 -- half-diminished
+    ("minor", False): "m",
+    ("minor", True): "m7",
+}
+
+
+def chord_quality(determined_mode):
+    """The chord quality root_mode_to_midi_chord() will build for a
+    `from_midi_conversion` entry such as 'ei', 'GIII' or 'f#ii°'.
+
+    The branch order (uppercase, then °, then lowercase) mirrors
+    root_mode_to_midi_chord() deliberately, including its quirk that
+    Byzantine's 'VII°' is caught by the uppercase test first and so gets a
+    *major* chord rather than a diminished one -- `'VII°'.isupper()` is
+    True because '°' is uncased. Naming it any other way would label that
+    chord as something the app doesn't actually play."""
+    if determined_mode.isupper():
+        return "major"
+    elif "°" in determined_mode:
+        return "dim"
+    elif determined_mode.islower():
+        return "minor"
+    return "major"
+
+
+def chord_names(roots, backend_list, sel_key):
+    """Human-readable chord names ('Em7', 'F#m7b5', 'Gmaj7') parallel to
+    root_mode_to_midi_chord()'s output, for display next to each scale
+    degree's roman numeral. Takes the same three arguments as that
+    function and derives quality the same way, so the two stay in step."""
+    seventh = "7" in sel_key
+    names = []
+    for root, determined_mode in zip(roots, backend_list):
+        quality = chord_quality(determined_mode)
+        names.append(midi_int_to_note(root) + CHORD_NAME_SUFFIXES[(quality, seventh)])
+    return names

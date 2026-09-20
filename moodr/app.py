@@ -14,12 +14,14 @@ import threading
 import time
 
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -33,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import bridge_manager, midi_io, midi_status, theory
+from . import bridge_manager, midi_io, midi_status, theme, theory
 from .clock import MidiClock, MidiClockSlave
 from .playback import ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, PlaybackEngine
 
@@ -96,13 +98,39 @@ DEFAULT_ACID_NOISE_PERCENT = 25
 CIRCUIT_CHORD_CHANNEL = CHORD_CHANNEL  # unchanged: ch1 (Synth 1) was already correct
 CIRCUIT_BASS_CHANNEL = 1  # MIDI channel 2 (Synth 2)
 
-DEFAULT_WINDOW_SIZE = (960, 560)
-MINIMUM_WINDOW_SIZE = (720, 420)
+CONTENT_MARGIN = 14
+# The floor is the layout's own reported minimum (802x522 with the taller
+# selectors) plus a little slack, rather than a guess. The previous 720x420
+# was already smaller than the layout needed even before the selectors grew
+# -- at 720 the performance row's "Bass->Ch2" and "MIDI Status" buttons were
+# clipped -- and at the new selector height the rows overlapped outright.
+MINIMUM_WINDOW_SIZE = (820, 540)
+# Enough headroom above that floor for the chord pads to actually reach
+# their CHORD_BUTTON_MAX_HEIGHT rather than sitting pinned at their minimum.
+DEFAULT_WINDOW_SIZE = (1000, 680)
 CONTROL_HEIGHT = 36
 PRIMARY_BUTTON_HEIGHT = 48
 PRIMARY_BUTTON_MAX_HEIGHT = 72
-CHORD_BUTTON_MIN_HEIGHT = 72
-CHORD_BUTTON_MAX_HEIGHT = 120
+CHORD_BUTTON_MIN_HEIGHT = 84
+CHORD_BUTTON_MAX_HEIGHT = 130
+# How visible a progression slot the loop length doesn't reach stays. Dim
+# enough to read as "not in play", not so dim it can't be pre-set.
+INACTIVE_SLOT_OPACITY = 0.35
+# The key/scale/progression dropdowns stretched the full window width at
+# Qt's default 36px height -- a ~12:1 ribbon each. Capping their width and
+# raising their height turns them into compact blocks instead. (The height
+# only takes effect because theme.py styles QComboBox: macOS's native
+# combo bezel ignores the height it's given.)
+SELECTOR_HEIGHT = 72
+SELECTOR_SPACING = 8
+# Everything in a combo box that isn't the text: theme.py's 12px padding
+# either side, its 22px drop-down, and a few px of slack.
+COMBO_CHROME_WIDTH = 52
+# Wide enough for three digits and a cursor, no wider.
+BPM_FIELD_WIDTH = 96
+# Separator between a numeral and its chord name in the progression
+# dropdowns ("i · Em7").
+NUMERAL_NAME_SEPARATOR = "  ·  "
 CONTROL_POINT_SIZE = 11
 PRIMARY_POINT_SIZE = 14
 
@@ -124,17 +152,51 @@ def _grow(widget, min_height: int = CONTROL_HEIGHT, point_size: int = CONTROL_PO
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
 
+def _row_width_limit(count: int, spacing: int = SELECTOR_SPACING) -> int:
+    """The widest each of `count` fixed-width widgets can be and still fit
+    a row at the *minimum* window size. Without this ceiling a fixed width
+    chosen to fit the text would simply overflow a narrow window, since a
+    fixed-width widget can't shrink."""
+    usable = MINIMUM_WINDOW_SIZE[0] - 2 * CONTENT_MARGIN - (count - 1) * spacing
+    return usable // count
+
+
+
+def _fit_width(widget, texts, limit: int) -> int:
+    """The width `widget` needs for the widest of `texts`, capped at
+    `limit`. Measured rather than hardcoded so adding a mode, or changing
+    how chord names are spelled, can't silently start eliding text."""
+    metrics = QFontMetrics(widget.font())
+    widest = max((metrics.horizontalAdvance(text) for text in texts), default=0)
+    return min(widest + COMBO_CHROME_WIDTH, limit)
+
+
 def generate_full_scale(key: str, mode: str):
-    """The full scale-degree chord list, MIDI roots, and numeral labels
-    for a key/mode -- composed from the Phase 1 theory module's pure
-    conversion functions."""
+    """The full scale-degree chord list, MIDI roots, numeral labels, and
+    readable chord names for a key/mode -- composed from the Phase 1
+    theory module's pure conversion functions."""
     mode_intervals = theory.determine_mode(mode)
     root = theory.note_to_midi_int(key) + 48
     midi_roots = theory.to_midi_conversion(root, mode_intervals)
     backend_notenumeral = theory.from_midi_conversion(midi_roots, mode_intervals)
     chords = theory.root_mode_to_midi_chord(midi_roots, backend_notenumeral, mode)
     numerals = list(mode_intervals.keys())
-    return chords, midi_roots, numerals
+    names = theory.chord_names(midi_roots, backend_notenumeral, mode)
+    return chords, midi_roots, numerals, names
+
+
+def all_slot_labels() -> list[str]:
+    """Every label a progression slot can ever show, across all keys and
+    modes. The slots are sized against this whole set, not against the
+    current key/mode, so that switching key or mode doesn't resize the row
+    underneath the pointer."""
+    labels = []
+    for mode in theory.Modes:
+        for key in theory.Note_Dict:
+            _, _, numerals, names = generate_full_scale(key, mode)
+            labels.extend(f"{numeral}{NUMERAL_NAME_SEPARATOR}{name}"
+                          for numeral, name in zip(numerals, names))
+    return labels
 
 
 class EngineSignals(QObject):
@@ -148,6 +210,10 @@ class EngineSignals(QObject):
     looped = Signal()
     external_start = Signal()
     external_stop = Signal()
+    # The progression index of the chord that just started sounding, or -1
+    # for "nothing is sounding". -1 rather than None because Signal(int)
+    # can't carry None, and an Optional signal type would buy nothing here.
+    chord_changed = Signal(int)
 
 
 class MidiResetSignals(QObject):
@@ -422,6 +488,59 @@ class MidiStatusDialog(QDialog):
             QMessageBox.warning(self, "Couldn't open M8 UI", f"Failed to launch {path}:\n{exc}")
 
 
+class ChordPad(QPushButton):
+    """One of the seven chord-preview pads.
+
+    A plain QPushButton can only show a single run of text in a single
+    font, which isn't enough for the three things a pad needs to say at
+    once: its keyboard shortcut, its roman numeral, and the actual chord
+    it will play. So the text lives in three transparent-to-the-mouse
+    QLabels laid out inside the button -- the button itself keeps all of
+    its normal press/release behavior (including setDown() from the number
+    -key shortcuts), and each line gets its own size and colour from the
+    stylesheet in theme.py.
+    """
+
+    def __init__(self, key_hint: str) -> None:
+        super().__init__()
+        self.hint_label = QLabel(key_hint)
+        self.hint_label.setObjectName("padHint")
+        self.numeral_label = QLabel("-")
+        self.numeral_label.setObjectName("padNumeral")
+        self.name_label = QLabel("")
+        self.name_label.setObjectName("padName")
+
+        for label in (self.hint_label, self.numeral_label, self.name_label):
+            label.setAlignment(Qt.AlignCenter)
+            # Without this a click that happens to land on a label would be
+            # swallowed by it instead of pressing the pad underneath.
+            label.setAttribute(Qt.WA_TransparentForMouseEvents)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 8)
+        layout.setSpacing(1)
+        layout.addWidget(self.hint_label)
+        layout.addStretch(1)
+        layout.addWidget(self.numeral_label)
+        layout.addWidget(self.name_label)
+        layout.addStretch(1)
+
+        # Read by theme.py's ChordPad[playing="true"] rule. Set here (not
+        # only in set_playing) so the property exists before the first
+        # polish, otherwise the selector never matches until it's toggled.
+        self.setProperty("playing", False)
+
+    def set_chord(self, numeral: str, name: str) -> None:
+        self.numeral_label.setText(numeral)
+        self.name_label.setText(name)
+        self.setToolTip(f"{numeral} \u2014 {name}" if name else numeral)
+
+    def set_playing(self, playing: bool) -> None:
+        """Marks this pad as the chord currently being played by the
+        sequencer."""
+        theme.set_state_property(self, "playing", playing)
+
+
 class MainWindow(QWidget):
     def __init__(self, midi_output: midi_io.MidiOutput | None = None):
         super().__init__()
@@ -435,6 +554,7 @@ class MainWindow(QWidget):
         self._engine_signals.looped.connect(self._reload_progression)
         self._engine_signals.external_start.connect(self._on_play)
         self._engine_signals.external_stop.connect(self._on_stop)
+        self._engine_signals.chord_changed.connect(self._on_engine_chord_changed)
 
         self._reset_signals = MidiResetSignals()
         self._reset_signals.finished.connect(self._on_midi_reset_finished)
@@ -460,12 +580,19 @@ class MainWindow(QWidget):
         self._slave_input: midi_io.MidiInput | None = None
         self._slave_clock: MidiClockSlave | None = None
 
-        self._engine = PlaybackEngine(self._midi_output, self._master_clock,
-                                       on_loop_complete=self._engine_signals.looped.emit)
+        self._engine = PlaybackEngine(
+            self._midi_output, self._master_clock,
+            on_loop_complete=self._engine_signals.looped.emit,
+            # Both hooks are called on the clock's thread; emitting a signal
+            # is the thread-safe handoff onto the GUI thread (see
+            # EngineSignals). -1 stands in for the engine's None.
+            on_chord_change=lambda position: self._engine_signals.chord_changed.emit(
+                -1 if position is None else position))
 
         self._full_chords: list[list[int]] = []
         self._full_roots: list[int] = []
         self._numerals: list[str] = []
+        self._chord_names: list[str] = []
         self._preview_octave_shift: dict[int, int] = {}
         self._preview_chords_enabled: dict[int, bool] = {}
         self._preview_bass_enabled: dict[int, bool] = {}
@@ -473,7 +600,9 @@ class MainWindow(QWidget):
         self._preview_bass_channel: dict[int, int] = {}
 
         self._build_widgets()
+        theme.apply(self)
         self._on_mode_changed()
+        self._update_progression_slots()
 
         # Lets the 1-7 number keys trigger chord previews (see key{Press,
         # Release}Event below) while a text field like bpm_edit doesn't have
@@ -502,16 +631,27 @@ class MainWindow(QWidget):
         self.mode_box.currentTextChanged.connect(self._on_mode_changed)
 
         self.bpm_edit = QLineEdit(DEFAULT_BPM)
+        self.bpm_edit.setObjectName("bpmEdit")
         self.bpm_edit.setAlignment(Qt.AlignCenter)
+        self.bpm_edit.setToolTip("Beats per minute, used when m00Dr generates its own clock.")
+        # A 3-digit field had been taking well over half the transport row;
+        # the space goes to Play/Stop, which actually use it.
+        self.bpm_edit.setFixedWidth(BPM_FIELD_WIDTH)
 
         self.loop_length_box = QComboBox()
         self.loop_length_box.addItems(LOOP_LENGTHS)
         self.loop_length_box.setCurrentText(LOOP_LENGTHS[-1])
+        self.loop_length_box.setToolTip(
+            "How many of the four progression slots above are played, from the left.")
+        self.loop_length_box.currentTextChanged.connect(self._update_progression_slots)
 
-        play_button = QPushButton("Play")
-        play_button.clicked.connect(self._on_play)
-        stop_button = QPushButton("Stop")
-        stop_button.clicked.connect(self._on_stop)
+        self.play_button = QPushButton("Play")
+        self.play_button.setObjectName("playButton")
+        self.play_button.setProperty("playing", False)
+        self.play_button.clicked.connect(self._on_play)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setObjectName("stopButton")
+        self.stop_button.clicked.connect(self._on_stop)
 
         self.humanize_checkbox = QCheckBox("Humanize velocity")
         self.humanize_checkbox.setChecked(True)
@@ -616,13 +756,13 @@ class MainWindow(QWidget):
 
         # Regular controls: larger than Qt's cramped defaults, but not the
         # primary-action treatment Play/Stop and the chord buttons get below.
-        for widget in (self.key_box, self.mode_box, self.bpm_edit, self.loop_length_box,
+        for widget in (self.bpm_edit, self.loop_length_box,
                        self.humanize_checkbox, self.octave_spinbox, self.arp_pattern_box,
                        self.arp_rate_box, self.acid_wide_checkbox, self.acid_noise_slider,
                        self.external_sync_checkbox):
             _grow(widget)
 
-        for button in (play_button, stop_button):
+        for button in (self.play_button, self.stop_button):
             _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE,
                   expanding=True, max_height=PRIMARY_BUTTON_MAX_HEIGHT)
         # Bass/Arp/Acid sit alongside fixed-size checkboxes in their rows,
@@ -635,18 +775,45 @@ class MainWindow(QWidget):
                        self.acid_button, self.acid_randomize_button, self.midi_status_button):
             _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
 
+        # Key and scale: compact, measured widths rather than half the
+        # window each.
+        for widget in (self.key_box, self.mode_box):
+            _grow(widget, min_height=SELECTOR_HEIGHT, point_size=PRIMARY_POINT_SIZE)
+        pair_limit = _row_width_limit(2)
+        self.key_box.setFixedWidth(_fit_width(self.key_box, theory.Note_Dict, pair_limit))
+        self.mode_box.setFixedWidth(_fit_width(self.mode_box, theory.Modes, pair_limit))
+
         progression_row = QHBoxLayout()
+        progression_row.setSpacing(SELECTOR_SPACING)
         for widget in (self.key_box, self.mode_box):
             progression_row.addWidget(widget)
+        progression_row.addStretch(1)
 
         self.numeral_boxes = [QComboBox() for _ in range(NUM_NUMERAL_SLOTS)]
+        # One opacity effect per slot, created once and switched on/off by
+        # _update_progression_slots() rather than attached and detached --
+        # a disabled effect leaves the combo rendering natively, where a
+        # permanently-attached one at full opacity would still route it
+        # through an offscreen pixmap for no reason.
+        self._slot_dim_effects: list[QGraphicsOpacityEffect] = []
         numeral_row = QHBoxLayout()
+        numeral_row.setSpacing(SELECTOR_SPACING)
+        slot_labels = all_slot_labels()
         for box in self.numeral_boxes:
-            _grow(box)
+            _grow(box, min_height=SELECTOR_HEIGHT, point_size=PRIMARY_POINT_SIZE)
+            box.setFixedWidth(_fit_width(box, slot_labels,
+                                         _row_width_limit(NUM_NUMERAL_SLOTS)))
+            effect = QGraphicsOpacityEffect(box)
+            effect.setOpacity(INACTIVE_SLOT_OPACITY)
+            effect.setEnabled(False)
+            box.setGraphicsEffect(effect)
+            self._slot_dim_effects.append(effect)
             numeral_row.addWidget(box)
+        numeral_row.addStretch(1)
 
         transport_row = QHBoxLayout()
-        for widget in (self.bpm_edit, self.loop_length_box, play_button, stop_button):
+        for widget in (self.bpm_edit, self.loop_length_box,
+                       self.play_button, self.stop_button):
             transport_row.addWidget(widget)
 
         performance_row = QHBoxLayout()
@@ -664,10 +831,14 @@ class MainWindow(QWidget):
                        self.acid_wide_checkbox, self.acid_randomize_button):
             acid_row.addWidget(widget)
 
-        self.chord_buttons: list[QPushButton] = []
+        self.chord_buttons: list[ChordPad] = []
         chord_row = QHBoxLayout()
+        chord_row.setSpacing(8)
         for i in range(NUM_CHORD_BUTTONS):
-            button = QPushButton("-")
+            # The pads are triggered by the 1-7 number keys too (see
+            # keyPressEvent), which is worth saying on the pad itself
+            # rather than only in the roadmap.
+            button = ChordPad(str(i + 1))
             _grow(button, min_height=CHORD_BUTTON_MIN_HEIGHT, point_size=PRIMARY_POINT_SIZE,
                   expanding=True, max_height=CHORD_BUTTON_MAX_HEIGHT)
             button.pressed.connect(lambda i=i: self._on_chord_pressed(i))
@@ -677,7 +848,8 @@ class MainWindow(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setContentsMargins(CONTENT_MARGIN, CONTENT_MARGIN,
+                                  CONTENT_MARGIN, CONTENT_MARGIN)
         layout.addLayout(progression_row)
         layout.addLayout(numeral_row)
         layout.addLayout(transport_row)
@@ -690,20 +862,28 @@ class MainWindow(QWidget):
 
     def _on_mode_changed(self, _value: str | None = None) -> None:
         key, mode = self.key_box.currentText(), self.mode_box.currentText()
-        self._full_chords, self._full_roots, self._numerals = generate_full_scale(key, mode)
+        (self._full_chords, self._full_roots, self._numerals,
+         self._chord_names) = generate_full_scale(key, mode)
         self._engine.set_scale(self._full_roots)
 
+        # A bare numeral says which scale degree, but not what you'll
+        # actually hear -- the slots and the pads both spell the chord out.
+        items = [f"{numeral}{NUMERAL_NAME_SEPARATOR}{name}"
+                 for numeral, name in zip(self._numerals, self._chord_names)]
         for box in self.numeral_boxes:
             box.blockSignals(True)
             box.clear()
-            box.addItems(self._numerals)
+            box.addItems(items)
             box.blockSignals(False)
         for i, box in enumerate(self.numeral_boxes):
             if i < len(self._numerals):
                 box.setCurrentIndex(i)
 
         for i, button in enumerate(self.chord_buttons):
-            button.setText(self._numerals[i] if i < len(self._numerals) else "-")
+            if i < len(self._numerals):
+                button.set_chord(self._numerals[i], self._chord_names[i])
+            else:
+                button.set_chord("-", "")
 
     def _selected_progression(self) -> tuple[list[list[int]], list[int]]:
         """The chords/roots currently chosen by the numeral dropdowns,
@@ -711,7 +891,10 @@ class MainWindow(QWidget):
         -- is the real-state replacement for the OLD app's packed label
         string parsing."""
         loop_length = int(self.loop_length_box.currentText())
-        indices = [self._numerals.index(box.currentText()) for box in self.numeral_boxes]
+        # currentIndex(), not a lookup of currentText() in self._numerals:
+        # the slot labels now read "i · Em7" rather than a bare numeral,
+        # and the index is the scale degree directly in any case.
+        indices = [box.currentIndex() for box in self.numeral_boxes]
         chords = [self._full_chords[i] for i in indices][:loop_length]
         roots = [self._full_roots[i] for i in indices][:loop_length]
         return chords, roots
@@ -728,6 +911,35 @@ class MainWindow(QWidget):
         chords, roots = self._selected_progression()
         self._engine.set_progression(chords, roots)
 
+    def _update_progression_slots(self, _value: str | None = None) -> None:
+        """Dims the progression slots the loop length doesn't reach.
+
+        Loop length silently slices the progression (see
+        _selected_progression), so with a loop length of 2 the third and
+        fourth slots have no effect at all -- previously with nothing on
+        screen saying so. They stay enabled rather than disabled, so a
+        progression can still be set up before the loop length is raised
+        to play it."""
+        loop_length = int(self.loop_length_box.currentText())
+        for i, effect in enumerate(self._slot_dim_effects):
+            active = i < loop_length
+            effect.setEnabled(not active)
+            self.numeral_boxes[i].setToolTip("" if active else (
+                f"Not played: the loop is {loop_length} bar(s) long, so only the first "
+                f"{loop_length} slot(s) are used. Raise \"loop length\" to include this one."))
+
+    def _on_engine_chord_changed(self, position: int) -> None:
+        """Lights the pad for whichever chord the sequencer is playing
+        right now (-1 = nothing playing). Arrives on the GUI thread via
+        EngineSignals.chord_changed; `position` indexes the progression
+        slots, so the pad it corresponds to is whatever scale degree that
+        slot currently has selected."""
+        pad_index = None
+        if 0 <= position < len(self.numeral_boxes):
+            pad_index = self.numeral_boxes[position].currentIndex()
+        for i, pad in enumerate(self.chord_buttons):
+            pad.set_playing(i == pad_index)
+
     # -- actions -------------------------------------------------------------
 
     def _on_play(self) -> None:
@@ -742,12 +954,14 @@ class MainWindow(QWidget):
         chords, roots = self._selected_progression()
         self._engine.load_progression(chords, roots)
         self._engine.start()
+        theme.set_state_property(self.play_button, "playing", self._engine.is_playing)
         self.external_sync_checkbox.setEnabled(False)
 
     def _on_stop(self) -> None:
         if self._midi_reset_in_progress:
             return
         self._engine.stop()
+        theme.set_state_property(self.play_button, "playing", False)
         if self._active_clock is self._master_clock:
             # A slave clock keeps listening through Stop, so a later
             # external Start can still be noticed and followed -- only the

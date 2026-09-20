@@ -565,6 +565,60 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
 - [ ] Dedicated drum-trigger output: a proper replacement for the OLD app's channel-3 hack
       (a fixed note sent every bar, never turned off, used to trigger a drum track) — likely
       a configurable channel/note plus a real note-off, rather than a hanging note
+- [x] **UI/UX pass 2b: square the key / scale / progression selectors.** Reported as "can we
+      make the key, scale, & chord selections more square instead of thin like they currently
+      are" — the key and scale dropdowns each took half the window at Qt's default 36px
+      height (~12:1 ribbons) and the four progression slots spread across the full width.
+      - **The blocker, found by trying the obvious fix first**: raising `minimumHeight` on a
+        native macOS QComboBox does nothing visible. The platform draws the combo at a fixed
+        bezel height and simply centres it in whatever space it's given, so the row just
+        gained whitespace. Getting a taller combo *requires* styling it, since a styled
+        widget is no longer drawn by the platform style. So `theme.py` now styles QComboBox
+        to match the buttons, and the height takes effect.
+      - **The drop-down arrow had to be rebuilt.** Styling `::drop-down` stops the platform
+        drawing its arrow, and QSS can't draw one itself: the usual CSS-triangle trick (a
+        zero-sized box with only a coloured top border) renders as a filled magenta rectangle
+        in Qt, and `image: none` leaves no affordance at all. Both were tried and screenshot
+        side by side. The fix is a real SVG chevron, written to the Qt cache directory at
+        startup and named after its colour, so it can be tinted with the palette accent
+        rather than shipped as a fixed-colour asset. `chevron_path()` returns "" if the file
+        can't be written, and the arrow rule is then simply omitted rather than the whole
+        stylesheet failing.
+      - **Widths are measured, not guessed.** `_fit_width()` sizes each selector from
+        `QFontMetrics` over the actual strings it can hold, so adding a mode or changing how
+        chord names are spelled can't silently start eliding text. The progression slots are
+        measured against `all_slot_labels()` — every label possible across all 12 keys × 8
+        modes — rather than the current key/mode, so switching key doesn't resize the row
+        under the pointer. `_row_width_limit()` caps each width so a fixed-width row still
+        fits the minimum window, since a fixed-width widget can't shrink.
+      - Result: key 71×72 (essentially square), scale 118×72, each slot 145×72, down from
+        ~460×36 and ~230×36.
+      - The BPM field was left as the one remaining native black box among the styled combos,
+        so it is styled to match (scoped by object name, not to QLineEdit generally — QSpinBox
+        holds a QLineEdit inside it, and a blanket rule would restyle the octave spinbox's
+        editor while leaving its native buttons). It also dropped from over half the transport
+        row to 96px, a three-digit field's worth; the space went to Play and Stop.
+      - **Window floors corrected.** `MINIMUM_WINDOW_SIZE` was 720×420, which the layout could
+        not actually honour: at the new selector height the rows *overlapped*, and even before
+        this change 720 was too narrow — the performance row's "Bass→Ch2" and "MIDI Status"
+        buttons were clipped at that width. Qt reports the layout's real minimum as 802×522,
+        so the floor is now 820×540 and the default 1000×680, the latter chosen so the chord
+        pads can still reach `CHORD_BUTTON_MAX_HEIGHT` instead of sitting pinned at their
+        minimum.
+      - Re-verified: 123 tests still pass, the 22-check behavior script still passes in full,
+        the threaded-clock run still walks the highlight 0→1→2→3→0, and screenshots were taken
+        at the new minimum (nothing overlapping or clipped), at the new default, and in a
+        forced light palette.
+- [ ] UI/UX pass 3, what pass 2/2b left: the rows still have no labels, so "E"/"Minor 7",
+      the BPM field and the loop-length box are unlabelled (captions over the selector blocks
+      would also make the empty space to the right of the key/scale row read as deliberate
+      grouping rather than a gap); "Acid" stays at its minimum width while "Arp" stretches
+      across its row, which looks accidental; and the octave QSpinBox is now the only
+      remaining natively-drawn dark box, which needs its own up/down arrow images to style
+      the way the combos were. Grouping the voice rows into titled boxes would also make the
+      channel layout (chords ch1, bass ch2, arp ch3, acid ch5) visible somewhere other than a
+      tooltip. Note that merging the key/scale row into the progression row was considered and
+      rejected: six fixed-width selectors don't fit the minimum window width without eliding.
 - [ ] Top menu bar for lesser-used settings (e.g. humanize velocity, MIDI port selection once
       that exists, clock sync mode), so the main window stays focused on the controls used
       every session
@@ -585,6 +639,66 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
       window, since it was the only `Expanding`-policy widget sharing a row with fixed-size
       checkboxes and so claimed all the leftover space), which was then fixed by only growing
       Bass's height/font, not its width, and re-verified.
+- [x] **UI/UX pass 2: button states and chord selection.** The five voice toggles
+      (Chords/Bass/Stabs/Arp/Acid) were separated from each other only by a few shades of
+      gray in Qt's native macOS rendering, so "is Bass on?" wasn't answerable at a glance
+      while playing; and the seven chord pads showed a bare roman numeral with no indication
+      of what chord they'd actually play, which of the 1-7 number keys triggered them, or
+      which chord the sequencer was on.
+      - New `moodr/theme.py` holds a QSS stylesheet that gives a checked QPushButton a
+        filled-accent-with-bold-text look against a dim outline when unchecked. Every colour
+        is derived from the live QPalette rather than hardcoded, so it follows light/dark
+        mode and the user's own macOS accent colour. It reads `QPalette.Accent` (the real
+        accent, `#923796` here) and *not* `QPalette.Highlight` — Highlight is the selection
+        colour, already blended toward the window background and swapped for gray when the
+        window isn't frontmost, which would have made every "on" toggle change colour
+        whenever the app lost focus. The stylesheet is scoped to QPushButton and the chord
+        pads only: styling a widget at all in Qt opts it out of native rendering, and the
+        combo boxes / check boxes / Noise slider already read clearly.
+      - New `ChordPad` class in `app.py` replaces the plain QPushButton chord pads. A
+        QPushButton can only show one run of text in one font, so the pad's three pieces of
+        information live in three `WA_TransparentForMouseEvents` QLabels inside it (key hint,
+        roman numeral, chord name) while the button keeps all of its normal press/release
+        behavior, including `setDown()` from the number-key shortcuts.
+      - New `theory.chord_names()` (plus `chord_quality()`) names each scale degree —
+        `Em7`, `F#m7b5`, `Gmaj7`. It reuses the same branch *order* as
+        `root_mode_to_midi_chord()` (uppercase, then `°`, then lowercase) so a displayed name
+        can't describe different notes than the app sends, deliberately preserving that
+        function's quirk where Byzantine's `VII°` is caught by `isupper()` first ('°' is
+        uncased) and so gets a major chord. A property test walks every mode × key and
+        asserts each name's implied interval shape equals the chord actually generated.
+      - New `PlaybackEngine.on_chord_change` hook fires with each chord's progression index
+        as it starts sounding, and `None` on stop, so the pad for the chord currently playing
+        lights up. Like every engine callback it runs on the clock thread, so `app.py`
+        marshals it to the GUI thread through a new `EngineSignals.chord_changed` signal
+        (`-1` standing in for `None`, since `Signal(int)` can't carry it). It is called
+        *after* the note-ons are already sent, so a slow or throwing callback can't affect
+        playback timing — there's a test pinning that ordering.
+      - Play now lights with the accent while the sequencer is running and goes dark on stop,
+        so the window answers "is this playing?" from across the room. Without this the
+        transport looked *less* prominent than the lit toggles once they were styled.
+      - The progression slots the loop length doesn't reach are dimmed with a
+        `QGraphicsOpacityEffect` (loop length 2 ⇒ slots 3 and 4 dim), since loop length
+        silently slices the progression and nothing on screen said so. They stay *enabled*,
+        just dim, so a progression can be set up before raising the loop length to play it.
+        The effects are created once and enabled/disabled rather than attached/detached: a
+        disabled effect leaves the combo rendering natively.
+      - The slot dropdowns now read `i · Em7` rather than a bare numeral, so
+        `_selected_progression()` switched from looking `currentText()` up in `self._numerals`
+        to reading `currentIndex()` directly — more robust regardless, since the index *is*
+        the scale degree.
+      - Every chord pad carries a 2px border at all times, not just when playing: the border
+        eats into the content rect, so going 1px → 2px only on the lit pad nudged its text
+        down a pixel on every bar.
+      - **Verified four ways**, not just by eye: the full suite (123 tests, up from 113, with
+        10 new ones covering chord naming and the `on_chord_change` hook); a headless
+        22-check script confirming the *pre-existing* behavior survived (preview note-on/
+        note-off pairs per chord, loop-length slicing, slot→chord mapping, number-key
+        shortcuts, key/mode rebuilds) rather than only that the new labels render; a real
+        threaded-clock run at 480 BPM confirming the highlight actually walks 0→1→2→3→0 in
+        step with the bars and clears on stop (the cross-thread part); and screenshots in
+        dark mode, in a forced light palette, and of the MIDI Status dialog, which inherits
+        the stylesheet.
 
 ## Decisions log
 

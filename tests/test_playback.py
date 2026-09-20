@@ -679,3 +679,67 @@ def test_stop_sends_all_notes_off_for_acid_channel():
     engine.stop()
 
     assert ["all_off", ACID_CHANNEL] in output.sent
+
+
+def test_on_chord_change_reports_each_chord_as_it_starts_sounding():
+    output, clock, engine = make_engine()
+    positions = []
+    engine.on_chord_change = positions.append
+    engine.load_progression([[60, 64, 67], [65, 69, 72], [67, 71, 74]], [48, 53, 55])
+
+    engine.start()  # start() plays the first chord immediately
+    clock.tick(TICKS_PER_BAR * 2)
+
+    assert positions == [0, 1, 2]
+
+
+def test_on_chord_change_wraps_with_the_progression():
+    output, clock, engine = make_engine()
+    positions = []
+    engine.on_chord_change = positions.append
+    engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
+
+    engine.start()
+    clock.tick(TICKS_PER_BAR * 3)
+
+    assert positions == [0, 1, 0, 1]
+
+
+def test_on_chord_change_reports_none_on_stop():
+    output, clock, engine = make_engine()
+    positions = []
+    engine.on_chord_change = positions.append
+    engine.load_progression([[60, 64, 67]], [48])
+
+    engine.start()
+    engine.stop()
+
+    assert positions[-1] is None
+
+
+def test_on_chord_change_does_not_fire_again_on_a_repeated_stop():
+    output, clock, engine = make_engine()
+    positions = []
+    engine.on_chord_change = positions.append
+    engine.load_progression([[60, 64, 67]], [48])
+
+    engine.start()
+    engine.stop()
+    engine.stop()  # already stopped: returns early, so no second None
+
+    assert positions.count(None) == 1
+
+
+def test_on_chord_change_fires_after_the_chord_is_already_sounding():
+    """The callback is informational, so it must not be able to hold up or
+    break the note-ons it is reporting -- they are already sent by the
+    time it runs."""
+    output, clock, engine = make_engine()
+    sent_at_callback = []
+    engine.on_chord_change = lambda position: sent_at_callback.append(len(output.sent))
+    engine.load_progression([[60, 64, 67]], [48])
+
+    engine.start()
+
+    # 3 chord note-ons + 1 bass note-on were already out before the call.
+    assert sent_at_callback == [4]
