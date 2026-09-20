@@ -652,6 +652,42 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
         have made the kill look like it worked when it hadn't). Plus a 13-check script driving
         the real dialog against the real `moodr_to_m8_bridge.py` launched the documented way.
 
+- [ ] **Network MIDI: m00Dr (Mac) -> desktop -> Anbernic -> M8.** Two of three hops already
+      exist; only the Mac leg is missing. Full context lives in `SSHstuff/CLAUDE.md`
+      ("rtpmidid" and "Network MIDI link to the Anbernic RG353V") and
+      `anbernic backup/M8C-SETUP.md` section 3 -- read those first, they have the hard-won
+      details. State as of 2026-09-20:
+      - *Desktop (`cacheos`, passwordless `ssh cacheos`)*: rtpmidid runs as a `systemd --user`
+        service and is active. `ufw` default-deny-incoming is confirmed to block inbound
+        AppleMIDI/aseqnet, so **every link must have the desktop dial out**, which is why the
+        desktop is the aseqnet *client* despite being the always-on machine. Doing it the
+        other way needs a sudo password nobody has.
+      - *Desktop -> Anbernic*: built and verified with a real note, but **down whenever m8c
+        isn't running** -- the handheld's aseqnet *server* is started by `m8c.sh` and lives
+        only for that session. Checked 2026-09-20: `aseqnet-anbernic` sits in `activating`
+        (its normal idle retry state) and no `Net Client` appears in the desktop's
+        `aconnect -l`, even though `RK3566.local` pings. A `Net Client-Network` record still
+        shows in `dns-sd -B _apple-midi._udp` -- that is a stale announcement, not a live path.
+      - *Anbernic -> M8*: `m8c.sh`'s aconnect loop wires ALSA clients to the M8 both ways.
+        Dry-run verified with the Teensy attached (client 24); m8c has never actually been
+        launched on the hardware.
+      - **To do**: (1) enable a Network MIDI session on the Mac in Audio MIDI Setup -> MIDI
+        Studio -> Network (GUI-only, needs Tyler; there is no session at all today).
+        (2) Add a `[connect_to]` block to the desktop's `~/.config/rtpmidid/rtpmidid.ini`
+        aimed at that session -- the file currently has only the commented examples.
+        (3) `aconnect` the resulting rtpmidid port through to the handheld's port, the job
+        `~/.local/bin/aseqnet-anbernic-wire.sh` already does for the other direction.
+        (4) Add a Mac-side forwarder from m00Dr's virtual `"m00Dr"` port into the network
+        session port -- a near-copy of `moodr_to_m8_bridge.py` with a different destination,
+        which `bridge_manager.KNOWN_BRIDGE_SCRIPTS` then picks up for free.
+      - **Expect poor timing, and say so before building much.** `RK3566.local` pinged at
+        32-190ms with ~79ms stddev (2.4GHz-only Wi-Fi), and this adds two hops. The current
+        rig has the M8 as transport master sending clock *back*, which that jitter will wreck;
+        unchecking "External clock sync" at least takes the clock out of the round trip.
+        Realistically this is for triggering and auditioning, not tight sync.
+      - Note this **replaces** the USB path rather than adding to it: the Teensy has to be
+        plugged into the Anbernic for this topology, not the Mac.
+
 - [ ] UI/UX pass 3, what pass 2/2b left: the rows still have no labels, so "E"/"Minor 7",
       the BPM field and the loop-length box are unlabelled (captions over the selector blocks
       would also make the empty space to the right of the key/scale row read as deliberate
