@@ -28,6 +28,24 @@ passing** (`uv run pytest`).
 - A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
 - A top menu bar to hold lesser-used settings, decluttering the main window
 
+## Session summary (2026-09-20, roll collision fix)
+
+**Fixed: rolled progressions collapsed onto the tonic.** Reported from real use as "rolling
+seems to only change the first two notes then uses the first note for the rest". Not an
+arithmetic bug — the slots moved independently, so they collided at exactly the rate three
+free draws from seven degrees would. Measured over 20k chained rolls: only **35% came back
+with four distinct degrees**, 12% had just two, and **37% put a later slot back on the
+tonic**, which (slot 1 being anchored there) reads as the roll reusing the first chord.
+
+`shift_degree()` now takes an `avoid` set: a slot landing on a degree an earlier slot holds
+carries on in the same direction by the same interval until it finds a free one. The line
+still chooses the direction and size of the move; only the stopping point changes. It always
+terminates — seven degrees is prime and a fifths move is never a multiple of seven, so
+repeated addition visits every degree. Now **100% four distinct degrees**, all 120 possible
+progressions still reachable and still weighted toward fifths-related moves (1.5% down to
+0.35%). `Cast.continued` records which slots carried on so `describe()` stays honest about
+the arithmetic. **189 tests**, verified in the real GUI.
+
 ## Session summary (2026-09-20, acid lane + sync default)
 
 **External clock sync is now on by default.** m00Dr is nearly always run against a DAW or

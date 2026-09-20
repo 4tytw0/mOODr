@@ -140,14 +140,32 @@ def shift_key(key: str, steps: int) -> str:
     return theory.Note_Dict[semitones % 12]
 
 
-def shift_degree(index: int, steps: int) -> int:
+def shift_degree(index: int, steps: int, avoid: "set[int] | tuple[int, ...]" = ()) -> int:
     """A scale-degree index moved `steps` diatonic fifths. A fifth up from
     degree 1 is degree 5, i.e. +4 of the seven degrees, so that -- not +1
     -- is one step. An index at the excluded octave tonic (7) is folded
-    back onto the tonic before moving."""
+    back onto the tonic before moving.
+
+    `avoid` is degrees already taken by earlier slots. Landing on one of
+    them doesn't cancel the move or redraw the line -- the slot simply
+    keeps going the same way by the same interval until it finds a degree
+    that is free. The line still decides the direction and the size of the
+    move; all this decides is that the move doesn't stop somewhere already
+    occupied.
+
+    That it always terminates isn't luck: seven degrees is prime and a
+    move is never a multiple of seven (steps is +/-1 or +/-2, so the move
+    is 4, 3, 1 or 6 degrees), so repeatedly adding it visits all seven
+    degrees before repeating. With at most three slots already placed
+    there is always somewhere free to land."""
     base = index % DEGREES_PER_SCALE
     fifth_in_degrees = steps * 4
-    return (base + fifth_in_degrees) % DEGREES_PER_SCALE
+    degree = (base + fifth_in_degrees) % DEGREES_PER_SCALE
+    for _ in range(DEGREES_PER_SCALE):
+        if degree not in avoid:
+            break
+        degree = (degree + fifth_in_degrees) % DEGREES_PER_SCALE
+    return degree
 
 
 def mode_families() -> list[list[str]]:
@@ -379,6 +397,10 @@ class Cast:
     mode: str
     slots: list[int]
     lines: list[int]
+    # Slots whose move had to carry on past a degree an earlier slot had
+    # already taken (see shift_degree). Recorded only so describe() can
+    # say so rather than appearing to report the wrong arithmetic.
+    continued: tuple[int, ...] = ()
 
     @property
     def drawing(self) -> str:
@@ -423,8 +445,11 @@ class Cast:
                 moves.append(f"slot 1 {LINE_NAMES[line]}: "
                              f"anchored -> degree {degree + 1} (tonic)")
             else:
+                carried = (" (carried on past a degree already in use)"
+                           if i in self.continued else "")
                 moves.append(f"slot {i + 1} {LINE_NAMES[line]}: "
-                             f"{LINE_TO_FIFTHS[line]:+d} fifths -> degree {degree + 1}")
+                             f"{LINE_TO_FIFTHS[line]:+d} fifths -> "
+                             f"degree {degree + 1}{carried}")
         return "\n".join(moves)
 
 
@@ -439,6 +464,15 @@ def roll(key: str, mode: str, slot_indices: list[int],
     Slot 1 is set to the tonic rather than moved, so the progression
     always has a home to be heard as moving away from; slots 2-4 move by
     their own line. Any slot beyond the fourth is left as it is.
+
+    The moved slots land on four *different* degrees. Left to move
+    independently they collide at the rate any three free draws from seven
+    would -- barely a third of rolls came back with four distinct degrees,
+    and better than a third put some later slot back on the tonic, which
+    reads as the roll having quietly reused the first chord rather than as
+    a progression. A slot that lands on a taken degree therefore carries
+    on in the same direction rather than stopping there (see
+    shift_degree); the line it was dealt still chooses that direction.
     """
     lines = cast_lines(rng)
     new_key = shift_key(key, LINE_TO_FIFTHS[lines[KEY_LINE]])
@@ -446,9 +480,16 @@ def roll(key: str, mode: str, slot_indices: list[int],
 
     movable = NUM_LINES - FIRST_SLOT_LINE
     slots = list(slot_indices)
+    taken: set[int] = set()
+    continued: list[int] = []
     for i in range(min(movable, len(slots))):
         if i == 0:
             slots[i] = ANCHOR_DEGREE
         else:
-            slots[i] = shift_degree(slots[i], LINE_TO_FIFTHS[lines[FIRST_SLOT_LINE + i]])
-    return Cast(key=new_key, mode=new_mode, slots=slots, lines=lines)
+            steps = LINE_TO_FIFTHS[lines[FIRST_SLOT_LINE + i]]
+            slots[i] = shift_degree(slot_indices[i], steps, taken)
+            if slots[i] != shift_degree(slot_indices[i], steps):
+                continued.append(i)
+        taken.add(slots[i])
+    return Cast(key=new_key, mode=new_mode, slots=slots, lines=lines,
+                continued=tuple(continued))

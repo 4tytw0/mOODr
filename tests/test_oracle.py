@@ -175,9 +175,13 @@ def test_roll_moves_every_selection_by_its_own_line():
         assert cast.key == oracle.shift_key("C", oracle.LINE_TO_FIFTHS[lines[0]])
         assert cast.mode == oracle.shift_mode("Major", lines[1])
         assert cast.slots[0] == oracle.ANCHOR_DEGREE
+        # `taken` threaded through the same way roll() does it: a slot that
+        # would land on a degree an earlier slot holds carries on instead.
+        taken = {oracle.ANCHOR_DEGREE}
         for i, degree in enumerate(cast.slots[1:], start=1):
             steps = oracle.LINE_TO_FIFTHS[lines[oracle.FIRST_SLOT_LINE + i]]
-            assert degree == oracle.shift_degree(i, steps)
+            assert degree == oracle.shift_degree(i, steps, taken)
+            taken.add(degree)
 
 
 def test_slot_one_always_lands_on_the_tonic():
@@ -381,3 +385,58 @@ def test_the_cast_lines_and_the_named_hexagram_are_the_same_figure():
         drawn = list(reversed(cast.drawing.splitlines()))  # back to bottom-first
         for line, yang in zip(drawn, cast.polarities):
             assert (line[:3] in ("---", "-o-")) == yang
+
+
+# -- rolled slots land somewhere free ------------------------------------
+#
+# Reported from real use: rolling "only changes the first two notes then
+# uses the first note for the rest". Independent moves collide at the rate
+# any three free draws from seven would, and because slot 1 is anchored to
+# the tonic, a collision with it reads as the roll reusing the first chord.
+
+
+def test_rolled_slots_are_always_four_distinct_degrees():
+    rng = random.Random(4)
+    slots = [0, 1, 2, 3]
+    for _ in range(2000):
+        cast = oracle.roll("C", "Minor", slots, rng)
+        slots = cast.slots
+        assert len(set(slots)) == 4, slots
+        assert slots.count(oracle.ANCHOR_DEGREE) == 1  # only slot 1 is home
+
+
+def test_a_blocked_slot_carries_on_in_the_same_direction():
+    """The line still chooses the direction and the size of the move --
+    being blocked adds another move the same way, it doesn't redraw."""
+    # Up a fifth is +4 degrees. From degree 0 that is 4; with 4 taken the
+    # next landing is 1, and with 1 taken as well it is 5.
+    assert oracle.shift_degree(0, 1) == 4
+    assert oracle.shift_degree(0, 1, {4}) == 1
+    assert oracle.shift_degree(0, 1, {4, 1}) == 5
+    # Down a fifth from the same place goes the other way, as it should.
+    assert oracle.shift_degree(0, -1) == 3
+    assert oracle.shift_degree(0, -1, {3}) == 6
+
+
+def test_shift_degree_always_finds_a_free_degree():
+    """Seven degrees is prime and no move is a multiple of it, so adding
+    the move repeatedly reaches every degree. Checked exhaustively rather
+    than argued, for every move a line can produce."""
+    for steps in oracle.LINE_TO_FIFTHS.values():
+        for index in range(oracle.DEGREES_PER_SCALE):
+            for taken in ({0}, {0, 1}, {0, 1, 2}, {1, 4, 5}):
+                degree = oracle.shift_degree(index, steps, taken)
+                assert degree not in taken
+                assert 0 <= degree < oracle.DEGREES_PER_SCALE
+
+
+def test_describe_says_when_a_slot_carried_on():
+    rng = random.Random(4)
+    slots = [0, 1, 2, 3]
+    for _ in range(200):
+        cast = oracle.roll("C", "Minor", slots, rng)
+        slots = cast.slots
+        if cast.continued:
+            assert "carried on past a degree already in use" in cast.describe()
+            return
+    raise AssertionError("no carried slot in 200 rolls -- expected some")
