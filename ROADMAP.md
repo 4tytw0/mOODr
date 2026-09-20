@@ -486,6 +486,78 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
       dir instead of the OS-native store; confirmed the value now round-trips correctly
       across separate process runs, including checking the file's actual on-disk contents
       directly (not just Qt's own read-back).
+- [x] "Reset MIDI Server" reliability fix (2026-09-19). Real-world use turned up two problems
+      the earlier implementation's own testing (which mocked `reset_midi_server()` out) never
+      exercised: (1) killing MIDIServer while a *separate* process has a port open can crash
+      that process outright at the C++ level (confirmed via a real macOS crash report naming
+      one of this session's MIDI bridge scripts) -- `MidiStatusDialog`'s tooltip now says this
+      explicitly rather than just "will need restarting separately"; (2) `_on_reset_midi_server`
+      reopened this app's own ports immediately after the kill with no delay, which raced
+      MIDIServer's respawn and left the ports **silently missing entirely** in real use --
+      confirmed directly via a live port listing after clicking the button, not just a stale
+      display-refresh. Fixed with a settle delay (`RESET_SETTLE_SECONDS = 0.5`) before
+      reopening, plus a new `_reopen_port()` helper that verifies the reopened port actually
+      appears in a fresh port listing and retries once after a longer pause if not, only then
+      giving up and telling the user (via a message box) to restart the app -- silent failure
+      was the actual bug, not just needing a longer delay.
+
+      **That fix caused a worse bug, found the same day**: the settle-delay + retry version
+      above ran synchronously on the GUI thread, and in real use a port open/close call didn't
+      just fail slowly -- it hung indefinitely (a blocking C-level `rtmidi`/CoreMIDI call that
+      never returned), which froze the **entire app**, not just the dialog, since Qt's event
+      loop is single-threaded: Refresh, Close, everything stopped responding, confirmed by the
+      process staying alive (not crashed) but consuming zero CPU (blocked in a syscall, not
+      spinning) for far longer than the code's own few seconds of scripted delays could
+      explain. Required a hard `kill -9` to recover -- there was no way to interrupt it from
+      the UI. Fixed by moving the whole reset+reopen sequence onto a background
+      `threading.Thread` (new `MidiResetSignals` class marshals the result back to the GUI
+      thread via a Qt signal, same pattern `MidiClock`'s own background thread already uses);
+      a hang there now just leaves the reset perpetually "in progress" instead of freezing
+      anything else. Also added a narrower guard (`_midi_reset_in_progress`, checked in
+      `_on_play`/`_on_stop`/`_on_chord_pressed`) against Play/Stop/chord-preview touching
+      `self._midi_output`/`_slave_input` concurrently with the background thread's own
+      close()/open() calls on those same objects -- deliberately *not* applied to
+      `_on_chord_released`, since dropping a note-off to avoid a rare race would risk
+      re-creating the exact stuck-note problem that prompted using this feature in the first
+      place. First tried disabling the whole window (`self.setEnabled(False)`) for the
+      duration instead of a flag -- headless-verified that this **also disables an
+      already-open `MidiStatusDialog`** (it's a child of `MainWindow`), including its own
+      Close button, which would leave the user unable to even dismiss the dialog if the
+      background thread hung again. Verified headlessly: a normal reset still completes and
+      clears the guard flag; `_on_play`/`_on_chord_pressed` are confirmed no-ops (no
+      exception, no MIDI sent) while the flag is set; and, critically, both `MainWindow` and
+      an open `MidiStatusDialog` stay `isEnabled() == True` throughout a reset now.
+- [x] Bridge process management (2026-09-19), prompted directly by the day's actual failure
+      pattern: a bridge process can survive a MIDIServer reset without crashing and still end
+      up with a permanently stale CoreMIDI connection of its own (confirmed: one bridge's log
+      showed zero successful reconnects to `"m00Dr In"` for nearly an hour, while a brand new
+      process queried at the same moment saw that same port fine -- a bridge not crashing was
+      never proof it was healthy). New `moodr/bridge_manager.py` (no Qt dependency, same split
+      as the other non-Qt modules): `ManagedBridge` wraps a bridge script as a `subprocess.Popen`
+      child of this app (`sys.executable` directly, not `uv run` -- these scripts only need
+      `rtmidi`, already installed in this app's own environment), with `start()`/`stop()`
+      (terminate, falling back to kill after a timeout)/`restart()`/`is_running`/`uptime_seconds`;
+      `discover_bridges()` finds `moodr_to_m8_bridge.py` and `m8_to_moodr_transport_bridge.py`
+      next to `main.py` if present, skipping either that doesn't exist since these are specific
+      to an M8/Teensy setup, not something every m00Dr user has. `MidiStatusDialog` gained a
+      "Bridges" section: one row per discovered bridge with a live-updating "Running since
+      HH:MM:SS (Nm Ns)" / "Not running" label (a 1s `QTimer` that only touches the bridges' own
+      in-process state, not a full port refresh) and a Start/Restart button. "Reset MIDI
+      Server" now also restarts any bridge that's currently running through this dialog, as
+      part of the same background-thread flow. Real limitation, stated in the code and the
+      dialog: **only a bridge started through this dialog is tracked** -- one already running
+      in its own terminal (how these scripts were run all session, including the one that went
+      stale) is invisible to this app until restarted through here instead; there's no way to
+      discover or adopt a process this app didn't start itself. 10 new tests
+      (`tests/test_bridge_manager.py`, 113 total) against a real harmless sleep-script
+      subprocess, not mocks -- start/is_running/uptime, stop actually terminates the OS process
+      (checked via `os.kill(pid, 0)` raising `ProcessLookupError`), restart replaces the PID and
+      resets uptime, starting an already-running or stopping a never-started bridge is a no-op,
+      a missing script is a no-op, and `discover_bridges()` only returns scripts that exist.
+      Verified headlessly end-to-end beyond the unit tests too: the dialog's Start button
+      launches and updates its own label/button live, and triggering a full (mocked) MIDI
+      reset while a fake bridge is running confirms it gets restarted (a new PID) as part of
+      that same flow.
 - [ ] Save/load chord progressions and settings
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity

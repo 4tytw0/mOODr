@@ -10,6 +10,8 @@ state -- there is no string to parse anywhere in this module.
 import os
 import subprocess
 import sys
+import threading
+import time
 
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -31,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import midi_io, midi_status, theory
+from . import bridge_manager, midi_io, midi_status, theory
 from .clock import MidiClock, MidiClockSlave
 from .playback import ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, PlaybackEngine
 
@@ -48,6 +50,11 @@ OCTAVE_SHIFT_RANGE = (-1, 1)
 SETTINGS_ORG = "m00Dr"
 SETTINGS_APP = "m00Dr"
 M8_UI_PATH_SETTING = "m8_ui_path"
+
+# How long to let CoreMIDI's MIDIServer actually respawn after being killed before this app
+# tries to reopen its own ports on it -- racing this with no delay left the ports silently
+# failing to come back in real use (see MainWindow._on_reset_midi_server).
+RESET_SETTLE_SECONDS = 0.5
 
 
 def _m8_ui_settings() -> QSettings:
@@ -143,23 +150,59 @@ class EngineSignals(QObject):
     external_stop = Signal()
 
 
+class MidiResetSignals(QObject):
+    """Marshals MIDI-server-reset completion from a background thread onto
+    the GUI thread. The reset + this app's own port reopen used to run
+    directly on the GUI thread and could hang it indefinitely: confirmed in
+    real use that a port open/close call can hang rather than just fail
+    fast if CoreMIDI/MIDIServer doesn't respond, and since Qt's event loop
+    is single-threaded, that froze the *entire* app, not just the dialog --
+    Refresh, Close, even other windows stopped responding. Running the work
+    on a background thread means a hang there just leaves the reset
+    perpetually "in progress" instead of freezing anything else."""
+
+    finished = Signal(bool)  # True = this app's own ports reopened OK
+
+
+def _reopen_port(port, expected_name: str) -> bool:
+    """Closes and reopens a MidiOutput/MidiInput, retrying once after a
+    longer pause if the reopened port doesn't actually show up in a live
+    port listing -- the same MIDIServer-not-back-yet race its caller is
+    guarding against can still occasionally lose the first attempt.
+    Returns whether it ended up open. Intended to run off the GUI thread
+    (see MainWindow._reset_midi_server_worker) since any of these calls can
+    itself hang rather than fail fast."""
+    for attempt_delay in (0, RESET_SETTLE_SECONDS * 2):
+        if attempt_delay:
+            time.sleep(attempt_delay)
+        port.close()
+        port.open()
+        inputs, outputs = midi_status.list_ports()
+        if expected_name in inputs or expected_name in outputs:
+            return True
+    return False
+
+
 class MidiStatusDialog(QDialog):
     """A live view of the MIDI ports this app depends on, plus a button to
     reset the platform's MIDI service (CoreMIDI's MIDIServer on macOS) if
     a port has gone stale -- e.g. after the machine slept, or the MIDI
     device on the other end of a bridge was unplugged and replugged. Pure
-    display plus a button; the actual reset/reopen logic lives in
-    MainWindow._on_reset_midi_server (this dialog doesn't own m00Dr's own
-    ports, just reads their names) and midi_status.py (the non-Qt reset
-    call itself)."""
+    display plus a button; the actual reset/reopen logic runs on a
+    background thread owned by MainWindow (this dialog doesn't own m00Dr's
+    own ports, just reads their names) and midi_status.py (the non-Qt
+    reset call itself)."""
 
     def __init__(self, parent, own_output_name: str | None, own_input_name: str | None,
-                 on_reset) -> None:
+                 on_reset, reset_finished: Signal,
+                 bridges: list[bridge_manager.ManagedBridge]) -> None:
         super().__init__(parent)
         self.setWindowTitle("MIDI Status")
         self._own_output_name = own_output_name
         self._own_input_name = own_input_name
         self._on_reset = on_reset
+        self._bridges = bridges
+        reset_finished.connect(self._on_reset_finished)
 
         self.input_list = QListWidget()
         self.output_list = QListWidget()
@@ -174,10 +217,13 @@ class MidiStatusDialog(QDialog):
         if midi_status.MIDI_SERVER_RESET_SUPPORTED:
             self.reset_button.setToolTip(
                 "Kills and lets macOS restart CoreMIDI's MIDIServer process. This app's own "
-                "MIDI port(s) are reopened automatically afterward. Any OTHER MIDI app or "
-                "bridge (DAWs, hardware bridges, etc.) will need restarting separately -- a "
-                "MIDIServer reset invalidates every virtual port open anywhere on the "
-                "machine, not just this app's.")
+                "MIDI port(s) are reopened automatically afterward, and any Bridge below "
+                "that's currently running is restarted too. Any OTHER MIDI app (DAWs, a "
+                "bridge running in its own terminal instead of through this dialog, etc.) "
+                "will need restarting separately, and may crash outright rather than just "
+                "needing a reconnect -- a MIDIServer reset invalidates every virtual port "
+                "open anywhere on the machine, not just this app's, and other MIDI "
+                "libraries don't all handle that gracefully.")
         else:
             self.reset_button.setEnabled(False)
             self.reset_button.setToolTip(
@@ -218,9 +264,41 @@ class MidiStatusDialog(QDialog):
         for widget in (self.open_m8_ui_button, self.change_m8_ui_path_button):
             m8_ui_row.addWidget(widget)
         layout.addLayout(m8_ui_row)
+
+        if self._bridges:
+            layout.addWidget(QLabel("Bridges:"))
+            self._bridge_status_labels: dict[str, QLabel] = {}
+            self._bridge_buttons: dict[str, QPushButton] = {}
+            for bridge in self._bridges:
+                row = QHBoxLayout()
+                name_label = QLabel(bridge.name)
+                _grow(name_label)
+                status_label = QLabel(bridge_manager.format_status(bridge))
+                _grow(status_label)
+                button = QPushButton()
+                button.setToolTip(
+                    "Only bridges started through this dialog are tracked here -- one "
+                    "already running in its own terminal is invisible to this app until "
+                    "restarted through here instead.")
+                _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
+                button.clicked.connect(lambda _checked=False, b=bridge: self._on_bridge_clicked(b))
+                self._bridge_status_labels[bridge.name] = status_label
+                self._bridge_buttons[bridge.name] = button
+                row.addWidget(name_label)
+                row.addWidget(status_label, 1)
+                row.addWidget(button)
+                layout.addLayout(row)
+            self._refresh_bridge_buttons()
+            # Ticks the uptime text live without re-querying CoreMIDI every
+            # second the way a full refresh() would -- this only touches
+            # the bridges' own in-process state.
+            self._bridge_tick_timer = QTimer(self)
+            self._bridge_tick_timer.timeout.connect(self._refresh_bridge_labels)
+            self._bridge_tick_timer.start(1000)
+
         layout.addWidget(close_button)
 
-        self.resize(460, 540)
+        self.resize(460, 620)
         self.refresh()
 
     def refresh(self) -> None:
@@ -240,21 +318,46 @@ class MidiStatusDialog(QDialog):
             parts.append(f'"{self._own_input_name}" (clock sync in): '
                          f'{"found" if found else "MISSING"}')
         self.own_ports_label.setText(" | ".join(parts))
+        self._refresh_bridge_labels()
+
+    def _refresh_bridge_labels(self) -> None:
+        for bridge in self._bridges:
+            self._bridge_status_labels[bridge.name].setText(bridge_manager.format_status(bridge))
+
+    def _refresh_bridge_buttons(self) -> None:
+        for bridge in self._bridges:
+            self._bridge_buttons[bridge.name].setText("Restart" if bridge.is_running else "Start")
+
+    def _on_bridge_clicked(self, bridge: bridge_manager.ManagedBridge) -> None:
+        button = self._bridge_buttons[bridge.name]
+        button.setEnabled(False)
+        try:
+            bridge.restart() if bridge.is_running else bridge.start()
+        finally:
+            button.setEnabled(True)
+        self._refresh_bridge_labels()
+        self._refresh_bridge_buttons()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        if hasattr(self, "_bridge_tick_timer"):
+            self._bridge_tick_timer.stop()
+        super().closeEvent(event)
 
     def _on_reset_clicked(self) -> None:
         self.reset_button.setEnabled(False)
         self.reset_button.setText("Resetting...")
-        self._on_reset()
-        # A brief pause before reopening/re-listing: MIDIServer's process
-        # exit (SIGKILL) is immediate, but giving CoreMIDI a beat before the
-        # very next call to it is cheap insurance against a tight race with
-        # this same process's own in-flight client state.
-        QTimer.singleShot(400, self._finish_reset)
+        self._on_reset()  # starts the background thread and returns immediately
 
-    def _finish_reset(self) -> None:
+    def _on_reset_finished(self, ok: bool) -> None:
         self.refresh()
+        self._refresh_bridge_buttons()
         self.reset_button.setEnabled(midi_status.MIDI_SERVER_RESET_SUPPORTED)
         self.reset_button.setText("Reset MIDI Server")
+        if not ok:
+            QMessageBox.warning(
+                self, "MIDI service reset",
+                "MIDIServer was reset, but this app's own MIDI port(s) didn't come back up "
+                "cleanly afterward. Please restart m00Dr.")
 
     def _on_open_m8_ui_clicked(self) -> None:
         settings = _m8_ui_settings()
@@ -332,6 +435,22 @@ class MainWindow(QWidget):
         self._engine_signals.looped.connect(self._reload_progression)
         self._engine_signals.external_start.connect(self._on_play)
         self._engine_signals.external_stop.connect(self._on_stop)
+
+        self._reset_signals = MidiResetSignals()
+        self._reset_signals.finished.connect(self._on_midi_reset_finished)
+        # Guards Play/Stop/chord-preview against touching self._midi_output
+        # while a background MIDI-reset thread is closing/reopening it --
+        # narrower than disabling the whole window, which was tried first
+        # and found to also disable a currently-open MidiStatusDialog
+        # (including its own Close button) since it's a child of this one.
+        self._midi_reset_in_progress = False
+
+        # Bridge scripts (e.g. to an M8/Teensy) this app can launch and
+        # supervise itself, so their uptime is visible and they can be
+        # restarted from the MIDI Status dialog. Not auto-started: one may
+        # already be running in its own terminal, and silently launching a
+        # second instance alongside it would be its own source of bugs.
+        self._bridges = bridge_manager.discover_bridges()
 
         self._master_clock = MidiClock(self._midi_output)
         self._active_clock = self._master_clock
@@ -612,6 +731,8 @@ class MainWindow(QWidget):
     # -- actions -------------------------------------------------------------
 
     def _on_play(self) -> None:
+        if self._midi_reset_in_progress:
+            return
         if self._active_clock is self._master_clock:
             try:
                 bpm = float(self.bpm_edit.text())
@@ -624,6 +745,8 @@ class MainWindow(QWidget):
         self.external_sync_checkbox.setEnabled(False)
 
     def _on_stop(self) -> None:
+        if self._midi_reset_in_progress:
+            return
         self._engine.stop()
         if self._active_clock is self._master_clock:
             # A slave clock keeps listening through Stop, so a later
@@ -710,22 +833,64 @@ class MainWindow(QWidget):
     def _on_midi_status_clicked(self) -> None:
         own_input_name = self._slave_input.port_name if self._slave_input is not None else None
         dialog = MidiStatusDialog(self, self._midi_output.port_name, own_input_name,
-                                   self._on_reset_midi_server)
+                                   self._on_reset_midi_server, self._reset_signals.finished,
+                                   self._bridges)
         dialog.exec()
 
     def _on_reset_midi_server(self) -> None:
-        """Resets the platform MIDI service, then reopens this app's own
+        """Starts the MIDI-service reset + this app's own port reopen on a
+        background thread and returns immediately -- see
+        MidiResetSignals for why this isn't done directly on the GUI
+        thread. Sets _midi_reset_in_progress for the duration: the
+        background thread touches self._midi_output/_slave_input directly,
+        and letting Play/Stop/chord-preview touch them concurrently would
+        be a real race, not just a cosmetic issue."""
+        self._midi_reset_in_progress = True
+        thread = threading.Thread(target=self._reset_midi_server_worker, daemon=True)
+        thread.start()
+
+    def _reset_midi_server_worker(self) -> None:
+        """Runs entirely off the GUI thread -- must not touch any widget
+        directly; reports back via self._reset_signals.finished, which Qt
+        marshals onto the GUI thread automatically since emitter and
+        receiver live in different threads.
+
+        Resets the platform MIDI service, then reopens this app's own
         ports on the fresh service -- a MIDIServer reset invalidates every
         virtual port already open in this process (m00Dr's own "m00Dr"
         output, and "m00Dr In" if external clock sync has ever been
         enabled), the same way it invalidates every other process's ports.
         This can't do anything about *other* MIDI apps/bridges; those need
-        restarting separately (the MidiStatusDialog that calls this warns
-        about that in its tooltip)."""
-        midi_status.reset_midi_server()
+        restarting separately, and may crash outright rather than just
+        needing a reconnect (the MidiStatusDialog's tooltip says so).
 
-        self._midi_output.close()
-        self._midi_output.open()
+        Bug found and fixed same day: reopening immediately after the kill,
+        with no delay, silently failed in real use (own ports vanished
+        entirely -- confirmed missing from a live port listing afterward,
+        not just a display-refresh timing issue). MIDIServer's process exit
+        is immediate but its respawn/re-registration isn't instantaneous;
+        racing it left this process's own close()+open() calls operating on
+        a MIDI service that wasn't back yet.
+
+        Second bug found and fixed the same day: the fix for the above ran
+        directly on the GUI thread and hung the *entire app* in real use --
+        not just the dialog -- when a port open/close call itself hung
+        rather than failing fast. Moved onto a background thread instead of
+        adding yet another synchronous retry.
+
+        Also restarts any of this app's *own* managed bridges (see
+        bridge_manager.py) that were running before the reset -- found in
+        real use that a long-lived bridge process can survive a MIDIServer
+        reset without crashing, yet still end up with a permanently stale
+        CoreMIDI connection of its own (confirmed: its log showed zero
+        successful reconnects for nearly an hour, while a brand new process
+        queried at the same moment saw the port it was looking for just
+        fine). A bridge process not crashing was never proof it was
+        healthy."""
+        midi_status.reset_midi_server()
+        time.sleep(RESET_SETTLE_SECONDS)
+
+        ok = _reopen_port(self._midi_output, "m00Dr")
 
         if self._slave_clock is not None:
             was_running = self._slave_clock.is_running
@@ -736,13 +901,22 @@ class MainWindow(QWidget):
                 # it, since cancel_callback()/set_callback() are what
                 # start()/stop() actually call.
                 self._slave_clock.stop()
-            self._slave_input.close()
-            self._slave_input.open()
+            if not _reopen_port(self._slave_input, "m00Dr In"):
+                ok = False
             if was_running:
                 self._slave_clock.start()
 
+        for bridge in self._bridges:
+            if bridge.is_running:
+                bridge.restart()
+
+        self._reset_signals.finished.emit(ok)
+
+    def _on_midi_reset_finished(self, _ok: bool) -> None:
+        self._midi_reset_in_progress = False
+
     def _on_chord_pressed(self, index: int) -> None:
-        if index >= len(self._full_chords):
+        if index >= len(self._full_chords) or self._midi_reset_in_progress:
             return
         humanize = self.humanize_checkbox.isChecked()
         # Captured per-index so release always turns off the exact notes
