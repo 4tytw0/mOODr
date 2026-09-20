@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import bridge_manager, midi_io, midi_status, theme, theory
+from . import bridge_manager, midi_io, midi_status, oracle, theme, theory
 from .clock import MidiClock, MidiClockSlave
 from .playback import ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, PlaybackEngine
 
@@ -136,6 +136,12 @@ BPM_FIELD_WIDTH = 96
 # Separator between a numeral and its chord name in the progression
 # dropdowns ("i · Em7").
 NUMERAL_NAME_SEPARATOR = "  ·  "
+
+ROLL_TOOLTIP = (
+    "Roll a new key, scale and progression as a circle-of-fifths move away from the "
+    "current ones, with the step sizes drawn by I Ching coin tosses -- usually one "
+    "fifth, occasionally two. Every roll is relative to what is selected now, so "
+    "repeated rolls wander through related keys rather than jumping at random.")
 CONTROL_POINT_SIZE = 11
 PRIMARY_POINT_SIZE = 14
 
@@ -652,6 +658,11 @@ class MainWindow(QWidget):
         self.mode_box.setCurrentText(DEFAULT_MODE)
         self.mode_box.currentTextChanged.connect(self._on_mode_changed)
 
+        self.roll_button = QPushButton("Roll")
+        self.roll_button.setObjectName("rollButton")
+        self.roll_button.setToolTip(ROLL_TOOLTIP)
+        self.roll_button.clicked.connect(self._on_roll_clicked)
+
         self.bpm_edit = QLineEdit(DEFAULT_BPM)
         self.bpm_edit.setObjectName("bpmEdit")
         self.bpm_edit.setAlignment(Qt.AlignCenter)
@@ -799,15 +810,18 @@ class MainWindow(QWidget):
 
         # Key and scale: compact, measured widths rather than half the
         # window each.
-        for widget in (self.key_box, self.mode_box):
+        for widget in (self.key_box, self.mode_box, self.roll_button):
             _grow(widget, min_height=SELECTOR_HEIGHT, point_size=PRIMARY_POINT_SIZE)
+        # Square rather than text-width, so it sits in the chunky-block row
+        # as a block itself instead of a thin tab between two of them.
+        self.roll_button.setFixedWidth(SELECTOR_HEIGHT)
         pair_limit = _row_width_limit(2)
         self.key_box.setFixedWidth(_fit_width(self.key_box, theory.Note_Dict, pair_limit))
         self.mode_box.setFixedWidth(_fit_width(self.mode_box, theory.Modes, pair_limit))
 
         progression_row = QHBoxLayout()
         progression_row.setSpacing(SELECTOR_SPACING)
-        for widget in (self.key_box, self.mode_box):
+        for widget in (self.key_box, self.mode_box, self.roll_button):
             progression_row.addWidget(widget)
         progression_row.addStretch(1)
 
@@ -906,6 +920,31 @@ class MainWindow(QWidget):
                 button.set_chord(self._numerals[i], self._chord_names[i])
             else:
                 button.set_chord("-", "")
+
+    def _on_roll_clicked(self) -> None:
+        """Rolls key, scale and the four progression slots (see oracle.py).
+
+        Order matters: changing the key or the scale repopulates the slot
+        dropdowns and resets them to the plain I..VII order, so the rolled
+        degrees have to be applied after that, not before.
+
+        Deliberately does not push the result to the engine. A roll leaves
+        the widgets exactly as a hand-turned dropdown would, so a roll
+        while playing takes effect at the next loop boundary (via
+        _reload_progression) instead of switching chords mid-bar, and a
+        roll while stopped is picked up by _on_play.
+        """
+        cast = oracle.roll(self.key_box.currentText(), self.mode_box.currentText(),
+                           [box.currentIndex() for box in self.numeral_boxes])
+        self.key_box.setCurrentText(cast.key)
+        self.mode_box.setCurrentText(cast.mode)
+        for box, degree in zip(self.numeral_boxes, cast.slots):
+            if degree < box.count():
+                box.setCurrentIndex(degree)
+        # The reading that produced this, so a roll under test can be read
+        # back rather than just observed.
+        self.roll_button.setToolTip(
+            f"{ROLL_TOOLTIP}\n\nLast roll:\n{cast.hexagram}\n\n{cast.describe()}")
 
     def _selected_progression(self) -> tuple[list[list[int]], list[int]]:
         """The chords/roots currently chosen by the numeral dropdowns,

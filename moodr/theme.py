@@ -233,7 +233,7 @@ def stylesheet(palette: QPalette) -> str:
     /* The transport pair: Play carries the same accent fill as a lit
        toggle, but only while the sequencer is actually running, so the
        window always answers "is this thing playing?" from across a room. */
-    QPushButton#playButton, QPushButton#stopButton {{
+    QPushButton#playButton, QPushButton#stopButton, QPushButton#rollButton {{
         font-weight: 600;
         color: {fg.name()};
     }}

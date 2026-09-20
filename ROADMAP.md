@@ -779,6 +779,31 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
         dark mode, in a forced light palette, and of the MIDI Status dialog, which inherits
         the stylesheet.
 
+- [x] **Circle-of-fifths roll, cast by I Ching coin tosses** (2026-09-20). A "Roll" button
+      beside the key/scale selectors rewrites the key, the scale and the four progression
+      slots as a *move away from* what is currently selected, not a fresh random draw — so
+      repeated rolls walk through related keys instead of teleporting. New pure module
+      `moodr/oracle.py`; no Qt, no MIDI, every function takes an optional `rng` so a roll
+      replays exactly in a test.
+      - The move is always a signed number of fifths, at both levels: the key moves around
+        the circle of fifths (±7 semitones per step), and a progression slot moves around the
+        *diatonic* circle within the scale, which is +4 of the seven degrees, not +1 (I→V).
+        The eighth interval-dict entry (`2I`, the octave tonic) is excluded from that ring and
+        folds onto the tonic, since counting it would make "up a fifth" land on a non-fifth.
+      - Randomness is Tyler's `Code-ish/iChing` script, mechanism unchanged: three coin flips
+        per line, summed, 0–3. The 1/8 · 3/8 · 3/8 · 1/8 weighting is the reason to use it
+        over a flat `choice()` — a roll usually nudges one fifth and only occasionally leaps
+        two. Six lines drive the six selections, bottom-first: key, scale, then the four
+        slots. Scale has no circle to move around, so it reads the line's I Ching sense
+        instead (static = stay or swap triad↔7th, changing = cross into another mode family).
+      - The button leaves the widgets exactly as a hand-turned dropdown would, so a roll while
+        playing lands at the next loop boundary rather than switching chords mid-bar. Its
+        tooltip carries the hexagram and a per-line reading of what moved where.
+      - 26 new tests (163 total) plus a 25-check run against the real `MainWindow`. The check
+        that mattered: setting the key repopulates the slot dropdowns and resets them to
+        I…VII, so the rolled degrees have to be applied *after* that — pinned by replaying one
+        seeded cast and asserting exact equality, not just "something changed".
+
 ## Decisions log
 
 - **MIDI clock scope**: Full MIDI Beat Clock output (real `0xF8` sync messages, not just
