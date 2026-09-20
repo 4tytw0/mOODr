@@ -174,9 +174,41 @@ def test_roll_moves_every_selection_by_its_own_line():
         assert cast.lines == lines
         assert cast.key == oracle.shift_key("C", oracle.LINE_TO_FIFTHS[lines[0]])
         assert cast.mode == oracle.shift_mode("Major", lines[1])
-        for i, degree in enumerate(cast.slots):
+        assert cast.slots[0] == oracle.ANCHOR_DEGREE
+        for i, degree in enumerate(cast.slots[1:], start=1):
             steps = oracle.LINE_TO_FIFTHS[lines[oracle.FIRST_SLOT_LINE + i]]
             assert degree == oracle.shift_degree(i, steps)
+
+
+def test_slot_one_always_lands_on_the_tonic():
+    """The progression needs a home for the fifths moves in the other
+    slots to be heard as movement away from something, so slot 1 is set to
+    degree I rather than rolled -- from any starting degree, on any cast."""
+    for seed in range(300):
+        for start in range(oracle.DEGREES_PER_SCALE):
+            cast = oracle.roll("E", "Minor 7", [start, 1, 2, 3], random.Random(seed))
+            assert cast.slots[0] == oracle.ANCHOR_DEGREE == 0
+
+
+def test_the_tonic_anchor_is_the_first_degree_of_every_mode():
+    """ANCHOR_DEGREE is an index into the interval dict, so it is only the
+    tonic if every mode actually starts on its tonic."""
+    for mode in theory.Modes:
+        intervals = theory.determine_mode(mode)
+        first = list(intervals.keys())[oracle.ANCHOR_DEGREE]
+        assert first in ("I", "i"), (mode, first)
+        assert intervals[first] == 0, "the tonic sits at the root, no offset"
+
+
+def test_the_other_slots_still_move():
+    """Anchoring slot 1 must not have quietly frozen the rest of the row."""
+    moved = [False, False, False]
+    for seed in range(60):
+        cast = oracle.roll("E", "Minor 7", [0, 1, 2, 3], random.Random(seed))
+        for i in range(3):
+            if cast.slots[i + 1] != [1, 2, 3][i]:
+                moved[i] = True
+    assert all(moved)
 
 
 def test_roll_is_relative_so_repeated_rolls_walk_the_circle():
@@ -206,6 +238,8 @@ def test_describe_and_hexagram_cover_every_line():
     described = cast.describe()
     assert "key" in described and "scale" in described
     assert described.count("slot") == 4
+    # Slot 1's line is still drawn and still reported, just as the anchor.
+    assert "anchored" in described.splitlines()[2]
 
 
 def test_a_rolled_scale_still_generates_playable_chords():

@@ -19,14 +19,23 @@ and occasionally leaps by two. A flat draw over the same four values would
 make the bold move four times as common as it should be.
 
 Six lines govern the six selections, bottom line first, the order a
-hexagram is traditionally read in:
+hexagram is traditionally read in. The two trigrams split the work the
+same way the app does -- the lower three are the ground the progression
+stands on, the upper three are what moves over it:
 
-    line 1  key
-    line 2  scale / mode
-    line 3  progression slot 1
-    line 4  progression slot 2
-    line 5  progression slot 3
-    line 6  progression slot 4
+    line 1  key                  |
+    line 2  scale / mode         |  lower trigram: the ground
+    line 3  progression slot 1   |  (anchored to the tonic -- never moves)
+
+    line 4  progression slot 2   |
+    line 5  progression slot 3   |  upper trigram: the movement
+    line 6  progression slot 4   |
+
+Slot 1 holding the tonic is deliberate, not a gap: a progression that
+starts somewhere other than I has no home to be heard as moving away
+from, so rolling it would undercut the fifths moves in the slots that
+follow. Its line is still cast and still shown in the reading; it simply
+governs the one selection that stays put.
 
 Everything here is pure and takes an optional `rng`, so a roll can be
 replayed exactly in a test. No Qt, no MIDI.
@@ -48,6 +57,10 @@ FIFTH_SEMITONES = 7
 # degree, so counting it would make "up a fifth" land four degrees up an
 # eight-item ring instead of a real fifth. It stays selectable by hand.
 DEGREES_PER_SCALE = 7
+
+# Progression slot 1 always lands here: degree index 0, the tonic (the "I"
+# or "i" that every interval dict in theory.py starts with).
+ANCHOR_DEGREE = 0
 
 # A tossed line's value (0-3) as a signed number of fifths. The changing
 # lines -- the rare ones -- are the bold moves; that is the whole point of
@@ -80,7 +93,7 @@ NUM_LINES = 6
 # Which line index (0 = bottom) drives what.
 KEY_LINE = 0
 MODE_LINE = 1
-FIRST_SLOT_LINE = 2
+FIRST_SLOT_LINE = 2   # slot 1; anchored, so this line moves nothing
 
 CIRCLE_OF_FIFTHS = [theory.Note_Dict[(i * FIFTH_SEMITONES) % 12] for i in range(12)]
 
@@ -188,8 +201,12 @@ class Cast:
         ]
         for i, degree in enumerate(self.slots):
             line = self.lines[FIRST_SLOT_LINE + i]
-            moves.append(f"slot {i + 1} {LINE_NAMES[line]}: "
-                         f"{LINE_TO_FIFTHS[line]:+d} fifths -> degree {degree + 1}")
+            if i == 0:
+                moves.append(f"slot 1 {LINE_NAMES[line]}: "
+                             f"anchored -> degree {degree + 1} (tonic)")
+            else:
+                moves.append(f"slot {i + 1} {LINE_NAMES[line]}: "
+                             f"{LINE_TO_FIFTHS[line]:+d} fifths -> degree {degree + 1}")
         return "\n".join(moves)
 
 
@@ -200,9 +217,10 @@ def roll(key: str, mode: str, slot_indices: list[int],
     repeated rolls wander through fifths-related territory instead of
     teleporting somewhere unrelated each time.
 
-    `slot_indices` are scale-degree indices, one per progression slot; up
-    to four are moved, matching the four lines above the key and mode
-    lines. Any beyond that are left as they are.
+    `slot_indices` are scale-degree indices, one per progression slot.
+    Slot 1 is set to the tonic rather than moved, so the progression
+    always has a home to be heard as moving away from; slots 2-4 move by
+    their own line. Any slot beyond the fourth is left as it is.
     """
     lines = cast_lines(rng)
     new_key = shift_key(key, LINE_TO_FIFTHS[lines[KEY_LINE]])
@@ -211,5 +229,8 @@ def roll(key: str, mode: str, slot_indices: list[int],
     movable = NUM_LINES - FIRST_SLOT_LINE
     slots = list(slot_indices)
     for i in range(min(movable, len(slots))):
-        slots[i] = shift_degree(slots[i], LINE_TO_FIFTHS[lines[FIRST_SLOT_LINE + i]])
+        if i == 0:
+            slots[i] = ANCHOR_DEGREE
+        else:
+            slots[i] = shift_degree(slots[i], LINE_TO_FIFTHS[lines[FIRST_SLOT_LINE + i]])
     return Cast(key=new_key, mode=new_mode, slots=slots, lines=lines)

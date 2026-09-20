@@ -141,7 +141,9 @@ ROLL_TOOLTIP = (
     "Roll a new key, scale and progression as a circle-of-fifths move away from the "
     "current ones, with the step sizes drawn by I Ching coin tosses -- usually one "
     "fifth, occasionally two. Every roll is relative to what is selected now, so "
-    "repeated rolls wander through related keys rather than jumping at random.")
+    "repeated rolls wander through related keys rather than jumping at random. The "
+    "first slot always holds the tonic, so the progression keeps a home to move away "
+    "from.")
 CONTROL_POINT_SIZE = 11
 PRIMARY_POINT_SIZE = 14
 

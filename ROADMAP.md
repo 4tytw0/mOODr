@@ -793,13 +793,20 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
       - Randomness is Tyler's `Code-ish/iChing` script, mechanism unchanged: three coin flips
         per line, summed, 0–3. The 1/8 · 3/8 · 3/8 · 1/8 weighting is the reason to use it
         over a flat `choice()` — a roll usually nudges one fifth and only occasionally leaps
-        two. Six lines drive the six selections, bottom-first: key, scale, then the four
-        slots. Scale has no circle to move around, so it reads the line's I Ching sense
-        instead (static = stay or swap triad↔7th, changing = cross into another mode family).
+        two. Six lines drive the six selections, bottom-first, and the two trigrams split
+        the work the way the app does: the lower three are the ground (key, scale, and slot 1)
+        and the upper three are the movement (slots 2–4). Scale has no circle to move around,
+        so it reads the line's I Ching sense instead (static = stay or swap triad↔7th,
+        changing = cross into another mode family).
+      - **Slot 1 is anchored to the tonic**, asked for as "the first chord should stay on 1".
+        A progression that starts somewhere other than I has no home, so the fifths moves in
+        the slots after it stop reading as movement *away* from anything. Its line is still
+        cast and still shown in the reading, as the anchor. The degree is what is fixed, not
+        the chord — rolling the key or scale still changes which chord the tonic is.
       - The button leaves the widgets exactly as a hand-turned dropdown would, so a roll while
         playing lands at the next loop boundary rather than switching chords mid-bar. Its
         tooltip carries the hexagram and a per-line reading of what moved where.
-      - 26 new tests (163 total) plus a 25-check run against the real `MainWindow`. The check
+      - 29 new tests (166 total) plus a 28-check run against the real `MainWindow`. The check
         that mattered: setting the key repopulates the slot dropdowns and resets them to
         I…VII, so the rolled degrees have to be applied *after* that — pinned by replaying one
         seeded cast and asserting exact equality, not just "something changed".
