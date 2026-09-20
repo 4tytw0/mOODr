@@ -109,9 +109,15 @@ def toss(rng: random.Random | None = None) -> int:
     return flip(rng) + flip(rng) + flip(rng)
 
 
-def cast_lines(rng: random.Random | None = None) -> list[int]:
-    """A hexagram as six line values, bottom line first."""
-    return [toss(rng) for _ in range(NUM_LINES)]
+def cast_lines(rng: random.Random | None = None,
+               count: int = NUM_LINES) -> list[int]:
+    """A hexagram as six line values, bottom line first.
+
+    `count` exists for casts that aren't hexagrams: the acid sequencer
+    casts one line per 16th-note step (see playback._generate_acid_pattern),
+    which is the same coin-toss weighting spent on a longer figure. Six
+    stays the default, so every caller that wants a hexagram gets one."""
+    return [toss(rng) for _ in range(count)]
 
 
 def hexagram_text(lines: list[int]) -> str:

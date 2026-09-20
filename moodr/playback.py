@@ -7,7 +7,7 @@ with one object that owns its own state and has explicit start/stop/reset.
 import random
 from typing import Callable
 
-from . import midi_io
+from . import midi_io, oracle
 from .clock import PPQN
 
 BEATS_PER_BAR = 4  # the OLD app treats one "bar" as a whole note (4 beats)
@@ -49,22 +49,37 @@ def _generate_acid_pattern(noise: float, wide_deviation: bool,
                             rng: random.Random | None = None) -> list[int | None]:
     """A fresh locked-in ACID_STEPS-length pattern. Each step is `None`
     (rest), `0` (play the bar's home note -- the sounding chord's root),
-    or a nonzero scale-degree offset from that home note. noise (0.0-1.0)
-    is the independent probability of a step being a rest, and -- for
-    steps that aren't -- of it being deviated instead of the home note."""
+    or a nonzero scale-degree offset from that home note.
+
+    The pattern is an I Ching cast, one line per step (oracle.cast_lines),
+    rather than a flat draw. A line's own sense decides the step: a
+    *static* line -- the common 3/8 draws -- holds the home note, and only
+    a *changing* line departs from it, changing yin into a rest and
+    changing yang into a deviation. Rests and deviations are therefore
+    rare by construction, 1/8 each, which is what makes the line read as a
+    figure with a couple of deliberate moves in it instead of noise.
+
+    `noise` (0.0-1.0) is how much of that cast is let through: the
+    probability that a changing line is honoured rather than falling back
+    to the home note. 0.0 is a straight 16th-note tonic pulse with the
+    reading ignored entirely; 1.0 is the cast exactly as drawn. It is a
+    depth control, not a rest probability -- see the module note in
+    app.py's acid slider tooltip.
+    """
     source = rng if rng is not None else random
+    lines = oracle.cast_lines(rng, count=ACID_STEPS)
     pattern: list[int | None] = []
-    for _ in range(ACID_STEPS):
-        if source.random() < noise:
-            pattern.append(None)
-        elif source.random() < noise:
+    for line in lines:
+        if not oracle.is_changing(line) or source.random() >= noise:
+            pattern.append(0)
+        elif oracle.is_yang(line):          # changing yang: a deviated step
             if wide_deviation:
                 offset = source.choice([o for o in range(-7, 8) if o != 0])
             else:
                 offset = source.choice(ACID_NARROW_OFFSETS)
             pattern.append(offset)
-        else:
-            pattern.append(0)
+        else:                               # changing yin: a rest
+            pattern.append(None)
     return pattern
 
 
@@ -165,7 +180,7 @@ class PlaybackEngine:
         self._sounding_acid_note: int | None = None
         self._sounding_acid_octave_shift = 0
         self._acid_enabled = True
-        self.acid_noise = 0.25
+        self.acid_noise = 1.0
         self.acid_wide_deviation = True
         self._acid_pattern: list[int | None] = _generate_acid_pattern(
             self.acid_noise, self.acid_wide_deviation, self._rng)
@@ -331,10 +346,11 @@ class PlaybackEngine:
         self._scale_roots = scale_roots
 
     def randomize_acid_pattern(self) -> None:
-        """Rolls a fresh locked-in acid pattern from the current
+        """Casts a fresh locked-in acid pattern from the current
         acid_noise/acid_wide_deviation settings. Takes effect starting
         from whichever step the sequencer is currently on -- it doesn't
-        wait for the next bar or restart the pattern from step 0."""
+        wait for the next bar or restart the pattern from step 0, so the
+        app calls it at a loop boundary when it wants the two aligned."""
         self._acid_pattern = _generate_acid_pattern(
             self.acid_noise, self.acid_wide_deviation, self._rng)
 

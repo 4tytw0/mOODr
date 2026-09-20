@@ -28,6 +28,34 @@ passing** (`uv run pytest`).
 - A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
 - A top menu bar to hold lesser-used settings, decluttering the main window
 
+## Session summary (2026-09-20, later)
+
+**The acid line is now an I Ching cast.** `_generate_acid_pattern` casts one line per
+16th-note step (`oracle.cast_lines(count=16)`) instead of drawing flat: static lines — the
+common 3/8 draws — hold the bar's chord root, and only the rare changing lines depart from
+it, changing yin into a rest and changing yang into a scale deviation. So a bar is roughly
+75% root, 12% rests, 12% deviations, and the departures are rare *by construction* rather
+than by probability. The **Noise slider changed meaning** as a result: it is now how much of
+the cast is let through (the chance a changing line is honoured rather than folded back onto
+the root), 0% being a straight 16th-note tonic pulse and 100% the reading as drawn. Its
+default moved 25% → 100%, since anything less is a partly-ignored reading. The **Roll button
+now casts the acid line too**, as its own 16-line figure rather than out of the hexagram's
+six, queued via `_pending_acid_cast` and spent at the next loop boundary (or at Play, if
+stopped) so a Roll still lands all at once instead of swapping the acid line mid-bar.
+Randomize stays as a manual re-cast and supersedes a queued roll. **179 tests, all passing**;
+not yet run in the real GUI.
+
+**Handoff state**: branch `ui-chord-selection-polish`, now **8 commits ahead of `main`** —
+`git checkout main && git merge --ff-only ui-chord-selection-polish`. The two Circuit bridge
+scripts remain deliberately untracked.
+
+**Left open on purpose**: a deviated step still picks its offset with a flat `choice()` from
+`ACID_NARROW_OFFSETS` / ±7, so the Wide deviation checkbox keeps its documented meaning. The
+natural follow-up is to draw that offset from a toss through `LINE_TO_FIFTHS`/`shift_degree`
+too, which would put the acid line's leaps on the same diatonic circle of fifths the
+progression slots move on. There is no `test_app.py` in this repo, so the deferral path
+(`_pending_acid_cast`) is covered by reading, not by a test.
+
 ## Session summary (2026-09-20)
 
 Two features and a documentation pass. **Resetting bridges started outside m00Dr** (the app

@@ -528,18 +528,63 @@ def test_arp_resets_to_the_top_of_the_pattern_on_chord_change():
     assert arp_on[-1] == 84
 
 
+class _ScriptedCast:
+    """Stands in for a random.Random so a cast can be dictated. `randint`
+    feeds oracle.flip() three times per line, spelling out each line value
+    in turn; `random()` returns 0.0 so every changing line is honoured,
+    and `choice` is left genuinely arbitrary-but-fixed."""
+
+    def __init__(self, lines):
+        self._flips = [bit for value in lines
+                       for bit in ([1] * value + [0] * (3 - value))]
+        self._index = 0
+
+    def randint(self, low, high):
+        bit = self._flips[self._index]
+        self._index += 1
+        return bit
+
+    def random(self):
+        return 0.0
+
+    def choice(self, seq):
+        return seq[0]
+
+
 def test_acid_step_count_and_rate_span_exactly_one_bar():
     assert ACID_STEPS * ACID_STEP_TICKS == TICKS_PER_BAR
 
 
 def test_generate_acid_pattern_zero_noise_is_all_home_notes():
+    # noise is how much of the cast is let through, so 0.0 ignores the
+    # reading entirely and every step holds the home note.
     assert _generate_acid_pattern(0.0, wide_deviation=True) == [0] * ACID_STEPS
 
 
-def test_generate_acid_pattern_max_noise_is_all_rests():
-    # noise=1.0 -- random.random() < 1.0 is always true, so the rest check
-    # always wins before the deviation check ever gets a chance to run.
-    assert _generate_acid_pattern(1.0, wide_deviation=True) == [None] * ACID_STEPS
+def test_generate_acid_pattern_max_noise_honours_every_changing_line():
+    # At 1.0 the pattern is the cast exactly as drawn: static lines (1, 2)
+    # hold the home note, changing yin (0) rests, changing yang (3)
+    # deviates. Casting through a stub rng makes that mapping checkable
+    # rather than merely probable.
+    lines = [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]
+    pattern = _generate_acid_pattern(
+        1.0, wide_deviation=False, rng=_ScriptedCast(lines))
+    fates = [("rest" if v is None else "home" if v == 0 else "deviate")
+             for v in pattern]
+    assert fates == ["rest", "home", "home", "deviate"] * 4
+
+
+def test_generate_acid_pattern_rests_and_deviations_are_rare():
+    # The whole point of casting rather than drawing flat: at full depth
+    # the departures are the 1/8 draws, so a bar is mostly home note.
+    home = departures = 0
+    for seed in range(200):
+        for value in _generate_acid_pattern(1.0, True, random.Random(seed)):
+            if value == 0:
+                home += 1
+            else:
+                departures += 1
+    assert home > departures * 2  # ~75% home vs ~25% departures
 
 
 def test_generate_acid_pattern_is_seedable_and_reproducible():
@@ -668,7 +713,7 @@ def test_randomize_acid_pattern_replaces_the_pattern():
     pattern_b = list(engine._acid_pattern)
 
     assert pattern_a == [0] * ACID_STEPS
-    assert pattern_b == [None] * ACID_STEPS
+    assert pattern_b != pattern_a  # the full cast is not a flat tonic pulse
 
 
 def test_stop_sends_all_notes_off_for_acid_channel():

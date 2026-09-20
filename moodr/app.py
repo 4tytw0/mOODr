@@ -90,7 +90,11 @@ DEFAULT_ARP_PATTERN_LABEL = "Down"
 ARP_RATE_LABELS = list(ARP_RATE_TICKS.keys())  # "1/4", "1/8", "1/16"
 DEFAULT_ARP_RATE = "1/8"
 
-DEFAULT_ACID_NOISE_PERCENT = 25
+# The acid pattern is an I Ching cast (see playback._generate_acid_pattern)
+# and this is how much of that cast is let through, so the default is all
+# of it -- the reading as drawn. Pulling it down folds the departures back
+# onto the tonic; at 0 the acid line is a straight 16th-note pulse.
+DEFAULT_ACID_NOISE_PERCENT = 100
 
 # Novation Circuit Tracks' default MIDI map (confirmed against its own
 # manual): Synth 1 = ch1, Synth 2 = ch2 are its only two actual synth
@@ -655,6 +659,13 @@ class MainWindow(QWidget):
             on_chord_change=lambda position: self._engine_signals.chord_changed.emit(
                 -1 if position is None else position))
 
+        # Set by a Roll, spent at the next loop boundary (or at Play, if
+        # stopped). A Roll casts the acid line along with key/scale/slots,
+        # but randomize_acid_pattern() takes effect on the very next step,
+        # which would swap the acid line mid-bar while the chords it plays
+        # over are still waiting for the boundary. Deferring keeps a Roll
+        # landing all at once, the way _on_roll_clicked already promises.
+        self._pending_acid_cast = False
         self._full_chords: list[list[int]] = []
         self._full_roots: list[int] = []
         self._numerals: list[str] = []
@@ -801,8 +812,13 @@ class MainWindow(QWidget):
         self.acid_noise_slider.setRange(0, 100)
         self.acid_noise_slider.setValue(DEFAULT_ACID_NOISE_PERCENT)
         self.acid_noise_slider.setToolTip(
-            "Chance per 16th-note step of a rest, and independently of a random pitch "
-            "within the scale, instead of the bar's chord root.")
+            "How much of the acid line's I Ching cast is let through. Each 16th-note "
+            "step is one tossed line: the common static lines hold the bar's chord "
+            "root, and only the rare changing lines depart from it -- changing yin "
+            "into a rest, changing yang into another pitch in the scale. This is the "
+            "chance a departure is honoured rather than folded back onto the root. "
+            "100% is the reading as cast (roughly one rest and one deviation per bar); "
+            "0% is a straight 16th-note pulse on the root.")
         self.acid_noise_slider.valueChanged.connect(self._on_acid_noise_changed)
         self._update_acid_noise_label(DEFAULT_ACID_NOISE_PERCENT)
 
@@ -985,6 +1001,11 @@ class MainWindow(QWidget):
         """
         cast = oracle.roll(self.key_box.currentText(), self.mode_box.currentText(),
                            [box.currentIndex() for box in self.numeral_boxes])
+        # The acid line is cast by the same roll, as its own 16-line figure
+        # rather than out of this hexagram's six -- one line per 16th-note
+        # step (see playback._generate_acid_pattern). Queued, not applied:
+        # see _pending_acid_cast.
+        self._pending_acid_cast = True
         self.key_box.setCurrentText(cast.key)
         self.mode_box.setCurrentText(cast.mode)
         for box, degree in zip(self.numeral_boxes, cast.slots):
@@ -1038,6 +1059,7 @@ class MainWindow(QWidget):
         replaying the first chord an extra time."""
         chords, roots = self._selected_progression()
         self._engine.set_progression(chords, roots)
+        self._apply_pending_acid_cast()
 
     def _update_progression_slots(self, _value: str | None = None) -> None:
         """Dims the progression slots the loop length doesn't reach.
@@ -1081,6 +1103,7 @@ class MainWindow(QWidget):
             self._master_clock.bpm = bpm
         chords, roots = self._selected_progression()
         self._engine.load_progression(chords, roots)
+        self._apply_pending_acid_cast()
         self._engine.start()
         theme.set_state_property(self.play_button, "playing", self._engine.is_playing)
         self.external_sync_checkbox.setEnabled(False)
@@ -1139,6 +1162,19 @@ class MainWindow(QWidget):
         self._engine.acid_wide_deviation = checked
 
     def _on_acid_randomize_clicked(self) -> None:
+        # An explicit re-cast now, which also supersedes any roll still
+        # waiting for the loop boundary -- otherwise that boundary would
+        # immediately throw away the pattern just asked for by hand.
+        self._pending_acid_cast = False
+        self._engine.randomize_acid_pattern()
+
+    def _apply_pending_acid_cast(self) -> None:
+        """Spends a Roll's queued acid cast, if there is one. Called at the
+        loop boundary while playing and at Play while stopped, matching how
+        a rolled key/scale/progression reaches the engine."""
+        if not self._pending_acid_cast:
+            return
+        self._pending_acid_cast = False
         self._engine.randomize_acid_pattern()
 
     def _on_sync_mode_toggled(self, external: bool) -> None:
