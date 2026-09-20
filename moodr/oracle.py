@@ -180,6 +180,192 @@ def shift_mode(mode: str, line: int) -> str:
     return target[min(seventh, len(target) - 1)]
 
 
+# -- naming the cast -----------------------------------------------------
+#
+# A line's value says both what it is now and what it turns into: 0 and 1
+# are yin, 2 and 3 are yang, and the two *changing* values (0 and 3) flip
+# when the hexagram transforms. That is exactly the two columns Tyler's
+# iChing script already drew, so nothing new is being invented here -- the
+# glyphs in LINE_GLYPHS and the polarity functions below are two readings
+# of the same numbers.
+
+YANG_VALUES = frozenset({2, 3})
+CHANGING_VALUES = frozenset({0, 3})
+
+
+def is_yang(value: int) -> bool:
+    """Whether a line value is yang (solid) rather than yin (broken)."""
+    return value in YANG_VALUES
+
+
+def is_changing(value: int) -> bool:
+    """Whether a line transforms -- the rare 1/8 draws at either end."""
+    return value in CHANGING_VALUES
+
+
+def transformed_polarity(value: int) -> bool:
+    """The line's polarity *after* the hexagram changes: a changing line
+    flips, a static one stays."""
+    return not is_yang(value) if is_changing(value) else is_yang(value)
+
+
+@dataclass(frozen=True)
+class Trigram:
+    """One of the eight three-line figures."""
+    glyph: str
+    name: str      # pinyin, as the I Ching names it
+    image: str     # the natural image it stands for
+
+
+# Keyed by (bottom, middle, top), True = yang. Trigrams are built from the
+# bottom up, which is why the key reads in that order rather than the order
+# the glyph is drawn in.
+TRIGRAMS = {
+    (True,  True,  True):  Trigram("\u2630", "Qi\u00e1n", "Heaven"),
+    (True,  True,  False): Trigram("\u2631", "Du\u00ec", "Lake"),
+    (True,  False, True):  Trigram("\u2632", "L\u00ed", "Fire"),
+    (True,  False, False): Trigram("\u2633", "Zh\u00e8n", "Thunder"),
+    (False, True,  True):  Trigram("\u2634", "X\u00f9n", "Wind"),
+    (False, True,  False): Trigram("\u2635", "K\u01cen", "Water"),
+    (False, False, True):  Trigram("\u2636", "G\u00e8n", "Mountain"),
+    (False, False, False): Trigram("\u2637", "K\u016bn", "Earth"),
+}
+
+# The King Wen sequence as the standard 8x8 table: rows are the lower
+# trigram, columns the upper one. Written out rather than computed because
+# the sequence is traditional and has no closed form -- test_oracle.py
+# checks it is a genuine permutation of 1..64 and spot-checks the pairs
+# everyone knows (1 Heaven/Heaven, 2 Earth/Earth, 63/64 the two
+# Fire-and-Water crossings).
+_KING_WEN_ORDER = ["Qi\u00e1n", "Zh\u00e8n", "K\u01cen", "G\u00e8n",
+                   "K\u016bn", "X\u00f9n", "L\u00ed", "Du\u00ec"]
+_KING_WEN_TABLE = [
+    # upper:  Qian Zhen  Kan  Gen  Kun  Xun   Li  Dui      # lower
+    [            1,  34,   5,  26,  11,   9,  14,  43],    # Qian
+    [           25,  51,   3,  27,  24,  42,  21,  17],    # Zhen
+    [            6,  40,  29,   4,   7,  59,  64,  47],    # Kan
+    [           33,  62,  39,  52,  15,  53,  56,  31],    # Gen
+    [           12,  16,   8,  23,   2,  20,  35,  45],    # Kun
+    [           44,  32,  48,  18,  46,  57,  50,  28],    # Xun
+    [           13,  55,  63,  22,  36,  37,  30,  49],    # Li
+    [           10,  54,  60,  41,  19,  61,  38,  58],    # Dui
+]
+
+HEXAGRAM_NAMES = {
+    1: ("Qi\u00e1n", "The Creative"),
+    2: ("K\u016bn", "The Receptive"),
+    3: ("Zh\u016bn", "Difficulty at the Beginning"),
+    4: ("M\u00e9ng", "Youthful Folly"),
+    5: ("X\u016b", "Waiting"),
+    6: ("S\u00f2ng", "Conflict"),
+    7: ("Sh\u012b", "The Army"),
+    8: ("B\u01d0", "Holding Together"),
+    9: ("Xi\u01ceo Ch\u00f9", "The Taming Power of the Small"),
+    10: ("L\u01da", "Treading"),
+    11: ("T\u00e0i", "Peace"),
+    12: ("P\u01d0", "Standstill"),
+    13: ("T\u00f3ng R\u00e9n", "Fellowship with Men"),
+    14: ("D\u00e0 Y\u01d2u", "Possession in Great Measure"),
+    15: ("Qi\u0101n", "Modesty"),
+    16: ("Y\u00f9", "Enthusiasm"),
+    17: ("Su\u00ed", "Following"),
+    18: ("G\u01d4", "Work on What Has Been Spoiled"),
+    19: ("L\u00edn", "Approach"),
+    20: ("Gu\u0101n", "Contemplation"),
+    21: ("Sh\u00ec K\u00e8", "Biting Through"),
+    22: ("B\u00ec", "Grace"),
+    23: ("B\u014d", "Splitting Apart"),
+    24: ("F\u00f9", "Return"),
+    25: ("W\u00fa W\u00e0ng", "Innocence"),
+    26: ("D\u00e0 Ch\u00f9", "The Taming Power of the Great"),
+    27: ("Y\u00ed", "The Corners of the Mouth"),
+    28: ("D\u00e0 Gu\u00f2", "Preponderance of the Great"),
+    29: ("K\u01cen", "The Abysmal (Water)"),
+    30: ("L\u00ed", "The Clinging (Fire)"),
+    31: ("Xi\u00e1n", "Influence"),
+    32: ("H\u00e9ng", "Duration"),
+    33: ("D\u00f9n", "Retreat"),
+    34: ("D\u00e0 Zhu\u00e0ng", "The Power of the Great"),
+    35: ("J\u00ecn", "Progress"),
+    36: ("M\u00edng Y\u00ed", "Darkening of the Light"),
+    37: ("Ji\u0101 R\u00e9n", "The Family"),
+    38: ("Ku\u00ed", "Opposition"),
+    39: ("Ji\u01cen", "Obstruction"),
+    40: ("Xi\u00e8", "Deliverance"),
+    41: ("S\u01d4n", "Decrease"),
+    42: ("Y\u00ec", "Increase"),
+    43: ("Gu\u00e0i", "Break-through"),
+    44: ("G\u00f2u", "Coming to Meet"),
+    45: ("Cu\u00ec", "Gathering Together"),
+    46: ("Sh\u0113ng", "Pushing Upward"),
+    47: ("K\u00f9n", "Oppression"),
+    48: ("J\u01d0ng", "The Well"),
+    49: ("G\u00e9", "Revolution"),
+    50: ("D\u01d0ng", "The Cauldron"),
+    51: ("Zh\u00e8n", "The Arousing (Thunder)"),
+    52: ("G\u00e8n", "Keeping Still (Mountain)"),
+    53: ("Ji\u00e0n", "Development"),
+    54: ("Gu\u012b M\u00e8i", "The Marrying Maiden"),
+    55: ("F\u0113ng", "Abundance"),
+    56: ("L\u01da", "The Wanderer"),
+    57: ("X\u00f9n", "The Gentle (Wind)"),
+    58: ("Du\u00ec", "The Joyous (Lake)"),
+    59: ("Hu\u00e0n", "Dispersion"),
+    60: ("Ji\u00e9", "Limitation"),
+    61: ("Zh\u014dng F\u00fa", "Inner Truth"),
+    62: ("Xi\u01ceo Gu\u00f2", "Preponderance of the Small"),
+    63: ("J\u00ec J\u00ec", "After Completion"),
+    64: ("W\u00e8i J\u00ec", "Before Completion"),
+}
+
+# The Unicode hexagram block runs U+4DC0..U+4DFF in King Wen order, so the
+# glyph comes straight off the number.
+HEXAGRAM_GLYPH_BASE = 0x4DC0
+
+
+@dataclass(frozen=True)
+class Hexagram:
+    """A named cast: the six lines as the I Ching reads them."""
+    number: int
+    name: str
+    meaning: str
+    glyph: str
+    lower: Trigram
+    upper: Trigram
+
+    def label(self) -> str:
+        """One line: "\u4dc1 2 \u00b7 K\u016bn \u2014 The Receptive"."""
+        return f"{self.glyph}  {self.number} \u00b7 {self.name} \u2014 {self.meaning}"
+
+    def trigram_label(self) -> str:
+        """The pair that composes it, named. Spoken upper-over-lower, the
+        way a hexagram is described."""
+        return (f"{self.upper.glyph} {self.upper.name} ({self.upper.image}) over "
+                f"{self.lower.glyph} {self.lower.name} ({self.lower.image})")
+
+
+def trigram_for(polarities: list[bool]) -> Trigram:
+    """The trigram for three polarities, bottom line first."""
+    bottom, middle, top = polarities
+    return TRIGRAMS[(bottom, middle, top)]
+
+
+def _king_wen_number(lower: Trigram, upper: Trigram) -> int:
+    return _KING_WEN_TABLE[_KING_WEN_ORDER.index(lower.name)][
+        _KING_WEN_ORDER.index(upper.name)]
+
+
+def hexagram_for(polarities: list[bool]) -> Hexagram:
+    """The named hexagram for six polarities, bottom line first."""
+    lower = trigram_for(polarities[:3])
+    upper = trigram_for(polarities[3:])
+    number = _king_wen_number(lower, upper)
+    name, meaning = HEXAGRAM_NAMES[number]
+    return Hexagram(number=number, name=name, meaning=meaning,
+                    glyph=chr(HEXAGRAM_GLYPH_BASE + number - 1),
+                    lower=lower, upper=upper)
+
+
 @dataclass(frozen=True)
 class Cast:
     """One roll's result: what to select, and the reading behind it."""
@@ -189,8 +375,34 @@ class Cast:
     lines: list[int]
 
     @property
-    def hexagram(self) -> str:
+    def drawing(self) -> str:
+        """The six lines as the original iChing script drew them."""
         return hexagram_text(self.lines)
+
+    @property
+    def polarities(self) -> list[bool]:
+        """Each line as yang (True) or yin (False), bottom first."""
+        return [is_yang(value) for value in self.lines]
+
+    @property
+    def hexagram(self) -> Hexagram:
+        """The cast named: its number, name and two trigrams."""
+        return hexagram_for(self.polarities)
+
+    @property
+    def transformation(self) -> "Hexagram | None":
+        """The hexagram this one changes into, or None if no line was a
+        changing one. This is the right-hand column the original script
+        already drew -- the coin-toss method produces it for free, and it
+        is the half of a reading that says where things are heading."""
+        if not any(is_changing(value) for value in self.lines):
+            return None
+        return hexagram_for([transformed_polarity(v) for v in self.lines])
+
+    def reading(self) -> str:
+        """The I Ching side of the cast, two lines, for the GUI label."""
+        hexagram = self.hexagram
+        return f"{hexagram.label()}\n{hexagram.trigram_label()}"
 
     def describe(self) -> str:
         """The reading in words, for a tooltip or a log line."""

@@ -232,9 +232,9 @@ def test_roll_leaves_extra_slots_alone():
     assert cast.slots[4:] == [5, 6]
 
 
-def test_describe_and_hexagram_cover_every_line():
+def test_describe_and_drawing_cover_every_line():
     cast = oracle.roll("E", "Minor 7", [0, 1, 2, 3], random.Random(9))
-    assert len(cast.hexagram.splitlines()) == 6
+    assert len(cast.drawing.splitlines()) == 6
     described = cast.describe()
     assert "key" in described and "scale" in described
     assert described.count("slot") == 4
@@ -256,3 +256,128 @@ def test_a_rolled_scale_still_generates_playable_chords():
         chords = theory.root_mode_to_midi_chord(roots, numerals, cast.mode)
         for degree in cast.slots:
             assert chords[degree], f"degree {degree} produced no notes"
+
+
+# -- naming the cast -----------------------------------------------------
+
+def test_polarity_agrees_with_the_drawn_glyphs():
+    """The polarity helpers and the glyph table are two readings of the
+    same four numbers, so they have to agree: the left-hand column of
+    Tyler's glyph is the line now, the right-hand column is what it
+    becomes. If these ever disagreed the label would name a hexagram the
+    drawing doesn't show."""
+    for value, glyph in oracle.LINE_GLYPHS.items():
+        now, becomes = glyph[:3], glyph[-3:]
+        assert oracle.is_yang(value) == (now in ("---", "-o-")), value
+        assert oracle.transformed_polarity(value) == (becomes == "---"), value
+        assert oracle.is_changing(value) == (now in ("-x-", "-o-")), value
+
+
+def test_only_the_rare_lines_change():
+    assert oracle.CHANGING_VALUES == {0, 3}
+    for value in (1, 2):
+        assert oracle.transformed_polarity(value) == oracle.is_yang(value)
+    for value in (0, 3):
+        assert oracle.transformed_polarity(value) != oracle.is_yang(value)
+
+
+def test_all_eight_trigrams_are_present_and_distinct():
+    assert len(oracle.TRIGRAMS) == 8
+    assert len({t.glyph for t in oracle.TRIGRAMS.values()}) == 8
+    assert len({t.name for t in oracle.TRIGRAMS.values()}) == 8
+
+
+def test_trigram_glyphs_match_their_unicode_codepoints():
+    """The Unicode trigram block encodes the figure itself: U+2630 plus
+    4*bottom + 2*middle + 1*top, counting yin as 1. Checking the table
+    against that formula catches a glyph pasted onto the wrong pattern,
+    which no amount of looking at the names would."""
+    for (bottom, middle, top), trigram in oracle.TRIGRAMS.items():
+        offset = 4 * (not bottom) + 2 * (not middle) + 1 * (not top)
+        assert trigram.glyph == chr(0x2630 + offset), trigram
+
+
+def test_the_famous_trigrams_are_the_right_way_up():
+    assert oracle.trigram_for([True, True, True]).image == "Heaven"
+    assert oracle.trigram_for([False, False, False]).image == "Earth"
+    # Fire is solid outside, broken within; Water the reverse.
+    assert oracle.trigram_for([True, False, True]).image == "Fire"
+    assert oracle.trigram_for([False, True, False]).image == "Water"
+    # Mountain has its solid line on top, Thunder at the bottom.
+    assert oracle.trigram_for([False, False, True]).image == "Mountain"
+    assert oracle.trigram_for([True, False, False]).image == "Thunder"
+
+
+def test_king_wen_table_is_a_real_sequence():
+    numbers = [n for row in oracle._KING_WEN_TABLE for n in row]
+    assert sorted(numbers) == list(range(1, 65)), "not a permutation of 1..64"
+    assert len(oracle._KING_WEN_ORDER) == 8
+    assert set(oracle._KING_WEN_ORDER) == {t.name for t in oracle.TRIGRAMS.values()}
+
+
+def test_the_hexagrams_everyone_knows():
+    def number(bits):
+        return oracle.hexagram_for([b == "1" for b in bits]).number
+    #          bottom -> top
+    assert number("111111") == 1    # Heaven over Heaven
+    assert number("000000") == 2    # Earth over Earth
+    assert number("100010") == 3    # Water over Thunder
+    assert number("010001") == 4    # Mountain over Water
+    assert number("111000") == 11   # Earth over Heaven, Peace
+    assert number("000111") == 12   # Heaven over Earth, Standstill
+    assert number("010010") == 29   # Water over Water
+    assert number("101101") == 30   # Fire over Fire
+    assert number("101010") == 63   # Water over Fire, After Completion
+    assert number("010101") == 64   # Fire over Water, Before Completion
+
+
+def test_every_hexagram_is_named_and_reachable():
+    assert sorted(oracle.HEXAGRAM_NAMES) == list(range(1, 65))
+    seen = set()
+    for n in range(64):
+        polarities = [bool(int(b)) for b in f"{n:06b}"]
+        hexagram = oracle.hexagram_for(polarities)
+        seen.add(hexagram.number)
+        assert hexagram.name and hexagram.meaning
+        assert len(hexagram.glyph) == 1
+    assert seen == set(range(1, 65)), "some hexagram is unreachable"
+
+
+def test_hexagram_glyphs_are_the_king_wen_ordered_block():
+    for number, (name, _meaning) in oracle.HEXAGRAM_NAMES.items():
+        polarities = next(p for p in
+                          ([bool(int(b)) for b in f"{n:06b}"] for n in range(64))
+                          if oracle.hexagram_for(p).number == number)
+        assert oracle.hexagram_for(polarities).glyph == chr(0x4DC0 + number - 1)
+
+
+def test_cast_names_its_hexagram_and_its_transformation():
+    for seed in range(200):
+        cast = oracle.roll("E", "Minor 7", [0, 1, 2, 3], random.Random(seed))
+        assert 1 <= cast.hexagram.number <= 64
+        changing = any(oracle.is_changing(v) for v in cast.lines)
+        assert (cast.transformation is not None) == changing
+        if changing:
+            # A changing line flips a polarity, so the two must differ.
+            assert cast.transformation.number != cast.hexagram.number
+
+
+def test_reading_names_both_trigrams_upper_first():
+    cast = oracle.roll("E", "Minor 7", [0, 1, 2, 3], random.Random(1234))
+    reading = cast.reading()
+    assert len(reading.splitlines()) == 2
+    hexagram = cast.hexagram
+    assert str(hexagram.number) in reading and hexagram.meaning in reading
+    assert hexagram.upper.image in reading and hexagram.lower.image in reading
+    assert reading.index(hexagram.upper.name) < reading.index(hexagram.lower.name)
+
+
+def test_the_cast_lines_and_the_named_hexagram_are_the_same_figure():
+    """The drawing and the name are produced by different code paths, so
+    pin that they describe one figure: the drawn lines, read bottom-up,
+    must be the polarities the hexagram was looked up from."""
+    for seed in range(120):
+        cast = oracle.roll("C", "Major", [0, 1, 2, 3], random.Random(seed))
+        drawn = list(reversed(cast.drawing.splitlines()))  # back to bottom-first
+        for line, yang in zip(drawn, cast.polarities):
+            assert (line[:3] in ("---", "-o-")) == yang

@@ -806,7 +806,23 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
       - The button leaves the widgets exactly as a hand-turned dropdown would, so a roll while
         playing lands at the next loop boundary rather than switching chords mid-bar. Its
         tooltip carries the hexagram and a per-line reading of what moved where.
-      - 29 new tests (166 total) plus a 28-check run against the real `MainWindow`. The check
+      - **The cast is named on screen**, asked for as "can we display the trigram rolled in
+        the UI with it's name from the iching?". A label beside the Roll button gives the
+        hexagram (glyph, King Wen number, pinyin, meaning) and under it the two trigrams that
+        compose it, spoken upper-over-lower — `☵ Kǎn (Water) over ☷ Kūn (Earth)`. The
+        changing-line transformation ("this hexagram moves to …") is in the label's tooltip
+        rather than the label, since it would otherwise double the row's height; it costs
+        nothing to compute, being the right-hand column the original iChing script drew.
+        The label is rich text for one reason: a hexagram glyph is six hairline strokes, so
+        it needs ~30px to be legible while its name stays at body size.
+        The King Wen 8×8 table is written out, not computed — the sequence is traditional and
+        has no closed form — and is guarded by a test asserting it is a real permutation of
+        1..64 plus spot checks on the pairs everyone knows. Two further tests tie the new
+        tables back to the existing ones: trigram glyphs are checked against their Unicode
+        codepoint formula (which encodes the figure itself, so a glyph pasted onto the wrong
+        line pattern fails), and the drawn lines are checked to be the same figure the name
+        was looked up from.
+      - 41 new tests (178 total) plus 28- and 16-check runs against the real `MainWindow`. The check
         that mattered: setting the key repopulates the slot dropdowns and resets them to
         I…VII, so the rolled degrees have to be applied *after* that — pinned by replaying one
         seeded cast and asserting exact equality, not just "something changed".

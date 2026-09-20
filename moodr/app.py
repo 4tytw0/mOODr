@@ -7,6 +7,7 @@ selected_key/selected_mode/selected_prog) with real, directly-read widget
 state -- there is no string to parse anywhere in this module.
 """
 
+import html
 import os
 import subprocess
 import sys
@@ -137,6 +138,18 @@ BPM_FIELD_WIDTH = 96
 # dropdowns ("i · Em7").
 NUMERAL_NAME_SEPARATOR = "  ·  "
 
+NO_READING_TEXT = "no hexagram cast yet"
+
+# A hexagram glyph is six hairline strokes and a trigram three, so at body
+# size they are a smudge rather than a figure you can read the lines off.
+# The label is rich text purely so the glyphs can be set large while their
+# names stay at body size.
+HEXAGRAM_GLYPH_SIZE = 30
+TRIGRAM_GLYPH_SIZE = 20
+
+READING_TOOLTIP = (
+    "The I Ching reading behind the last roll. Roll again for a new one.")
+
 ROLL_TOOLTIP = (
     "Roll a new key, scale and progression as a circle-of-fifths move away from the "
     "current ones, with the step sizes drawn by I Ching coin tosses -- usually one "
@@ -163,6 +176,29 @@ def _grow(widget, min_height: int = CONTROL_HEIGHT, point_size: int = CONTROL_PO
     widget.setFont(font)
     if expanding:
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+
+def _reading_html(cast: oracle.Cast) -> str:
+    """The cast named, as the label's rich text: hexagram on the first
+    line, the two trigrams that compose it on the second, spoken
+    upper-over-lower the way a hexagram is described. The plain-text
+    equivalent is oracle.Cast.reading(), which is what the tooltip and the
+    tests read -- this function only adds presentation."""
+    hexagram = cast.hexagram
+    escape = html.escape
+
+    def named(trigram, size):
+        return (f'<span style="font-size:{size}px">{trigram.glyph}</span>&nbsp;'
+                f'{escape(trigram.name)} ({escape(trigram.image)})')
+
+    return (
+        '<div style="line-height:130%">'
+        f'<span style="font-size:{HEXAGRAM_GLYPH_SIZE}px">{hexagram.glyph}</span>'
+        f'&nbsp;&nbsp;{hexagram.number} &middot; {escape(hexagram.name)}'
+        f' &mdash; {escape(hexagram.meaning)}<br>'
+        f'{named(hexagram.upper, TRIGRAM_GLYPH_SIZE)} over '
+        f'{named(hexagram.lower, TRIGRAM_GLYPH_SIZE)}'
+        '</div>')
 
 
 def _row_width_limit(count: int, spacing: int = SELECTOR_SPACING) -> int:
@@ -665,6 +701,16 @@ class MainWindow(QWidget):
         self.roll_button.setToolTip(ROLL_TOOLTIP)
         self.roll_button.clicked.connect(self._on_roll_clicked)
 
+        # Names the cast the way the I Ching does. Two lines: the hexagram
+        # itself, then the pair of trigrams that compose it, spoken
+        # upper-over-lower.
+        self.reading_label = QLabel(NO_READING_TEXT)
+        self.reading_label.setTextFormat(Qt.RichText)
+        self.reading_label.setObjectName("readingLabel")
+        self.reading_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.reading_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.reading_label.setToolTip(READING_TOOLTIP)
+
         self.bpm_edit = QLineEdit(DEFAULT_BPM)
         self.bpm_edit.setObjectName("bpmEdit")
         self.bpm_edit.setAlignment(Qt.AlignCenter)
@@ -825,6 +871,7 @@ class MainWindow(QWidget):
         progression_row.setSpacing(SELECTOR_SPACING)
         for widget in (self.key_box, self.mode_box, self.roll_button):
             progression_row.addWidget(widget)
+        progression_row.addWidget(self.reading_label)
         progression_row.addStretch(1)
 
         self.numeral_boxes = [QComboBox() for _ in range(NUM_NUMERAL_SLOTS)]
@@ -946,7 +993,25 @@ class MainWindow(QWidget):
         # The reading that produced this, so a roll under test can be read
         # back rather than just observed.
         self.roll_button.setToolTip(
-            f"{ROLL_TOOLTIP}\n\nLast roll:\n{cast.hexagram}\n\n{cast.describe()}")
+            f"{ROLL_TOOLTIP}\n\nLast roll:\n{cast.drawing}\n\n{cast.describe()}")
+        self._show_reading(cast)
+
+    def _show_reading(self, cast: oracle.Cast) -> None:
+        """Names the cast on screen. The label carries the hexagram and its
+        two trigrams; the changing-line transformation goes in the tooltip
+        rather than the label, since it is the half of a reading that is
+        nice to have and would otherwise double the row's height."""
+        self.reading_label.setText(_reading_html(cast))
+        moving = cast.transformation
+        detail = [cast.drawing]
+        if moving is None:
+            detail.append("No changing lines \u2014 the reading stands as cast.")
+        else:
+            changing = [str(i + 1) for i, value in enumerate(cast.lines)
+                        if oracle.is_changing(value)]
+            detail.append(f"Changing line(s) {', '.join(changing)} \u2014 "
+                          f"this hexagram moves to:\n{moving.label()}")
+        self.reading_label.setToolTip("\n\n".join([READING_TOOLTIP, *detail]))
 
     def _selected_progression(self) -> tuple[list[list[int]], list[int]]:
         """The chords/roots currently chosen by the numeral dropdowns,

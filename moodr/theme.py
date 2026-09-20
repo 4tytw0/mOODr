@@ -246,6 +246,17 @@ def stylesheet(palette: QPalette) -> str:
         background-color: {accent_hover.name()};
     }}
 
+    /* The I Ching reading beside the Roll button. The hexagram and
+       trigram glyphs live in Unicode blocks a UI font may not cover, so
+       the family list falls through to the macOS fonts that do carry
+       them before Qt substitutes something arbitrary. */
+    QLabel#readingLabel {{
+        color: {text_muted.name()};
+        font-family: "Apple Symbols", "Arial Unicode MS";
+        font-size: 13px;
+        padding-left: 4px;
+    }}
+
     /* A 2px border on every pad, not just the playing one: the border
        eats into the content rect, so going 1px -> 2px only when a pad
        lights up would nudge its text down a pixel on every bar. */
