@@ -299,6 +299,42 @@ def stylesheet(palette: QPalette) -> str:
     ChordPad[playing="true"]:pressed {{
         background-color: {face_pressed.name()};
     }}
+
+    /* The acid lane: 16 cells, read left to right. Same tint-don't-fill
+       treatment as a playing ChordPad, for the same reason -- a filled
+       cell would read as "this is switched on". */
+    AcidStep#acidStep {{
+        background-color: {face.name()};
+        color: {fg.name()};
+        border: 1px solid {border.name()};
+        border-radius: 4px;
+        padding: 3px 0px;
+        font-size: 12px;
+        font-weight: 600;
+    }}
+    /* A resting step still draws its cell, so the lane keeps its shape and
+       the beat grid stays countable -- only its glyph dims. */
+    AcidStep#acidStep[rest="true"] {{
+        color: {text_disabled.name()};
+        font-weight: normal;
+    }}
+    /* Every fourth cell is a beat. Marked by lifting the whole cell's face
+       rather than by an edge: a 1-2px border was too fine to count by at a
+       glance, which is the only thing this marking is for. */
+    AcidStep#acidStep[downbeat="true"] {{
+        background-color: {face_pressed.name()};
+        border-color: {text_faint.name()};
+    }}
+    AcidStep#acidStep[playing="true"] {{
+        background-color: {playing_face.name()};
+        border: 1px solid {accent.name()};
+        color: {fg.name()};
+    }}
+    /* Last, so the playhead still reads as the playhead on a downbeat. */
+    AcidStep#acidStep[playing="true"][downbeat="true"] {{
+        background-color: {playing_face.name()};
+        border-color: {accent.name()};
+    }}
     """
 
 

@@ -1,6 +1,7 @@
 import random
 
 from moodr.midi_io import FULL_VELOCITY
+from moodr import theory
 from moodr.playback import (
     ACID_CHANNEL,
     ACID_STEP_TICKS,
@@ -13,6 +14,7 @@ from moodr.playback import (
     PlaybackEngine,
     _arp_note_for_step,
     _generate_acid_pattern,
+    acid_note_for_step,
 )
 
 
@@ -788,3 +790,79 @@ def test_on_chord_change_fires_after_the_chord_is_already_sounding():
 
     # 3 chord note-ons + 1 bass note-on were already out before the call.
     assert sent_at_callback == [4]
+
+
+# -- the acid lane's read-only surface -----------------------------------
+#
+# The UI resolves the lane through acid_note_for_step() and engine
+# .acid_pattern, and moves its playhead from on_acid_step. None of that is
+# exercised by a GUI test (there isn't one), so it is pinned here instead.
+
+
+def test_acid_note_for_step_resolves_offsets_around_the_scale():
+    scale = [60, 62, 64, 65, 67, 69, 71, 72]
+    assert acid_note_for_step(None, 60, scale) is None
+    assert acid_note_for_step(0, 60, scale) == 60
+    assert acid_note_for_step(2, 60, scale) == 64
+    assert acid_note_for_step(-1, 60, scale) == 72   # wraps off the bottom
+    assert acid_note_for_step(3, 67, scale) == 72    # 67 is degree 5, +3 -> 72
+
+
+def test_acid_note_for_step_falls_back_when_the_scale_cannot_place_it():
+    assert acid_note_for_step(2, 61, [60, 62, 64]) == 64  # 61 absent -> index 0
+    assert acid_note_for_step(2, 61, []) == 61            # no scale at all
+
+
+def test_engine_resolves_acid_steps_the_same_way_the_lane_does():
+    # The one thing that would make the viewer worse than useless: showing
+    # a note other than the one sent. Compared against the real note-ons.
+    output, clock, engine = make_engine()
+    scale = [48, 50, 52, 53, 55, 57, 59, 60]
+    engine.set_scale(scale)
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.acid_noise = 1.0
+    engine.randomize_acid_pattern()
+    expected = [acid_note_for_step(v, 48, scale) for v in engine.acid_pattern]
+
+    engine.start()
+    clock.tick(ACID_STEP_TICKS * ACID_STEPS)
+
+    # Compared as note names, which is what the lane actually shows:
+    # midi_message_gen adds a fixed +12 (plus octave_shift) on the way out,
+    # so the raw numbers differ by an octave while the names -- the claim
+    # the viewer is making -- must match exactly.
+    played = [theory.midi_int_to_note(m[1])
+              for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
+    assert played == [theory.midi_int_to_note(n) for n in expected if n is not None]
+
+
+def test_acid_pattern_property_is_a_copy():
+    output, clock, engine = make_engine()
+    engine.acid_pattern[0] = "tampered"
+    assert engine.acid_pattern[0] != "tampered"
+
+
+def test_on_acid_step_reports_every_step_including_rests_and_mutes():
+    seen = []
+    output = RecordingOutput()
+    clock = FakeClock()
+    engine = PlaybackEngine(output, clock, on_acid_step=seen.append)
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.acid_enabled = False  # muted: the playhead must still move
+
+    engine.start()
+    clock.tick(ACID_STEP_TICKS * ACID_STEPS)
+
+    assert seen == list(range(ACID_STEPS))
+
+
+def test_stop_clears_the_acid_playhead():
+    seen = []
+    output = RecordingOutput()
+    clock = FakeClock()
+    engine = PlaybackEngine(output, clock, on_acid_step=seen.append)
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    clock.tick(ACID_STEP_TICKS)
+    engine.stop()
+    assert seen[-1] is None

@@ -38,7 +38,8 @@ from PySide6.QtWidgets import (
 
 from . import bridge_manager, midi_io, midi_status, oracle, theme, theory
 from .clock import MidiClock, MidiClockSlave
-from .playback import ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, PlaybackEngine
+from .playback import (ACID_STEPS, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL,
+                       PlaybackEngine, acid_note_for_step)
 
 DEFAULT_KEY = "E"
 DEFAULT_MODE = "Minor 7"
@@ -267,6 +268,10 @@ class EngineSignals(QObject):
     # for "nothing is sounding". -1 rather than None because Signal(int)
     # can't carry None, and an Optional signal type would buy nothing here.
     chord_changed = Signal(int)
+    # The acid step just entered, or -1 for "nothing playing" -- same
+    # reasoning as chord_changed for the -1 rather than None. Fires at a
+    # 16th note, so its slot must stay cheap (see AcidLane).
+    acid_step = Signal(int)
 
 
 class MidiResetSignals(QObject):
@@ -611,6 +616,87 @@ class ChordPad(QPushButton):
         theme.set_state_property(self, "playing", playing)
 
 
+# Every fourth step is a beat, which is what the lane groups by.
+ACID_STEPS_PER_BEAT = 4
+ACID_REST_GLYPH = "\u00b7"
+
+ACID_LANE_TOOLTIP = (
+    "The 16 steps of the acid line as it will actually sound: each cell is one "
+    "16th note, showing the note it plays, or \u00b7 for a rest. The pattern is "
+    "written in scale degrees relative to the bar's chord root, so these names "
+    "re-read themselves as the progression moves. The lit cell is the step "
+    "playing now. Re-cast it with Randomize, or with Roll.")
+
+
+class AcidStep(QLabel):
+    """One 16th-note cell of the acid lane.
+
+    A QLabel rather than a button: the lane is a readout, not a control,
+    and making the cells clickable would imply a step editor that doesn't
+    exist. The state it shows lives in Qt properties so theme.py can style
+    it -- `playing` for the playhead, `rest` for a silent step, and
+    `downbeat` so the four beats stay countable at a glance."""
+
+    def __init__(self, step_index: int):
+        super().__init__(ACID_REST_GLYPH)
+        self.setObjectName("acidStep")
+        self.setAlignment(Qt.AlignCenter)
+        self.setProperty("playing", False)
+        self.setProperty("rest", True)
+        self.setProperty("downbeat", step_index % ACID_STEPS_PER_BEAT == 0)
+
+    def set_note(self, name: str | None) -> None:
+        """`name` is the note this step sounds, or None for a rest."""
+        self.setText(name if name is not None else ACID_REST_GLYPH)
+        theme.set_state_property(self, "rest", name is None)
+
+    def set_playing(self, playing: bool) -> None:
+        theme.set_state_property(self, "playing", playing)
+
+
+class AcidLane(QWidget):
+    """The 16 acid steps in a row, with the playhead lit.
+
+    Exists because the acid line is the one voice whose notes aren't
+    visible anywhere else on the window: the chord pads show the
+    progression and the slot dropdowns show the degrees, but the acid
+    pattern is a cast that happens inside the engine and was previously
+    only audible. Showing the *resolved* notes rather than the raw
+    degree offsets is deliberate -- the offsets are an implementation
+    detail, and the question being asked of this widget is "what is it
+    playing?"."""
+
+    def __init__(self):
+        super().__init__()
+        self.setToolTip(ACID_LANE_TOOLTIP)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SELECTOR_SPACING)
+        self.steps = [AcidStep(i) for i in range(ACID_STEPS)]
+        for step in self.steps:
+            step.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            layout.addWidget(step)
+        self._playing_index: int | None = None
+
+    def set_notes(self, notes: list[int | None]) -> None:
+        """`notes` are MIDI note numbers, one per step, None for a rest."""
+        for step, note in zip(self.steps, notes):
+            step.set_note(None if note is None else theory.midi_int_to_note(note))
+
+    def set_playing_step(self, index: int | None) -> None:
+        """Lights the step playing now (None = nothing playing). Only the
+        two cells that actually change are touched: this runs at a 16th
+        note, and set_state_property() forces a full unpolish/polish, so
+        restyling all 16 every step would be 8x the work at 120bpm."""
+        if index == self._playing_index:
+            return
+        if self._playing_index is not None:
+            self.steps[self._playing_index].set_playing(False)
+        if index is not None:
+            self.steps[index].set_playing(True)
+        self._playing_index = index
+
+
 class MainWindow(QWidget):
     def __init__(self, midi_output: midi_io.MidiOutput | None = None):
         super().__init__()
@@ -625,6 +711,7 @@ class MainWindow(QWidget):
         self._engine_signals.external_start.connect(self._on_play)
         self._engine_signals.external_stop.connect(self._on_stop)
         self._engine_signals.chord_changed.connect(self._on_engine_chord_changed)
+        self._engine_signals.acid_step.connect(self._on_engine_acid_step)
 
         self._reset_signals = MidiResetSignals()
         self._reset_signals.finished.connect(self._on_midi_reset_finished)
@@ -657,7 +744,9 @@ class MainWindow(QWidget):
             # is the thread-safe handoff onto the GUI thread (see
             # EngineSignals). -1 stands in for the engine's None.
             on_chord_change=lambda position: self._engine_signals.chord_changed.emit(
-                -1 if position is None else position))
+                -1 if position is None else position),
+            on_acid_step=lambda step: self._engine_signals.acid_step.emit(
+                -1 if step is None else step))
 
         # Set by a Roll, spent at the next loop boundary (or at Play, if
         # stopped). A Roll casts the acid line along with key/scale/slots,
@@ -666,6 +755,10 @@ class MainWindow(QWidget):
         # over are still waiting for the boundary. Deferring keeps a Roll
         # landing all at once, the way _on_roll_clicked already promises.
         self._pending_acid_cast = False
+        # Which progression slot is sounding, or -1 while stopped. Tracked
+        # only so the acid lane knows which bar's root to resolve its steps
+        # against; the chord pads read it straight off the signal.
+        self._sounding_slot = -1
         self._full_chords: list[list[int]] = []
         self._full_roots: list[int] = []
         self._numerals: list[str] = []
@@ -680,6 +773,15 @@ class MainWindow(QWidget):
         theme.apply(self)
         self._on_mode_changed()
         self._update_progression_slots()
+
+        # External sync is the default: m00Dr is nearly always run against
+        # a DAW or hardware that owns the tempo, and being clock master by
+        # default meant every session started by unchecking this. Done here
+        # rather than with setChecked() at construction time so the toggle
+        # handler runs against a fully built window -- it opens a MIDI port
+        # and touches bpm_edit. Falls back to master mode if the port can't
+        # be opened, rather than refusing to start.
+        self.external_sync_checkbox.setChecked(True)
 
         # Lets the 1-7 number keys trigger chord previews (see key{Press,
         # Release}Event below) while a text field like bpm_edit doesn't have
@@ -832,6 +934,8 @@ class MainWindow(QWidget):
         self.acid_randomize_button = QPushButton("Randomize")
         self.acid_randomize_button.clicked.connect(self._on_acid_randomize_clicked)
 
+        self.acid_lane = AcidLane()
+
         self.external_sync_checkbox = QCheckBox("External clock sync")
         self.external_sync_checkbox.setToolTip(
             "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
@@ -901,6 +1005,10 @@ class MainWindow(QWidget):
         numeral_row.setSpacing(SELECTOR_SPACING)
         slot_labels = all_slot_labels()
         for box in self.numeral_boxes:
+            # The acid line is written in degrees relative to the bar's
+            # chord root, so retuning a slot respells the lane -- worth
+            # seeing immediately while stopped, not only once it plays.
+            box.currentIndexChanged.connect(self._refresh_acid_lane)
             _grow(box, min_height=SELECTOR_HEIGHT, point_size=PRIMARY_POINT_SIZE)
             box.setFixedWidth(_fit_width(box, slot_labels,
                                          _row_width_limit(NUM_NUMERAL_SLOTS)))
@@ -957,6 +1065,7 @@ class MainWindow(QWidget):
         layout.addLayout(performance_row)
         layout.addLayout(arp_row)
         layout.addLayout(acid_row)
+        layout.addWidget(self.acid_lane)
         layout.addLayout(chord_row, 1)  # chord buttons get first claim on extra window space
 
     # -- state -------------------------------------------------------------
@@ -985,6 +1094,8 @@ class MainWindow(QWidget):
                 button.set_chord(self._numerals[i], self._chord_names[i])
             else:
                 button.set_chord("-", "")
+
+        self._refresh_acid_lane()
 
     def _on_roll_clicked(self) -> None:
         """Rolls key, scale and the four progression slots (see oracle.py).
@@ -1084,11 +1195,39 @@ class MainWindow(QWidget):
         EngineSignals.chord_changed; `position` indexes the progression
         slots, so the pad it corresponds to is whatever scale degree that
         slot currently has selected."""
+        self._sounding_slot = position
         pad_index = None
         if 0 <= position < len(self.numeral_boxes):
             pad_index = self.numeral_boxes[position].currentIndex()
         for i, pad in enumerate(self.chord_buttons):
             pad.set_playing(i == pad_index)
+        self._refresh_acid_lane()
+
+    def _on_engine_acid_step(self, step: int) -> None:
+        """Moves the acid lane's playhead (-1 = nothing playing). Arrives on
+        the GUI thread via EngineSignals.acid_step, once per 16th note."""
+        self.acid_lane.set_playing_step(None if step < 0 else step)
+
+    def _refresh_acid_lane(self) -> None:
+        """Re-reads the engine's cast pattern into the lane, resolved to
+        the notes it will actually sound. Called wherever those notes could
+        have moved: a new cast, a new bar (the pattern is relative to the
+        bar's chord root, so the same 16 steps spell different notes), or a
+        key/scale change.
+
+        The root is taken from the slot dropdowns rather than from the
+        engine -- same reasoning as _selected_progression, and it means the
+        lane reads correctly while stopped, when the engine has no
+        progression loaded at all."""
+        if not self._full_roots:
+            return
+        slot = self._sounding_slot
+        if not 0 <= slot < len(self.numeral_boxes):
+            slot = 0  # stopped: preview against the bar that will play first
+        home_note = self._full_roots[self.numeral_boxes[slot].currentIndex()]
+        self.acid_lane.set_notes([
+            acid_note_for_step(value, home_note, self._full_roots)
+            for value in self._engine.acid_pattern])
 
     # -- actions -------------------------------------------------------------
 
@@ -1167,6 +1306,7 @@ class MainWindow(QWidget):
         # immediately throw away the pattern just asked for by hand.
         self._pending_acid_cast = False
         self._engine.randomize_acid_pattern()
+        self._refresh_acid_lane()
 
     def _apply_pending_acid_cast(self) -> None:
         """Spends a Roll's queued acid cast, if there is one. Called at the
@@ -1176,6 +1316,7 @@ class MainWindow(QWidget):
             return
         self._pending_acid_cast = False
         self._engine.randomize_acid_pattern()
+        self._refresh_acid_lane()
 
     def _on_sync_mode_toggled(self, external: bool) -> None:
         """Switches PlaybackEngine between the internal master MidiClock
@@ -1185,8 +1326,18 @@ class MainWindow(QWidget):
         disabled during playback, see _on_play()/_on_stop()."""
         if external:
             if self._slave_clock is None:
-                self._slave_input = midi_io.MidiInput()
-                self._slave_input.open()
+                try:
+                    self._slave_input = midi_io.MidiInput()
+                    self._slave_input.open()
+                except Exception:
+                    # Opening "m00Dr In" can fail outright if the platform's
+                    # MIDI service is wedged. Since this path is now taken at
+                    # startup (see __init__), a failure has to leave a usable
+                    # window: drop back to the internal clock and let the box
+                    # show it, rather than propagating out of a constructor.
+                    self._slave_input = None
+                    self.external_sync_checkbox.setChecked(False)
+                    return
                 self._slave_clock = MidiClockSlave(
                     self._slave_input,
                     on_start=self._engine_signals.external_start.emit,

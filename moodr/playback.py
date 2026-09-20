@@ -83,6 +83,28 @@ def _generate_acid_pattern(noise: float, wide_deviation: bool,
     return pattern
 
 
+def acid_note_for_step(step_value: int | None, home_note: int,
+                       scale_roots: list[int]) -> int | None:
+    """The MIDI note one acid step sounds, or None for a rest. `step_value`
+    is a _generate_acid_pattern() entry: None, 0 (the home note), or a
+    scale-degree offset from it.
+
+    Public and pure because the UI's acid lane has to resolve exactly the
+    same way the sequencer does -- a viewer that disagreed with what is
+    being played would be worse than no viewer. A home note whose degree
+    isn't in `scale_roots` (or an empty scale) falls back to the home note
+    itself rather than guessing."""
+    if step_value is None:
+        return None
+    if step_value == 0 or not scale_roots:
+        return home_note
+    try:
+        home_index = scale_roots.index(home_note)
+    except ValueError:
+        home_index = 0
+    return scale_roots[(home_index + step_value) % len(scale_roots)]
+
+
 def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
                         rng: random.Random | None = None) -> int:
     """The note to play for one arp step, given the pattern and how many
@@ -113,7 +135,8 @@ class PlaybackEngine:
                  bass_channel: int = BASS_CHANNEL, arp_channel: int = ARP_CHANNEL,
                  acid_channel: int = ACID_CHANNEL, rng: random.Random | None = None,
                  on_loop_complete: Callable[[], None] | None = None,
-                 on_chord_change: Callable[[int | None], None] | None = None):
+                 on_chord_change: Callable[[int | None], None] | None = None,
+                 on_acid_step: Callable[[int | None], None] | None = None):
         self._midi_output = midi_output
         self._clock = clock
         self._chord_channel = chord_channel
@@ -201,6 +224,10 @@ class PlaybackEngine:
         # engine callback it runs on the clock's thread, so a GUI caller
         # must marshal it onto the GUI thread (see app.py EngineSignals).
         self.on_chord_change = on_chord_change
+        # Called with the index of the acid step just entered, or None when
+        # nothing is playing. Fires at a 16th note, so a GUI consumer must
+        # keep its handler cheap.
+        self.on_acid_step = on_acid_step
         # True (default): randomize each chord note's velocity (72-108) for
         # a touch of human feel, as the OLD app always did. False: every
         # chord note at full velocity. Freely toggleable during playback.
@@ -345,6 +372,12 @@ class PlaybackEngine:
         load_progression()'s 4-chord loaded/sliced progression."""
         self._scale_roots = scale_roots
 
+    @property
+    def acid_pattern(self) -> list[int | None]:
+        """The locked-in pattern as raw step values -- a copy, so a caller
+        holding it can't mutate what the sequencer is reading."""
+        return list(self._acid_pattern)
+
     def randomize_acid_pattern(self) -> None:
         """Casts a fresh locked-in acid pattern from the current
         acid_noise/acid_wide_deviation settings. Takes effect starting
@@ -428,6 +461,8 @@ class PlaybackEngine:
         self._sounding_stab_notes = None
         if self.on_chord_change is not None:
             self.on_chord_change(None)
+        if self.on_acid_step is not None:
+            self.on_acid_step(None)
 
     def _on_tick(self, tick: int) -> None:
         self._ticks_since_advance += 1
@@ -564,21 +599,20 @@ class PlaybackEngine:
     def _advance_acid_step(self) -> None:
         self._turn_off_acid_note()
 
-        step_value = self._acid_pattern[self._acid_step_index % len(self._acid_pattern)]
+        step = self._acid_step_index
+        step_value = self._acid_pattern[step % len(self._acid_pattern)]
         self._acid_step_index = (self._acid_step_index + 1) % ACID_STEPS
+        # Reported before the early return below, so a muted or resting
+        # step still moves the playhead -- the lane shows where the
+        # sequencer is, not only where it last made a sound.
+        if self.on_acid_step is not None:
+            self.on_acid_step(step)
 
         if not self._acid_enabled or self._sounding_position is None or step_value is None:
             return
 
         home_note = self._roots[self._sounding_position]
-        if step_value == 0 or not self._scale_roots:
-            note = home_note
-        else:
-            try:
-                home_index = self._scale_roots.index(home_note)
-            except ValueError:
-                home_index = 0
-            note = self._scale_roots[(home_index + step_value) % len(self._scale_roots)]
+        note = acid_note_for_step(step_value, home_note, self._scale_roots)
 
         octave_shift = self.octave_shift
         message = midi_io.midi_message_gen(

@@ -28,6 +28,39 @@ passing** (`uv run pytest`).
 - A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
 - A top menu bar to hold lesser-used settings, decluttering the main window
 
+## Session summary (2026-09-20, acid lane + sync default)
+
+**External clock sync is now on by default.** m00Dr is nearly always run against a DAW or
+hardware that owns the tempo, so being clock master by default meant unchecking the box every
+session. Enabled in `__init__` *after* `_build_widgets()` rather than via `setChecked()` at
+construction, since the toggle handler opens a MIDI port and touches `bpm_edit`; the port open
+is now wrapped so a wedged MIDI service drops back to master mode instead of taking the
+constructor down with it. **Consequence worth knowing**: Play does nothing until an external
+clock is actually running — that is inherent to the default, not a bug.
+
+**Added an acid lane to the UI** (`AcidStep`/`AcidLane` in `app.py`, styled in `theme.py`):
+16 cells, one per 16th note, showing the note each step will sound or `·` for a rest, with
+the playhead lit and every fourth cell's face lifted so the beats stay countable. It shows
+*resolved notes*, not the raw degree offsets — the acid pattern is written relative to the
+bar's chord root, so the lane respells itself as the progression, key or scale moves. The
+resolver `playback.acid_note_for_step()` was extracted so the sequencer and the lane cannot
+disagree, and a test compares the lane's note names against the real note-ons. The playhead
+comes from a new `on_acid_step` engine callback through `EngineSignals.acid_step`; it fires
+at a 16th note, so `AcidLane.set_playing_step` only restyles the two cells that changed.
+
+The lane reads the bar's root from the slot dropdowns rather than from the engine, matching
+`_selected_progression`'s existing read-widget-state philosophy, which also means it displays
+correctly while stopped (the engine has no progression loaded until Play).
+
+**185 tests, all passing**, and verified in the real GUI this time: window builds with sync
+on and bpm disabled, lane respells on a key change, re-casts on Randomize, playhead tracks
+during playback and clears on Stop, and a Roll still defers its cast to the loop boundary.
+
+**Handoff state**: branch `ui-chord-selection-polish`, **9 commits ahead of `main`** —
+`git checkout main && git merge --ff-only ui-chord-selection-polish`. The two Circuit bridge
+scripts remain deliberately untracked. The acid-offset-via-fifths follow-up noted below is
+still open.
+
 ## Session summary (2026-09-20, later)
 
 **The acid line is now an I Ching cast.** `_generate_acid_pattern` casts one line per
