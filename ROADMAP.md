@@ -28,6 +28,28 @@ passing** (`uv run pytest`).
 - A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
 - A top menu bar to hold lesser-used settings, decluttering the main window
 
+## Session summary (2026-09-20)
+
+Two features and a documentation pass. **Resetting bridges started outside m00Dr** (the app
+now finds terminal-launched bridges in the process table, adopts them and can restart them),
+**M8-SETUP.md rewritten** for the GUI-managed bridge workflow, and the **circle-of-fifths
+Roll** — a button that rewrites key, scale and progression as a fifths move away from the
+current selections, with the step sizes drawn by I Ching coin tosses from Tyler's own
+`Code-ish/iChing` script, and the cast named on screen by hexagram and trigram. Confirmed by
+Tyler running locally: "Everything seems to be fine running locally." **178 tests, all
+passing** (`uv run pytest`).
+
+**Handoff state**: branch `ui-chord-selection-polish`, **7 commits ahead of `main` and not
+yet merged** — `git checkout main && git merge --ff-only ui-chord-selection-polish`. The two
+Circuit bridge scripts (`circuit_to_moodr_bridge.py`, `moodr_to_circuit_bridge.py`) are
+Tyler's and deliberately left untracked.
+
+**Found in passing, not fixed** (see the open items below): the test suite is not hermetic
+against a live bridge — `tests/test_bridge_manager.py` scans the whole process table, so a
+real bridge starting up mid-run made four tests fail once. Stable on every re-run once the
+process settled. Also still open from before: the Mac leg of the network-MIDI chain, and the
+GUI-thread MIDI port listing that can hang the app.
+
 ## Source files
 
 | File | Status | Role |
@@ -563,6 +585,12 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity
 - [ ] Config for MIDI port selection in the GUI instead of always picking port 0
+- [ ] **Make the bridge tests hermetic.** `tests/test_bridge_manager.py` matches against the
+      real machine-wide `ps` table, so a genuine bridge running outside the tests can be
+      counted as one of theirs. Observed 2026-09-20: four tests failed once while a real
+      `m8_to_moodr_transport_bridge.py` was starting, and passed on every run afterwards.
+      The tests should filter to processes they spawned themselves (or inject a fake process
+      table) rather than trusting that no real bridge is running.
 - [ ] Dedicated drum-trigger output: a proper replacement for the OLD app's channel-3 hack
       (a fixed note sent every bar, never turned off, used to trigger a drum track) — likely
       a configurable channel/note plus a real note-off, rather than a hanging note
@@ -779,7 +807,8 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
         dark mode, in a forced light palette, and of the MIDI Status dialog, which inherits
         the stylesheet.
 
-- [x] **Circle-of-fifths roll, cast by I Ching coin tosses** (2026-09-20). A "Roll" button
+- [x] **Circle-of-fifths roll, cast by I Ching coin tosses** (2026-09-20, confirmed working
+      by Tyler running locally). A "Roll" button
       beside the key/scale selectors rewrites the key, the scale and the four progression
       slots as a *move away from* what is currently selected, not a fresh random draw — so
       repeated rolls walk through related keys instead of teleporting. New pure module
