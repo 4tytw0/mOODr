@@ -44,11 +44,11 @@ yet merged** — `git checkout main && git merge --ff-only ui-chord-selection-po
 Circuit bridge scripts (`circuit_to_moodr_bridge.py`, `moodr_to_circuit_bridge.py`) are
 Tyler's and deliberately left untracked.
 
-**Found in passing, not fixed** (see the open items below): the test suite is not hermetic
-against a live bridge — `tests/test_bridge_manager.py` scans the whole process table, so a
-real bridge starting up mid-run made four tests fail once. Stable on every re-run once the
-process settled. Also still open from before: the Mac leg of the network-MIDI chain, and the
-GUI-thread MIDI port listing that can hang the app.
+**Found in passing, not fixed** (see the open items below): `tests/test_bridge_manager.py` is
+flaky, roughly one full-suite run in four. Diagnosed, not guessed — it is the tests
+contaminating each other, not a real bridge and not a product bug. Also still open from
+before: the Mac leg of the network-MIDI chain, and the GUI-thread MIDI port listing that can
+hang the app.
 
 ## Source files
 
@@ -585,12 +585,22 @@ simulates the delayed-arrival race deterministically and was confirmed to fail a
 - [ ] Additional modes beyond Major/Minor/Byzantine/snhtri
 - [ ] Swing/humanization on note timing and velocity
 - [ ] Config for MIDI port selection in the GUI instead of always picking port 0
-- [ ] **Make the bridge tests hermetic.** `tests/test_bridge_manager.py` matches against the
-      real machine-wide `ps` table, so a genuine bridge running outside the tests can be
-      counted as one of theirs. Observed 2026-09-20: four tests failed once while a real
-      `m8_to_moodr_transport_bridge.py` was starting, and passed on every run afterwards.
-      The tests should filter to processes they spawned themselves (or inject a fake process
-      table) rather than trusting that no real bridge is running.
+- [ ] **Fix the flaky bridge tests** (found 2026-09-20; about one full-suite run in four,
+      and the failing runs take ~16s against a normal ~1.5s).
+      Cause: the `bridge_script` fixture gives every test a file with the *same* basename,
+      `moodr_to_m8_bridge.py`, and `looks_like_bridge_process()` matches on basename, not on
+      the full path. Several tests spawn genuinely orphaned copies (`_spawn_orphan`). So a
+      test that only excludes *its own* child — `test_a_bridge_this_app_started_is_not_also_
+      counted_as_external` is the clearest — can see another test's orphan, still on its way
+      out, and count it as external. A slow run widens that window, which is why the failures
+      cluster and why the bridge file passes when run on its own.
+      Ruled out: a real bridge running on the machine (one was up throughout, including
+      during every passing run), and processes leaked past the end of a run (checked the
+      table straight after one; nothing but the real bridge). The app itself is fine — it
+      spawns with `sys.executable`, so its child *is* the interpreter and is excluded by pid;
+      there is no `uv` wrapper grandchild to miss.
+      Fix: give the fixture a unique basename per test (the name only has to end in something
+      the matcher recognises) so no two tests can ever see each other's processes.
 - [ ] Dedicated drum-trigger output: a proper replacement for the OLD app's channel-3 hack
       (a fixed note sent every bar, never turned off, used to trigger a drum track) — likely
       a configurable channel/note plus a real note-off, rather than a hanging note
