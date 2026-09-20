@@ -154,13 +154,20 @@ def bpm_conversion(tempo: float) -> float:
 
 def midi_message_gen(state: int, midi_list: list[list[int]], position: int,
                       rng: random.Random | None = None, humanize: bool = True,
-                      octave_shift: int = 0) -> list[list[int]]:
+                      octave_shift: int = 0,
+                      velocity: int | None = None) -> list[list[int]]:
     """Chord note-on/off triples for one progression position, up an octave
     (plus octave_shift additional octaves, +/-, for the whole progression).
     humanize=True (default) randomizes each note's velocity in the OLD
     app's 72-108 range for a touch of human feel; humanize=False sends
-    every note at FULL_VELOCITY instead."""
+    every note at FULL_VELOCITY instead.
+
+    `velocity`, when given, overrides both -- the acid sequencer sets it
+    per step, since an accented step is defined by being louder than an
+    unaccented one and a randomized velocity would blur exactly that."""
     offset = 12 + octave_shift * 12
+    if velocity is not None:
+        return [[state, note + offset, velocity] for note in midi_list[position]]
     return [[state, note + offset, random_velocity(rng) if humanize else FULL_VELOCITY]
             for note in midi_list[position]]
 

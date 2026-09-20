@@ -15,6 +15,11 @@ from moodr.playback import (
     _arp_note_for_step,
     _generate_acid_pattern,
     acid_note_for_step,
+    ACID_ACCENT_VELOCITY,
+    ACID_PLAIN_VELOCITY,
+    ACID_REST,
+    ACID_ROOT,
+    AcidStep,
 )
 
 
@@ -557,36 +562,58 @@ def test_acid_step_count_and_rate_span_exactly_one_bar():
     assert ACID_STEPS * ACID_STEP_TICKS == TICKS_PER_BAR
 
 
-def test_generate_acid_pattern_zero_noise_is_all_home_notes():
+def test_generate_acid_pattern_zero_noise_is_a_plain_root_pulse():
     # noise is how much of the cast is let through, so 0.0 ignores the
-    # reading entirely and every step holds the home note.
-    assert _generate_acid_pattern(0.0, wide_deviation=True) == [0] * ACID_STEPS
+    # reading entirely: every step is an unaccented root at the base
+    # octave, which is a usable "hold" rather than a broken pattern.
+    assert _generate_acid_pattern(0.0, wide_deviation=True) == [ACID_ROOT] * ACID_STEPS
 
 
-def test_generate_acid_pattern_max_noise_honours_every_changing_line():
-    # At 1.0 the pattern is the cast exactly as drawn: static lines (1, 2)
-    # hold the home note, changing yin (0) rests, changing yang (3)
-    # deviates. Casting through a stub rng makes that mapping checkable
-    # rather than merely probable.
-    lines = [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]
-    pattern = _generate_acid_pattern(
-        1.0, wide_deviation=False, rng=_ScriptedCast(lines))
-    fates = [("rest" if v is None else "home" if v == 0 else "deviate")
-             for v in pattern]
-    assert fates == ["rest", "home", "home", "deviate"] * 4
+def test_generate_acid_pattern_matches_the_shape_of_real_303_lines():
+    """The point of the 303-style rewrite. Transcriptions of the famous
+    acid lines are root-heavy but move through octave jumps, accents and
+    slides over a very small set of recurring pitches -- not through a
+    wander around the scale. These bounds pin that shape; they are wide
+    enough not to be a restatement of the implementation."""
+    rests = roots = palette = octaves = accents = slides = 0
+    palette_sizes = []
+    trials = 400
+    for seed in range(trials):
+        pattern = _generate_acid_pattern(1.0, wide_deviation=True,
+                                         rng=random.Random(seed))
+        assert len(pattern) == ACID_STEPS
+        degrees = set()
+        for step in pattern:
+            if step.degree is None:
+                rests += 1
+                # A rest carries no articulation to show or play.
+                assert not step.accent and not step.slide and not step.octave
+                continue
+            roots += step.degree == 0
+            palette += step.degree != 0
+            octaves += step.octave
+            accents += step.accent
+            slides += step.slide
+            degrees.add(step.degree)
+        palette_sizes.append(len(degrees - {0}))
+    total = trials * ACID_STEPS
+    sounding = total - rests
+
+    assert 0.05 < rests / total < 0.20            # a couple of rests a bar
+    assert 0.30 < roots / sounding < 0.55         # root-heavy, not a root pulse
+    assert 0.45 < palette / sounding < 0.70
+    for count in (octaves, accents, slides):      # each roughly a quarter
+        assert 0.12 < count / sounding < 0.38
+    # One to three recurring non-root pitches, as the transcriptions show.
+    assert set(palette_sizes) <= {1, 2, 3}
 
 
-def test_generate_acid_pattern_rests_and_deviations_are_rare():
-    # The whole point of casting rather than drawing flat: at full depth
-    # the departures are the 1/8 draws, so a bar is mostly home note.
-    home = departures = 0
+def test_generate_acid_pattern_only_ever_jumps_one_octave():
+    # The hardware could not reach further, and the guides say to stay
+    # inside that limit.
     for seed in range(200):
-        for value in _generate_acid_pattern(1.0, True, random.Random(seed)):
-            if value == 0:
-                home += 1
-            else:
-                departures += 1
-    assert home > departures * 2  # ~75% home vs ~25% departures
+        for step in _generate_acid_pattern(1.0, True, random.Random(seed)):
+            assert step.octave in (0, 1)
 
 
 def test_generate_acid_pattern_is_seedable_and_reproducible():
@@ -596,22 +623,25 @@ def test_generate_acid_pattern_is_seedable_and_reproducible():
     assert len(a) == ACID_STEPS
 
 
-def test_generate_acid_pattern_narrow_deviation_uses_narrow_offsets():
-    deviated = set()
-    for seed in range(50):
-        pattern = _generate_acid_pattern(0.9, wide_deviation=False, rng=random.Random(seed))
-        deviated.update(v for v in pattern if v not in (None, 0))
-    assert deviated  # at least some deviations occurred across all trials
-    assert deviated <= {-2, -1, 1, 2}
+def test_narrow_deviation_keeps_the_palette_to_one_fifth_either_way():
+    # A fifth either way from the root is the fourth (3) and the fifth (4).
+    seen = set()
+    for seed in range(80):
+        pattern = _generate_acid_pattern(1.0, wide_deviation=False,
+                                         rng=random.Random(seed))
+        seen.update(s.degree for s in pattern if s.degree not in (None, 0))
+    assert seen == {3, 4}
 
 
-def test_generate_acid_pattern_wide_deviation_can_reach_beyond_narrow_range():
-    deviated = set()
-    for seed in range(50):
-        pattern = _generate_acid_pattern(0.9, wide_deviation=True, rng=random.Random(seed))
-        deviated.update(v for v in pattern if v not in (None, 0))
-    assert deviated <= set(range(-7, 8)) - {0}
-    assert deviated - {-2, -1, 1, 2}  # reaches beyond narrow's range at least sometimes
+def test_wide_deviation_also_reaches_the_two_fifths_degrees():
+    # Two fifths either way lands on the flat seventh (6) and the second
+    # (1) -- the rarer, more outside colours.
+    seen = set()
+    for seed in range(200):
+        pattern = _generate_acid_pattern(1.0, wide_deviation=True,
+                                         rng=random.Random(seed))
+        seen.update(s.degree for s in pattern if s.degree not in (None, 0))
+    assert seen == {1, 3, 4, 6}
 
 
 def test_acid_defaults_enabled():
@@ -636,7 +666,7 @@ def test_acid_plays_home_note_every_step_at_zero_noise():
 def test_acid_rest_step_produces_no_note():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
-    engine._acid_pattern = [None] * ACID_STEPS
+    engine._acid_pattern = [ACID_REST] * ACID_STEPS
     engine.start()
     output.sent.clear()
 
@@ -650,7 +680,7 @@ def test_acid_deviation_uses_the_full_scale_via_set_scale():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
     engine.set_scale([48, 50, 52, 53, 55, 57, 59, 60])
-    engine._acid_pattern = [2] + [None] * (ACID_STEPS - 1)
+    engine._acid_pattern = [AcidStep(2)] + [ACID_REST] * (ACID_STEPS - 1)
     engine.start()
     output.sent.clear()
 
@@ -665,7 +695,7 @@ def test_acid_deviation_falls_back_gracefully_if_home_note_not_in_scale():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [999])
     engine.set_scale([48, 50, 52])
-    engine._acid_pattern = [1] + [None] * (ACID_STEPS - 1)
+    engine._acid_pattern = [AcidStep(1)] + [ACID_REST] * (ACID_STEPS - 1)
     engine.start()
     output.sent.clear()
 
@@ -679,7 +709,7 @@ def test_acid_deviation_falls_back_gracefully_if_home_note_not_in_scale():
 def test_acid_home_note_tracks_the_current_bars_chord_root():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67], [65, 69, 72]], [48, 53])
-    engine._acid_pattern = [0] * ACID_STEPS
+    engine._acid_pattern = [ACID_ROOT] * ACID_STEPS
     engine.start()
     output.sent.clear()
 
@@ -714,8 +744,8 @@ def test_randomize_acid_pattern_replaces_the_pattern():
     engine.randomize_acid_pattern()
     pattern_b = list(engine._acid_pattern)
 
-    assert pattern_a == [0] * ACID_STEPS
-    assert pattern_b != pattern_a  # the full cast is not a flat tonic pulse
+    assert pattern_a == [ACID_ROOT] * ACID_STEPS
+    assert pattern_b != pattern_a  # the full cast is not a flat root pulse
 
 
 def test_stop_sends_all_notes_off_for_acid_channel():
@@ -822,7 +852,7 @@ def test_engine_resolves_acid_steps_the_same_way_the_lane_does():
     engine.load_progression([[60, 64, 67]], [48])
     engine.acid_noise = 1.0
     engine.randomize_acid_pattern()
-    expected = [acid_note_for_step(v, 48, scale) for v in engine.acid_pattern]
+    expected = [acid_note_for_step(s.degree, 48, scale) for s in engine.acid_pattern]
 
     engine.start()
     clock.tick(ACID_STEP_TICKS * ACID_STEPS)
@@ -866,3 +896,84 @@ def test_stop_clears_the_acid_playhead():
     clock.tick(ACID_STEP_TICKS)
     engine.stop()
     assert seen[-1] is None
+
+
+# -- 303 articulation: octave jumps, accents, slides ---------------------
+
+
+def _acid_events(output):
+    """(kind, note) for every acid message sent, in order."""
+    return [("on" if m[0] == 0x90 | ACID_CHANNEL else "off", m[1])
+            for m in output.sent
+            if m[0] in (0x90 | ACID_CHANNEL, 0x80 | ACID_CHANNEL)]
+
+
+def make_acid_engine(pattern):
+    output, clock, engine = make_engine()
+    engine.set_scale([48, 50, 52, 53, 55, 57, 59, 60])
+    engine.load_progression([[60, 64, 67]], [48])
+    engine._acid_pattern = list(pattern)
+    return output, clock, engine
+
+
+def test_an_octave_jump_sends_the_note_twelve_higher():
+    plain = make_acid_engine([ACID_ROOT] + [ACID_REST] * (ACID_STEPS - 1))
+    jumped = make_acid_engine([AcidStep(0, octave=1)] + [ACID_REST] * (ACID_STEPS - 1))
+    for output, clock, engine in (plain, jumped):
+        engine.start()
+        clock.tick(ACID_STEP_TICKS)
+    (_, low), = [e for e in _acid_events(plain[0]) if e[0] == "on"]
+    (_, high), = [e for e in _acid_events(jumped[0]) if e[0] == "on"]
+    assert high == low + 12
+
+
+def test_accented_steps_are_louder_than_plain_ones():
+    output, clock, engine = make_acid_engine(
+        [ACID_ROOT, AcidStep(0, accent=True)] + [ACID_REST] * (ACID_STEPS - 2))
+    engine.start()
+    clock.tick(ACID_STEP_TICKS * 2)
+    velocities = [m[2] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
+    assert velocities == [ACID_PLAIN_VELOCITY, ACID_ACCENT_VELOCITY]
+    assert ACID_ACCENT_VELOCITY > ACID_PLAIN_VELOCITY
+
+
+def test_a_slide_holds_the_old_note_across_the_new_one():
+    """A 303 slide ties two notes together rather than retriggering, so the
+    outgoing note-off must land *after* the incoming note-on. That overlap
+    is the whole mechanism -- it is what lets a synth's portamento glide
+    between them instead of starting a fresh envelope."""
+    output, clock, engine = make_acid_engine(
+        [AcidStep(0, slide=True), AcidStep(4)] + [ACID_REST] * (ACID_STEPS - 2))
+    engine.start()
+    clock.tick(ACID_STEP_TICKS * 2)
+    kinds = [kind for kind, _ in _acid_events(output)]
+    assert kinds[:3] == ["on", "on", "off"]   # second note on, THEN first off
+
+
+def test_without_a_slide_the_old_note_stops_first():
+    output, clock, engine = make_acid_engine(
+        [ACID_ROOT, AcidStep(4)] + [ACID_REST] * (ACID_STEPS - 2))
+    engine.start()
+    clock.tick(ACID_STEP_TICKS * 2)
+    kinds = [kind for kind, _ in _acid_events(output)]
+    assert kinds[:3] == ["on", "off", "on"]   # first off, THEN second on
+
+
+def test_a_slide_into_a_rest_still_releases_the_note():
+    # Otherwise a slide landing on a rest would hang the note until the
+    # next one happened to play.
+    output, clock, engine = make_acid_engine(
+        [AcidStep(0, slide=True)] + [ACID_REST] * (ACID_STEPS - 1))
+    engine.start()
+    clock.tick(ACID_STEP_TICKS * 2)
+    assert [kind for kind, _ in _acid_events(output)] == ["on", "off"]
+
+
+def test_a_slide_does_not_leak_across_stop():
+    output, clock, engine = make_acid_engine(
+        [AcidStep(0, slide=True)] + [ACID_REST] * (ACID_STEPS - 1))
+    engine.start()
+    clock.tick(ACID_STEP_TICKS)
+    engine.stop()
+    assert engine._acid_slide_pending is False
+    assert engine._sounding_acid_note is None

@@ -93,8 +93,9 @@ DEFAULT_ARP_RATE = "1/8"
 
 # The acid pattern is an I Ching cast (see playback._generate_acid_pattern)
 # and this is how much of that cast is let through, so the default is all
-# of it -- the reading as drawn. Pulling it down folds the departures back
-# onto the tonic; at 0 the acid line is a straight 16th-note pulse.
+# of it -- the reading as drawn. Pulling it down folds the rests, palette
+# notes, octave jumps, accents and slides back toward a plain root; at 0
+# the acid line is a straight unaccented 16th-note pulse on the root.
 DEFAULT_ACID_NOISE_PERCENT = 100
 
 # Novation Circuit Tracks' default MIDI map (confirmed against its own
@@ -621,34 +622,45 @@ ACID_STEPS_PER_BEAT = 4
 ACID_REST_GLYPH = "\u00b7"
 
 ACID_LANE_TOOLTIP = (
-    "The 16 steps of the acid line as it will actually sound: each cell is one "
-    "16th note, showing the note it plays, or \u00b7 for a rest. The pattern is "
-    "written in scale degrees relative to the bar's chord root, so these names "
-    "re-read themselves as the progression moves. The lit cell is the step "
-    "playing now. Re-cast it with Randomize, or with Roll.")
+    "The 16 steps of the acid line as it will actually sound. Each cell is one "
+    "16th note showing the note it plays, or \u00b7 for a rest; a trailing "
+    "apostrophe is an octave jump, a bright cell is an accent, and a linked "
+    "right edge means the step slides into the next one instead of "
+    "retriggering. The pattern is written in scale degrees relative to the "
+    "bar's chord root, so these names re-read themselves as the progression "
+    "moves. The lit cell is the step playing now. Re-cast it with Randomize, "
+    "or with Roll.")
 
 
-class AcidStep(QLabel):
+class AcidCell(QLabel):
     """One 16th-note cell of the acid lane.
 
     A QLabel rather than a button: the lane is a readout, not a control,
     and making the cells clickable would imply a step editor that doesn't
     exist. The state it shows lives in Qt properties so theme.py can style
-    it -- `playing` for the playhead, `rest` for a silent step, and
-    `downbeat` so the four beats stay countable at a glance."""
+    it -- `playing` for the playhead, `rest` for a silent step, `accent`
+    and `slide` for the two articulations that do most of the work in an
+    acid line, and `downbeat` so the four beats stay countable."""
 
     def __init__(self, step_index: int):
         super().__init__(ACID_REST_GLYPH)
         self.setObjectName("acidStep")
         self.setAlignment(Qt.AlignCenter)
-        self.setProperty("playing", False)
+        for name in ("playing", "accent", "slide"):
+            self.setProperty(name, False)
         self.setProperty("rest", True)
         self.setProperty("downbeat", step_index % ACID_STEPS_PER_BEAT == 0)
 
-    def set_note(self, name: str | None) -> None:
-        """`name` is the note this step sounds, or None for a rest."""
-        self.setText(name if name is not None else ACID_REST_GLYPH)
+    def set_step(self, name: str | None, octave: int,
+                 accent: bool, slide: bool) -> None:
+        """`name` is the note this step sounds, or None for a rest. An
+        octave jump is marked with a trailing apostrophe, which is the
+        notation the published 303 pattern transcriptions use."""
+        self.setText(ACID_REST_GLYPH if name is None
+                     else f"{name}'" if octave else name)
         theme.set_state_property(self, "rest", name is None)
+        theme.set_state_property(self, "accent", accent and name is not None)
+        theme.set_state_property(self, "slide", slide and name is not None)
 
     def set_playing(self, playing: bool) -> None:
         theme.set_state_property(self, "playing", playing)
@@ -672,16 +684,16 @@ class AcidLane(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SELECTOR_SPACING)
-        self.steps = [AcidStep(i) for i in range(ACID_STEPS)]
+        self.steps = [AcidCell(i) for i in range(ACID_STEPS)]
         for step in self.steps:
             step.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             layout.addWidget(step)
         self._playing_index: int | None = None
 
-    def set_notes(self, notes: list[int | None]) -> None:
-        """`notes` are MIDI note numbers, one per step, None for a rest."""
-        for step, note in zip(self.steps, notes):
-            step.set_note(None if note is None else theory.midi_int_to_note(note))
+    def set_steps(self, steps) -> None:
+        """`steps` are (note name or None, octave, accent, slide) tuples."""
+        for cell, (name, octave, accent, slide) in zip(self.steps, steps):
+            cell.set_step(name, octave, accent, slide)
 
     def set_playing_step(self, index: int | None) -> None:
         """Lights the step playing now (None = nothing playing). Only the
@@ -915,19 +927,22 @@ class MainWindow(QWidget):
         self.acid_noise_slider.setValue(DEFAULT_ACID_NOISE_PERCENT)
         self.acid_noise_slider.setToolTip(
             "How much of the acid line's I Ching cast is let through. Each 16th-note "
-            "step is one tossed line: the common static lines hold the bar's chord "
-            "root, and only the rare changing lines depart from it -- changing yin "
-            "into a rest, changing yang into another pitch in the scale. This is the "
-            "chance a departure is honoured rather than folded back onto the root. "
-            "100% is the reading as cast (roughly one rest and one deviation per bar); "
-            "0% is a straight 16th-note pulse on the root.")
+            "step is dealt four lines -- what it plays, which octave, whether it is "
+            "accented, whether it slides into the next step -- and this is the chance "
+            "each departure from a plain root is honoured. 100% is the reading as "
+            "cast: a couple of rests a bar, a little over 40% of the notes on the "
+            "root, and roughly a quarter each jumped an octave, accented and slid, "
+            "which is the shape transcribed 303 lines actually have. 0% is a straight "
+            "16th-note pulse on the root.")
         self.acid_noise_slider.valueChanged.connect(self._on_acid_noise_changed)
         self._update_acid_noise_label(DEFAULT_ACID_NOISE_PERCENT)
 
         self.acid_wide_checkbox = QCheckBox("Wide deviation")
         self.acid_wide_checkbox.setToolTip(
-            "Checked: a deviated step can be any note in the scale. Unchecked: deviated "
-            "steps stay near the home note (within 2 scale degrees).")
+            "How far around the circle of fifths the pattern's handful of recurring "
+            "non-root notes are drawn from. Unchecked: one fifth either way, so the "
+            "fourth and the fifth. Checked: two fifths as well, adding the flat "
+            "seventh and the second for a more outside line.")
         self.acid_wide_checkbox.setChecked(True)
         self.acid_wide_checkbox.toggled.connect(self._on_acid_wide_toggled)
 
@@ -1127,6 +1142,14 @@ class MainWindow(QWidget):
         self.roll_button.setToolTip(
             f"{ROLL_TOOLTIP}\n\nLast roll:\n{cast.drawing}\n\n{cast.describe()}")
         self._show_reading(cast)
+        # Deferring only earns its keep while playing, where it stops the
+        # acid line swapping mid-bar under the chords it plays over. While
+        # stopped there is no bar to protect and nothing to hear, so
+        # holding it back just makes Roll look like it ignored the acid
+        # line -- the lane would show the old pattern merely respelled
+        # into the new key.
+        if not self._engine.is_playing:
+            self._apply_pending_acid_cast()
 
     def _show_reading(self, cast: oracle.Cast) -> None:
         """Names the cast on screen. The label carries the hexagram and its
@@ -1225,9 +1248,12 @@ class MainWindow(QWidget):
         if not 0 <= slot < len(self.numeral_boxes):
             slot = 0  # stopped: preview against the bar that will play first
         home_note = self._full_roots[self.numeral_boxes[slot].currentIndex()]
-        self.acid_lane.set_notes([
-            acid_note_for_step(value, home_note, self._full_roots)
-            for value in self._engine.acid_pattern])
+        steps = []
+        for step in self._engine.acid_pattern:
+            note = acid_note_for_step(step.degree, home_note, self._full_roots)
+            steps.append((None if note is None else theory.midi_int_to_note(note),
+                          step.octave, step.accent, step.slide))
+        self.acid_lane.set_steps(steps)
 
     # -- actions -------------------------------------------------------------
 

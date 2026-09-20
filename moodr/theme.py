@@ -303,7 +303,7 @@ def stylesheet(palette: QPalette) -> str:
     /* The acid lane: 16 cells, read left to right. Same tint-don't-fill
        treatment as a playing ChordPad, for the same reason -- a filled
        cell would read as "this is switched on". */
-    AcidStep#acidStep {{
+    AcidCell#acidStep {{
         background-color: {face.name()};
         color: {fg.name()};
         border: 1px solid {border.name()};
@@ -314,24 +314,38 @@ def stylesheet(palette: QPalette) -> str:
     }}
     /* A resting step still draws its cell, so the lane keeps its shape and
        the beat grid stays countable -- only its glyph dims. */
-    AcidStep#acidStep[rest="true"] {{
+    AcidCell#acidStep[rest="true"] {{
         color: {text_disabled.name()};
         font-weight: normal;
     }}
     /* Every fourth cell is a beat. Marked by lifting the whole cell's face
        rather than by an edge: a 1-2px border was too fine to count by at a
        glance, which is the only thing this marking is for. */
-    AcidStep#acidStep[downbeat="true"] {{
+    AcidCell#acidStep[downbeat="true"] {{
         background-color: {face_pressed.name()};
         border-color: {text_faint.name()};
     }}
-    AcidStep#acidStep[playing="true"] {{
+    /* An accent is the loudest thing a 303 step does, so it gets the
+       accent colour outright rather than a tint. */
+    AcidCell#acidStep[accent="true"] {{
+        color: {accent.name()};
+        font-weight: 800;
+    }}
+    /* A slide ties this step into the next. Drawn as a thick line along the
+       bottom of the cell, the way a tie is written on a stave. An earlier
+       attempt joined the two cells by opening the right edge and pulling
+       them together with a negative margin; Qt rendered neither, so this
+       uses a plain border edge, which it does honour. */
+    AcidCell#acidStep[slide="true"] {{
+        border-bottom: 3px solid {accent.name()};
+    }}
+    AcidCell#acidStep[playing="true"] {{
         background-color: {playing_face.name()};
         border: 1px solid {accent.name()};
         color: {fg.name()};
     }}
     /* Last, so the playhead still reads as the playhead on a downbeat. */
-    AcidStep#acidStep[playing="true"][downbeat="true"] {{
+    AcidCell#acidStep[playing="true"][downbeat="true"] {{
         background-color: {playing_face.name()};
         border-color: {accent.name()};
     }}

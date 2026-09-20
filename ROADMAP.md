@@ -28,6 +28,44 @@ passing** (`uv run pytest`).
 - A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
 - A top menu bar to hold lesser-used settings, decluttering the main window
 
+## Session summary (2026-09-20, 303-style acid generation)
+
+**Rewrote acid note generation to match how real 303 lines are built.** The previous cast put
+~75% of steps on the root, which Tyler reported as "does not lead to very interesting
+sequences" — correct, and it was my design, not a bug. Researched transcriptions of the
+famous acid lines (Phuture *Acid Tracks*, Josh Wink *Higher State*, Hardfloor, Fast Eddie via
+JonDent's pattern archive, plus the Roland/MusicTech/MusicRadar guides). **The finding that
+mattered: real acid lines are root-heavy too** — "Access" is a single pitch across all 16
+steps, *Higher State* is two. They are not built from pitch variety; they are built from
+**octave jumps, accents and slides** over a tiny recurring palette. The generator produced
+none of those three.
+
+So a step is now an `AcidStep(degree, octave, accent, slide)` and is dealt **four** I Ching
+lines rather than one. The pattern's non-root palette is cast once per pattern from the
+oracle's own circle-of-fifths move off the root, which lands exactly on the acid vocabulary
+for free: one fifth either way is the fourth and fifth (common 3/8 draws), two fifths is the
+flat seventh and second (rare 1/8). Wide deviation now selects that reach. Measured over 3000
+casts: 12.6% rests, 37.9% root, 49.5% palette, ~22% each octave-jumped/accented/slid, and 1–3
+recurring non-root pitches per pattern — the shape the transcriptions show.
+
+Playback gained the articulations: per-step octave via `octave_shift + step.octave`, accent
+via a new `velocity` override on `midi_message_gen` (127 vs 80), and **slides**, which
+required inverting the note order — a sliding step's note-off now lands *after* the next
+note-on, since that overlap is what lets a synth's portamento glide rather than retrigger.
+`_acid_slide_pending` tracks it and is cleared on start/stop (a test caught it leaking).
+
+The lane shows all of it: `'` for an octave jump (the notation the transcriptions use), accent
+colour for accents, a tie line under a sliding cell. The widget was renamed `AcidCell` to free
+`AcidStep` for the playback type. **Also fixed**: Roll while stopped deferred the acid cast to
+the next loop boundary, so the lane showed the old pattern merely respelled into the new key —
+three rolls in a row produced identical lines. Deferral now applies only while playing.
+
+**195 tests, all passing**, verified in the GUI including the slide ordering and the render.
+
+**Handoff state**: branch `ui-chord-selection-polish`, **11 commits ahead of `main`**.
+Still open: the palette is diatonic, where *Acid Tracks* uses a chromatic minor 2nd and
+tritone — worth considering if the lines want more bite.
+
 ## Session summary (2026-09-20, roll collision fix)
 
 **Fixed: rolled progressions collapsed onto the tonic.** Reported from real use as "rolling

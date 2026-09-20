@@ -5,7 +5,7 @@ with one object that owns its own state and has explicit start/stop/reset.
 """
 
 import random
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from . import midi_io, oracle
 from .clock import PPQN
@@ -39,47 +39,105 @@ STAB_GATE_TICKS = PPQN // 4
 # a full pattern is exactly one bar long (16 * 6 ticks = 96 = TICKS_PER_BAR).
 ACID_STEPS = 16
 ACID_STEP_TICKS = PPQN // 4
-# Offsets (in scale degrees from the bar's home note) narrow deviation can
-# land on. Wide deviation instead draws from every other degree in a
-# (theory.py's) 8-note scale -- see _generate_acid_pattern.
-ACID_NARROW_OFFSETS = (-2, -1, 1, 2)
+
+# What a step is dealt, cast one line at a time (see _generate_acid_pattern).
+# The 303 only reached one octave above its base note, so `octave` is 0 or 1.
+
+
+class AcidStep(NamedTuple):
+    """One 16th note of the acid line."""
+    degree: int | None = 0   # scale degrees from the bar's root; None = rest
+    octave: int = 0          # octaves above the base note
+    accent: bool = False     # louder, and on a real 303 a wider filter sweep
+    slide: bool = False      # ties into the next step instead of retriggering
+
+
+ACID_REST = AcidStep(degree=None)
+ACID_ROOT = AcidStep()
+
+# Accented steps are what gives an acid line its pump. A plain step sits
+# below the humanized 72-108 range the chords use so the accents have room
+# to land above it.
+ACID_ACCENT_VELOCITY = 127
+ACID_PLAIN_VELOCITY = 80
+
+# How many draws go into a pattern's pitch palette. Duplicates collapse, so
+# a pattern ends up with one to three recurring non-root notes -- which is
+# what transcriptions of the famous 303 lines actually show. "Access" is one
+# pitch across all 16 steps; "Higher State of Consciousness" is two. Acid
+# lines are not built from pitch variety, they are built from octave jumps,
+# accents and slides over a very small set of notes.
+ACID_PALETTE_DRAWS = {0: 3, 1: 2, 2: 2, 3: 3}
+
+# Which scale degrees the palette can hold. Deliberately the oracle's own
+# circle-of-fifths move from the root rather than a new table, because it
+# already lands exactly on the acid vocabulary: one fifth either way is the
+# fourth and the fifth (the common 3/8 draws), two fifths either way is the
+# flat seventh and the second (the rare 1/8 ones).
+ACID_NARROW_FIFTHS = (-1, 1)
+
+
+def _cast_acid_palette(rng: random.Random | None,
+                       wide_deviation: bool) -> list[int]:
+    """The handful of non-root scale degrees one pattern draws on."""
+    palette: list[int] = []
+    for _ in range(ACID_PALETTE_DRAWS[oracle.toss(rng)]):
+        line = oracle.toss(rng)
+        if wide_deviation:
+            steps = oracle.LINE_TO_FIFTHS[line]
+        else:
+            # Narrow keeps to a single fifth either way -- the two degrees
+            # closest to the root around the circle.
+            steps = ACID_NARROW_FIFTHS[line >= 2]
+        degree = oracle.shift_degree(0, steps)
+        if degree not in palette:
+            palette.append(degree)
+    return palette or [oracle.shift_degree(0, 1)]
 
 
 def _generate_acid_pattern(noise: float, wide_deviation: bool,
-                            rng: random.Random | None = None) -> list[int | None]:
-    """A fresh locked-in ACID_STEPS-length pattern. Each step is `None`
-    (rest), `0` (play the bar's home note -- the sounding chord's root),
-    or a nonzero scale-degree offset from that home note.
+                            rng: random.Random | None = None) -> list[AcidStep]:
+    """A fresh locked-in ACID_STEPS-length pattern, cast from the I Ching.
 
-    The pattern is an I Ching cast, one line per step (oracle.cast_lines),
-    rather than a flat draw. A line's own sense decides the step: a
-    *static* line -- the common 3/8 draws -- holds the home note, and only
-    a *changing* line departs from it, changing yin into a rest and
-    changing yang into a deviation. Rests and deviations are therefore
-    rare by construction, 1/8 each, which is what makes the line read as a
-    figure with a couple of deliberate moves in it instead of noise.
+    Each step is dealt four lines -- what it plays, which octave, whether it
+    is accented, whether it slides -- and a line's own sense decides each
+    one. For pitch, the rare changing yin rests and the two static draws
+    split between the bar's root and the pattern's palette; for the other
+    three, a *changing* line (1/8 either way, so a quarter of steps) is the
+    one that departs. That lands close to what transcribed 303 lines do:
+    around an eighth of steps resting, a little over 40% of the sounding
+    notes on the root, and roughly a quarter each octave-jumped, accented
+    and slid.
 
     `noise` (0.0-1.0) is how much of that cast is let through: the
-    probability that a changing line is honoured rather than falling back
-    to the home note. 0.0 is a straight 16th-note tonic pulse with the
-    reading ignored entirely; 1.0 is the cast exactly as drawn. It is a
-    depth control, not a rest probability -- see the module note in
-    app.py's acid slider tooltip.
+    probability each departure is honoured rather than falling back to a
+    plain unaccented root at the base octave. 0.0 is a straight 16th-note
+    root pulse with the reading ignored entirely; 1.0 is the cast as drawn.
     """
     source = rng if rng is not None else random
-    lines = oracle.cast_lines(rng, count=ACID_STEPS)
-    pattern: list[int | None] = []
-    for line in lines:
-        if not oracle.is_changing(line) or source.random() >= noise:
-            pattern.append(0)
-        elif oracle.is_yang(line):          # changing yang: a deviated step
-            if wide_deviation:
-                offset = source.choice([o for o in range(-7, 8) if o != 0])
-            else:
-                offset = source.choice(ACID_NARROW_OFFSETS)
-            pattern.append(offset)
-        else:                               # changing yin: a rest
-            pattern.append(None)
+    palette = _cast_acid_palette(rng, wide_deviation)
+
+    def lets_through() -> bool:
+        return source.random() < noise
+
+    pattern: list[AcidStep] = []
+    for _ in range(ACID_STEPS):
+        pitch, octave, accent, slide = (oracle.toss(rng) for _ in range(4))
+
+        if pitch == 0 and lets_through():          # changing yin: a rest
+            pattern.append(ACID_REST)
+            continue
+        if pitch >= 2 and lets_through():          # static yang: the palette
+            degree = palette[source.randrange(len(palette))]
+        else:                                      # static yin: the root
+            degree = 0
+
+        pattern.append(AcidStep(
+            degree=degree,
+            octave=1 if oracle.is_changing(octave) and lets_through() else 0,
+            accent=oracle.is_changing(accent) and lets_through(),
+            slide=oracle.is_changing(slide) and lets_through(),
+        ))
     return pattern
 
 
@@ -202,6 +260,8 @@ class PlaybackEngine:
         self._acid_step_index = 0
         self._sounding_acid_note: int | None = None
         self._sounding_acid_octave_shift = 0
+        # Set when a step asks to slide into the next one.
+        self._acid_slide_pending = False
         self._acid_enabled = True
         self.acid_noise = 1.0
         self.acid_wide_deviation = True
@@ -439,6 +499,7 @@ class PlaybackEngine:
         self._arp_ticks_since_step = 0
         self._acid_ticks_since_step = 0
         self._acid_step_index = 0
+        self._acid_slide_pending = False
         self._advance()
         self._clock.add_tick_callback(self._on_tick)
         if not self._clock.is_running:
@@ -458,6 +519,7 @@ class PlaybackEngine:
         self._sounding_bass_enabled = False
         self._sounding_arp_note = None
         self._sounding_acid_note = None
+        self._acid_slide_pending = False
         self._sounding_stab_notes = None
         if self.on_chord_change is not None:
             self.on_chord_change(None)
@@ -597,36 +659,58 @@ class PlaybackEngine:
         self._sounding_stab_notes = None
 
     def _advance_acid_step(self) -> None:
-        self._turn_off_acid_note()
-
-        step = self._acid_step_index
-        step_value = self._acid_pattern[step % len(self._acid_pattern)]
-        self._acid_step_index = (self._acid_step_index + 1) % ACID_STEPS
-        # Reported before the early return below, so a muted or resting
+        index = self._acid_step_index
+        step = self._acid_pattern[index % len(self._acid_pattern)]
+        self._acid_step_index = (index + 1) % ACID_STEPS
+        # Reported before the early returns below, so a muted or resting
         # step still moves the playhead -- the lane shows where the
         # sequencer is, not only where it last made a sound.
         if self.on_acid_step is not None:
-            self.on_acid_step(step)
+            self.on_acid_step(index)
 
-        if not self._acid_enabled or self._sounding_position is None or step_value is None:
+        # Whether the *previous* step asked to slide into this one. A 303
+        # slide ties the two notes together rather than retriggering, so
+        # the outgoing note-off has to land after the incoming note-on --
+        # the overlap is what makes a synth's portamento take over.
+        sliding_in = self._acid_slide_pending
+        self._acid_slide_pending = False
+
+        if not self._acid_enabled or self._sounding_position is None \
+                or step.degree is None:
+            self._turn_off_acid_note()
             return
 
         home_note = self._roots[self._sounding_position]
-        note = acid_note_for_step(step_value, home_note, self._scale_roots)
+        note = acid_note_for_step(step.degree, home_note, self._scale_roots)
+        octave_shift = self.octave_shift + step.octave
 
-        octave_shift = self.octave_shift
+        held_note, held_shift = self._sounding_acid_note, self._sounding_acid_octave_shift
+        if not sliding_in:
+            self._turn_off_acid_note()
+            held_note = None
+
         message = midi_io.midi_message_gen(
             0x90 | self._acid_channel, [[note]], 0, self._rng, self.humanize_velocity,
-            octave_shift)[0]
+            octave_shift,
+            velocity=ACID_ACCENT_VELOCITY if step.accent else ACID_PLAIN_VELOCITY)[0]
         self._midi_output.send(message)
         self._sounding_acid_note = note
         self._sounding_acid_octave_shift = octave_shift
+        self._acid_slide_pending = step.slide
+
+        if held_note is not None:
+            self._send_acid_note_off(held_note, held_shift)
+
+    def _send_acid_note_off(self, note: int, octave_shift: int) -> None:
+        message = midi_io.midi_message_gen(
+            0x80 | self._acid_channel, [[note]], 0, self._rng,
+            self.humanize_velocity, octave_shift)[0]
+        self._midi_output.send(message)
 
     def _turn_off_acid_note(self) -> None:
         if self._sounding_acid_note is None:
             return
-        message = midi_io.midi_message_gen(
-            0x80 | self._acid_channel, [[self._sounding_acid_note]], 0, self._rng,
-            self.humanize_velocity, self._sounding_acid_octave_shift)[0]
-        self._midi_output.send(message)
+        self._send_acid_note_off(self._sounding_acid_note,
+                                 self._sounding_acid_octave_shift)
         self._sounding_acid_note = None
+        self._acid_slide_pending = False
