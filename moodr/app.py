@@ -1553,12 +1553,40 @@ class MainWindow(QWidget):
         return None
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        self._shutdown_bridges()
         self._engine.stop()
         self._active_clock.stop()
         self._midi_output.close()
         if self._slave_input is not None:
             self._slave_input.close()
         super().closeEvent(event)
+
+    def _shutdown_bridges(self) -> None:
+        """Stops every bridge m00Dr can see on the way out -- both the ones
+        it launched and any terminal-launched copy it adopted.
+
+        Adopted ones are included deliberately. m00Dr already treats an
+        external bridge as its own everywhere else (it reports one as
+        running, refuses to start a second alongside it, and will restart
+        it), so leaving one alive after the window closes just strands a
+        process nothing is managing any more -- which is how a stale bridge
+        ends up fighting the next session for the same MIDI ports.
+
+        Runs before the engine and ports are torn down, so the transport
+        bridge stops feeding clock in while that is happening. Failures are
+        swallowed: a bridge that cannot be signalled (already gone, or
+        owned by another user) must not stop the window from closing.
+        """
+        if not self._bridges:
+            return
+        try:
+            # The bridge list is refreshed on a timer, so without a rescan
+            # anything started since the last tick would be missed.
+            bridge_manager.refresh_all(self._bridges)
+            for bridge in self._bridges:
+                bridge.stop()
+        except Exception:
+            pass
 
 
 def main() -> int:
