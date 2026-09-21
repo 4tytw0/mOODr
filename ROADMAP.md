@@ -28,6 +28,25 @@ passing** (`uv run pytest`).
 - A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
 - A top menu bar to hold lesser-used settings, decluttering the main window
 
+## Session summary (2026-09-20, acid octave)
+
+**Play tested on the M8 and confirmed working** — Tyler: "this is working well and seemingly
+consistently". Both 303 projects are on the SD card in `Songs/` alongside the untouched
+`M00DR-DEFAULT.m8s`.
+
+One change out of the test: **the acid line now sits an octave below the other voices**
+(`ACID_OCTAVE_OFFSET = -1` in `playback.py`). At the shared +12 baseline it read as thin and
+high and crowded the arp rather than sitting under it. Applied per step, so a pattern's own
+octave jumps still move relative to the lowered baseline — pinned by a test, since nothing
+else in the suite would catch the baseline moving back. Checked across the whole octave-shift
+range: lowest acid note is now 36 (C2) at shift −1, still well inside MIDI range, and every
+note-on is matched by a note-off at the same pitch.
+
+The M8 projects are unaffected (the shift is on m00Dr's side), so nothing needed re-copying.
+Worth knowing: the acid patch's `CUT 0x30` was chosen against the *old*, higher notes, and a
+fixed lowpass sounds darker as pitch drops — if the line now reads muddy rather than squelchy,
+open `CUT` up a little. **197 tests, all passing.**
+
 ## Session summary (2026-09-20, M8 303 project)
 
 **Added `m8-project-gen/generate-303.js`**, a second generator voicing the four instruments

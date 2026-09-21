@@ -16,6 +16,7 @@ from moodr.playback import (
     _generate_acid_pattern,
     acid_note_for_step,
     ACID_ACCENT_VELOCITY,
+    ACID_OCTAVE_OFFSET,
     ACID_PLAIN_VELOCITY,
     ACID_REST,
     ACID_ROOT,
@@ -660,7 +661,9 @@ def test_acid_plays_home_note_every_step_at_zero_noise():
     clock.tick(ACID_STEP_TICKS)
 
     acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
-    assert acid_on == [60]  # home note = bass root 48, +12 baseline
+    # Home note = bass root 48; the +12 baseline and ACID_OCTAVE_OFFSET
+    # (-1 octave, so the acid sits under the other voices) cancel out.
+    assert acid_on == [48]
 
 
 def test_acid_rest_step_produces_no_note():
@@ -688,7 +691,7 @@ def test_acid_deviation_uses_the_full_scale_via_set_scale():
 
     acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
     # home (48) is scale index 0; +2 degrees -> scale[2]=52, +12 baseline
-    assert acid_on == [64]
+    assert acid_on == [52]
 
 
 def test_acid_deviation_falls_back_gracefully_if_home_note_not_in_scale():
@@ -703,7 +706,7 @@ def test_acid_deviation_falls_back_gracefully_if_home_note_not_in_scale():
 
     acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
     # home note isn't in the scale -- falls back to index 0, so scale[1]=50
-    assert acid_on == [62]
+    assert acid_on == [50]
 
 
 def test_acid_home_note_tracks_the_current_bars_chord_root():
@@ -716,7 +719,7 @@ def test_acid_home_note_tracks_the_current_bars_chord_root():
     clock.tick(TICKS_PER_BAR)  # advances to bar 2 partway through this span
 
     acid_on = [m[1] for m in output.sent if m[0] == 0x90 | ACID_CHANNEL]
-    assert acid_on[-1] == 65  # bar 2's root (53) + 12 baseline
+    assert acid_on[-1] == 53  # bar 2's root, +12 baseline then -12 for acid
 
 
 def test_disabling_acid_mid_note_immediately_silences_it():
@@ -731,7 +734,7 @@ def test_disabling_acid_mid_note_immediately_silences_it():
     engine.acid_enabled = False
 
     acid_off = [m[1] for m in output.sent if m[0] == 0x80 | ACID_CHANNEL]
-    assert acid_off == [60]
+    assert acid_off == [48]
 
 
 def test_randomize_acid_pattern_replaces_the_pattern():
@@ -977,3 +980,28 @@ def test_a_slide_does_not_leak_across_stop():
     engine.stop()
     assert engine._acid_slide_pending is False
     assert engine._sounding_acid_note is None
+
+
+def test_the_acid_line_sits_an_octave_below_the_other_voices():
+    """Play-tested against the M8: at the shared +12 baseline the acid read
+    as thin and high and crowded the arp. Pinned here because it is a
+    judgement about how the voices sit together, which nothing else in the
+    suite would catch if the baseline ever moved."""
+    output, clock, engine = make_acid_engine([ACID_ROOT] + [ACID_REST] * (ACID_STEPS - 1))
+    engine.start()
+    clock.tick(ACID_STEP_TICKS)
+    root = 48  # the progression root loaded by make_acid_engine
+    (_, played), = [e for e in _acid_events(output) if e[0] == "on"]
+    assert played == root
+    assert ACID_OCTAVE_OFFSET == -1
+
+
+def test_the_octave_offset_does_not_swallow_a_patterns_own_octave_jump():
+    # The jump has to stay relative to the lowered baseline, not be
+    # cancelled by it.
+    output, clock, engine = make_acid_engine(
+        [ACID_ROOT, AcidStep(0, octave=1)] + [ACID_REST] * (ACID_STEPS - 2))
+    engine.start()
+    clock.tick(ACID_STEP_TICKS * 2)
+    plain, jumped = [note for kind, note in _acid_events(output) if kind == "on"]
+    assert jumped == plain + 12

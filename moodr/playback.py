@@ -61,6 +61,13 @@ ACID_ROOT = AcidStep()
 ACID_ACCENT_VELOCITY = 127
 ACID_PLAIN_VELOCITY = 80
 
+# The acid line sits an octave below everything else's baseline. Found by
+# play testing against the M8: at the shared baseline the line reads as
+# thin and high rather than as a bassline, and it crowds the arp instead of
+# sitting under it. Applied to every step, so the pattern's own octave
+# jumps (AcidStep.octave) still move relative to this.
+ACID_OCTAVE_OFFSET = -1
+
 # How many draws go into a pattern's pitch palette. Duplicates collapse, so
 # a pattern ends up with one to three recurring non-root notes -- which is
 # what transcriptions of the famous 303 lines actually show. "Access" is one
@@ -682,7 +689,7 @@ class PlaybackEngine:
 
         home_note = self._roots[self._sounding_position]
         note = acid_note_for_step(step.degree, home_note, self._scale_roots)
-        octave_shift = self.octave_shift + step.octave
+        octave_shift = self.octave_shift + step.octave + ACID_OCTAVE_OFFSET
 
         held_note, held_shift = self._sounding_acid_note, self._sounding_acid_octave_shift
         if not sliding_in:
