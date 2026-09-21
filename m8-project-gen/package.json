@@ -2,10 +2,11 @@
   "name": "m8-project-gen",
   "version": "1.0.0",
   "private": true,
-  "description": "Generates an M8 .m8s project pre-configured for m00Dr (chords/arp/bass/acid on MIDI channels 1-4, POLY mode, transport sync).",
+  "description": "Generates M8 .m8s projects pre-configured for m00Dr (chords ch1, bass ch2, arp ch3, acid ch5; transport sync). generate.js is the original default; generate-303.js is the 303-voiced pair.",
   "type": "commonjs",
   "scripts": {
-    "generate": "node generate.js"
+    "generate": "node generate.js",
+    "generate:303": "node generate-303.js"
   },
   "dependencies": {
     "m8-js": "^0.2.1"

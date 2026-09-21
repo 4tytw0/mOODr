@@ -28,6 +28,34 @@ passing** (`uv run pytest`).
 - A real drum-trigger output, replacing the OLD app's abandoned channel-3 hack
 - A top menu bar to hold lesser-used settings, decluttering the main window
 
+## Session summary (2026-09-20, M8 303 project)
+
+**Added `m8-project-gen/generate-303.js`**, a second generator voicing the four instruments
+from the 303 research rather than from guesswork. The acid instrument is the one that
+meaningfully changed: saw through a lowpass that *starts closed* (`CUT 0x30`) with high
+resonance (`RES 0xE0`) and a fast envelope on the cutoff, since the squelch is that filter
+sweep repeating per note rather than anything the oscillator does. The other three were
+re-balanced around it — chords and arp moved to pulse waves with an **immediate attack**
+(the original `CHORDS` had `attack 0x20`, which would smear m00Dr's off-beat house stabs),
+and the bass darkened so it stops competing with the acid for the same low-mid range.
+
+**It writes two files, because M8's `trackInputMode` is a single global setting** and the two
+voices want opposite values: POLY makes chords sound as chords (round-robin across tracks 1,
+5, 6, 7) but makes an acid slide retrigger; LEGATO glides the slide properly but collapses
+chords to one note. `M00DR-303.m8s` (POLY) is the default, `M00DR-303-LEGATO.m8s` the
+acid-focused alternative. `recordNoteVelocity` is on in both so the 127-vs-80 accent survives.
+
+The original `generate.js` and `M00DR-DEFAULT.m8s` are untouched (MD5 checked before and
+after). Note `generate.js`'s header comment has always been **wrong** about the channel map —
+it claims arp ch2 / bass ch3 / acid ch4 while its own code correctly uses `[1, 3, 2, 5]`; the
+new file documents the real mapping and the generated projects are verified against
+`playback.py`'s constants programmatically, not against comments.
+
+**Not verified on hardware.** Both files round-trip through `loadM8File` with the expected
+instruments, channels and transport chain, but neither has been loaded on the M8. Known
+limitation: an accent arrives as *volume* only — a real 303 accent also opens the filter,
+which would need m00Dr to send a CC alongside the note.
+
 ## Session summary (2026-09-20, 303-style acid generation)
 
 **Rewrote acid note generation to match how real 303 lines are built.** The previous cast put

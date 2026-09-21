@@ -132,6 +132,37 @@ Confirmed loading on real hardware (2026-09-19). The file's format version (`2.7
 m8-js's `LATEST_M8_VERSION`) loads fine on this device's firmware (`3.1.4`) -- M8 file-format
 and firmware versions are separate schemes and don't have to match.
 
+### The 303 build
+
+`npm run generate:303` writes two further projects from `generate-303.js`, voiced from what
+transcriptions of real acid lines actually do (see the 2026-09-20 ROADMAP entry). The acid
+instrument is the one that meaningfully changed: saw through a lowpass that *starts closed*
+(`CUT 0x30`) with resonance high (`RES 0xE0`) and a fast envelope on the cutoff, because the
+squelch is that filter sweep repeating per note rather than anything the oscillator does.
+`CUT`, `RES` and `DE1` are the three to turn by ear. The other three voices were re-balanced
+around it -- chords and arp moved to pulse waves with an immediate attack (the old slow pad
+attack smeared m00Dr's off-beat stabs), and the bass was darkened so it stops fighting the
+acid for the same low-mid range.
+
+Two files are written because **M8's track input mode is one global setting** and the two
+voices want opposite things from it:
+
+| file | mode | chords | acid slides |
+|---|---|---|---|
+| `M00DR-303.m8s` | POLY | sound as real chords | retrigger, no glide |
+| `M00DR-303-LEGATO.m8s` | LEGATO | collapse to one note | glide, the real 303 slide |
+
+POLY is the one to start with, since m00Dr is a chord tool first; load the LEGATO build when
+the acid line is the point and the chords are muted or thinned.
+
+`recordNoteVelocity` is on in both so m00Dr's accents survive the trip -- it sends accented
+acid steps at velocity 127 against 80 for plain ones. Note this lands as *volume* on the M8,
+where a real 303 accent also opens the filter; getting the brightness too would mean m00Dr
+sending a CC alongside the note, which it does not currently do.
+
+Neither 303 build has been loaded on hardware yet. The channel map in both is checked against
+`moodr/playback.py`'s own constants rather than against the comments.
+
 ## Other gotchas
 
 - macOS may swallow F12 (m8c's audio-routing toggle) as a media key. Use Fn+F12, or turn on
