@@ -25,7 +25,7 @@ its chords released.
   drives a round-trip readout in the page's top-right corner. The real iPad number is still unmeasured.
 - Gotcha: with the setting saved on, a second m00Dr (or a test building `MainWindow`) can't get
   the ports and shows a modal warning, which hangs offscreen. Override `WEB_REMOTE_SETTING` in tests.
-- Handoff: branch `web-remote`, not merged — `git checkout main && git merge --ff-only web-remote`.
+- Merged to `main` and pushed 2026-09-25 after Tyler tested it on the iPad ("everything is working well").
 
 ## Session summary (2026-09-06 → 2026-09-07)
 
