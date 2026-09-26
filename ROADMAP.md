@@ -3,6 +3,23 @@
 MIDI chord-progression generator. Tracking the resurrection of the old Kivy/time.sleep()
 implementation into a modern, maintained app while keeping the music-theory core intact.
 
+## Session summary (2026-09-25, web remote)
+
+**m00Dr can now be played from an iPad browser.** Tick "Web remote" in the window; its label
+changes to the address to open (e.g. `192.168.1.5:8765`). The setting persists across launches.
+`moodr/web_remote.py` runs an HTTP server (the page, `moodr/remote.html`) on 8765 and a WebSocket
+on 8766, both on the Qt event loop. The remote drives the *widgets* (click/setChecked/
+setCurrentText), so every existing handler runs unchanged and the two views can't drift; state
+goes back as a snapshot polled every 40ms, sent only when changed. It covers everything on the
+main window except MIDI Status. Chord pads are hold-to-play; a client that drops mid-press has
+its chords released.
+
+- Verified live: an offscreen window driven over a real WebSocket, plus a headless-Chrome render at
+  iPad size while playing. 197 tests still pass; **no automated test for the remote yet**.
+- Not yet tried on the actual iPad. If it can't connect, check the macOS firewall prompt for Python.
+- No auth: anyone on the same Wi-Fi can use it while it's on, which is why it's opt-in.
+- Handoff: branch `web-remote`, not merged — `git checkout main && git merge --ff-only web-remote`.
+
 ## Session summary (2026-09-06 → 2026-09-07)
 
 Added three new instrument voices, each on its own MIDI channel, plus on/off toggle buttons

@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import bridge_manager, midi_io, midi_status, oracle, theme, theory
+from . import bridge_manager, midi_io, midi_status, oracle, theme, theory, web_remote
 from .clock import MidiClock, MidiClockSlave
 from .playback import (ACID_STEPS, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL,
                        PlaybackEngine, acid_note_for_step)
@@ -53,6 +53,7 @@ OCTAVE_SHIFT_RANGE = (-1, 1)
 # committed to the repo -- everyone who uses this points it at their own m8c install.
 SETTINGS_ORG = "m00Dr"
 SETTINGS_APP = "m00Dr"
+WEB_REMOTE_SETTING = "web_remote/enabled"
 M8_UI_PATH_SETTING = "m8_ui_path"
 
 # How long to let CoreMIDI's MIDIServer actually respawn after being killed before this app
@@ -794,6 +795,8 @@ class MainWindow(QWidget):
         # and touches bpm_edit. Falls back to master mode if the port can't
         # be opened, rather than refusing to start.
         self.external_sync_checkbox.setChecked(True)
+        self.web_remote_checkbox.setChecked(
+            QSettings(SETTINGS_ORG, SETTINGS_APP).value(WEB_REMOTE_SETTING, False, type=bool))
 
         # Lets the 1-7 number keys trigger chord previews (see key{Press,
         # Release}Event below) while a text field like bpm_edit doesn't have
@@ -963,6 +966,15 @@ class MainWindow(QWidget):
             "View the MIDI ports this app depends on, and reset the platform's MIDI service "
             "if one has gone stale (e.g. after sleep, or a device was unplugged/replugged).")
         self.midi_status_button.clicked.connect(self._on_midi_status_clicked)
+
+        # Off by default: it listens on every network interface, so anyone on
+        # the same Wi-Fi can drive the transport while it is on.
+        self._web_remote = web_remote.WebRemote(self)
+        self.web_remote_checkbox = QCheckBox("Web remote")
+        self.web_remote_checkbox.setToolTip(
+            "Control m00Dr from an iPad or any browser on the same network. "
+            "When on, the address to open is shown here.")
+        self.web_remote_checkbox.toggled.connect(self._on_web_remote_toggled)
         # Defaults to off: MidiClockSlave never generates ticks on its own,
         # only reacting to pulses it receives -- defaulting this on with no
         # external clock master actually connected silently freezes the
@@ -975,7 +987,7 @@ class MainWindow(QWidget):
         for widget in (self.bpm_edit, self.loop_length_box,
                        self.humanize_checkbox, self.octave_spinbox, self.arp_pattern_box,
                        self.arp_rate_box, self.acid_wide_checkbox, self.acid_noise_slider,
-                       self.external_sync_checkbox):
+                       self.external_sync_checkbox, self.web_remote_checkbox):
             _grow(widget)
 
         for button in (self.play_button, self.stop_button):
@@ -1043,7 +1055,8 @@ class MainWindow(QWidget):
         performance_row = QHBoxLayout()
         for widget in (self.humanize_checkbox, self.octave_spinbox, self.chords_button,
                        self.bass_button, self.stab_button, self.circuit_channels_button,
-                       self.external_sync_checkbox, self.midi_status_button):
+                       self.external_sync_checkbox, self.web_remote_checkbox,
+                       self.midi_status_button):
             performance_row.addWidget(widget)
 
         arp_row = QHBoxLayout()
@@ -1385,6 +1398,20 @@ class MainWindow(QWidget):
         self._active_clock = new_clock
         self.bpm_edit.setEnabled(not external)
 
+    def _on_web_remote_toggled(self, on: bool) -> None:
+        if on and not self._web_remote.start():
+            QMessageBox.warning(
+                self, "Web remote",
+                f"Couldn't listen on ports {web_remote.HTTP_PORT}/{web_remote.WS_PORT} -- "
+                "is another copy of m00Dr already running?")
+            self.web_remote_checkbox.setChecked(False)
+            return
+        if not on:
+            self._web_remote.stop()
+        self.web_remote_checkbox.setText(
+            f"Remote: {self._web_remote.url.removeprefix('http://')}" if on else "Web remote")
+        QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(WEB_REMOTE_SETTING, on)
+
     def _on_midi_status_clicked(self) -> None:
         own_input_name = self._slave_input.port_name if self._slave_input is not None else None
         dialog = MidiStatusDialog(self, self._midi_output.port_name, own_input_name,
@@ -1553,6 +1580,7 @@ class MainWindow(QWidget):
         return None
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        self._web_remote.stop()
         self._shutdown_bridges()
         self._engine.stop()
         self._active_clock.stop()

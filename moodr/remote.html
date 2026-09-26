@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="m00Dr">
+<title>m00Dr</title>
+<style>
+  :root {
+    --bg: #17131a; --panel: #231d27; --control: #2f2734; --line: #3d3342;
+    --text: #eee6f0; --muted: #9a8c9f; --accent: #b04db4; --accent-text: #fff;
+    --play: #3fa66a; --stop: #c2454b; --slide: #e0a33c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.25 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
+  main { display: flex; flex-direction: column; gap: 10px; min-height: 100%;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+  .grow { flex: 1 1 0; }
+  select, button, input[type=text], .field {
+    min-height: 52px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--control); color: var(--text); font: inherit; font-size: 18px; }
+  select { padding: 0 12px; -webkit-appearance: none; appearance: none; min-width: 84px; }
+  button { padding: 0 16px; font-weight: 600; touch-action: manipulation; }
+  button:active { filter: brightness(1.3); }
+  button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  :disabled { opacity: .4; }
+  .dim { opacity: .45; }
+  #play { background: var(--play); border-color: var(--play); font-size: 22px; min-height: 64px; }
+  #play.on { box-shadow: 0 0 0 3px #fff inset; }
+  #stop { background: var(--stop); border-color: var(--stop); font-size: 22px; min-height: 64px; }
+  #roll { min-width: 64px; }
+  #reading { flex: 1 1 260px; align-self: center; color: var(--muted); font-size: 14px; }
+  #reading b, #reading span { color: var(--text); }
+  .field { display: flex; align-items: center; gap: 10px; padding: 0 12px; }
+  .field label { color: var(--muted); font-size: 14px; }
+  input[type=text] { width: 80px; text-align: center; }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); height: 40px; }
+  .stepper button { min-height: 40px; min-width: 44px; padding: 0; }
+  #acidLane { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; }
+  .cell { height: 44px; border-radius: 6px; background: var(--panel); display: grid;
+    place-items: center; font-size: 14px; font-weight: 600; position: relative; }
+  .cell.down { background: var(--control); }
+  .cell.rest { color: var(--muted); font-weight: 400; }
+  .cell.accent { background: #5a2c5c; }
+  .cell.slide::after { content: ""; position: absolute; left: 20%; right: -4px; bottom: 5px;
+    height: 3px; border-radius: 2px; background: var(--slide); }
+  .cell.playing { outline: 3px solid #fff; outline-offset: -3px; }
+  #pads { flex: 1 1 auto; display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;
+    min-height: 150px; }
+  .pad { border-radius: 14px; border: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    touch-action: none; }
+  .pad .num { font-size: 26px; font-weight: 700; }
+  .pad .name { color: var(--muted); font-size: 15px; }
+  .pad.playing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+  .pad.held { background: var(--accent); }
+  .pad.held .name { color: var(--accent-text); }
+  #status { position: fixed; top: 8px; right: 12px; font-size: 12px; color: var(--muted); }
+  #status.bad { color: var(--stop); font-weight: 600; }
+  @media (max-width: 700px) { #pads { grid-template-columns: repeat(4, 1fr); } }
+</style>
+</head>
+<body>
+<div id="status">connecting…</div>
+<main>
+  <div class="row">
+    <select data-id="key"></select>
+    <select data-id="mode"></select>
+    <button id="roll" data-click="roll">Roll</button>
+    <div id="reading"></div>
+  </div>
+  <div class="row">
+    <select class="grow" data-id="slot0"></select>
+    <select class="grow" data-id="slot1"></select>
+    <select class="grow" data-id="slot2"></select>
+    <select class="grow" data-id="slot3"></select>
+  </div>
+  <div class="row">
+    <div class="field"><label>BPM</label><input type="text" inputmode="decimal" data-id="bpm"></div>
+    <div class="field"><label>Loop</label><select data-id="loop"></select></div>
+    <button id="play" class="grow" data-click="play">Play</button>
+    <button id="stop" class="grow" data-click="stop">Stop</button>
+  </div>
+  <div class="row">
+    <button data-toggle="chords">Chords</button>
+    <button data-toggle="bass">Bass</button>
+    <button data-toggle="stabs">Stabs</button>
+    <button data-toggle="circuit">Bass→Ch2</button>
+    <div class="field stepper"><label>Octave</label>
+      <button data-step="-1">−</button><span id="octave">0</span><button data-step="1">+</button></div>
+    <button data-toggle="humanize">Humanize</button>
+    <button data-toggle="sync">Ext sync</button>
+  </div>
+  <div class="row">
+    <button data-toggle="arp">Arp</button>
+    <select data-id="arpPattern"></select>
+    <select data-id="arpRate"></select>
+  </div>
+  <div class="row">
+    <button data-toggle="acid">Acid</button>
+    <div class="field grow"><label id="noiseLabel">Noise</label>
+      <input type="range" data-id="acidNoise"></div>
+    <button data-toggle="acidWide">Wide</button>
+    <button data-click="randomize">Randomize</button>
+  </div>
+  <div id="acidLane"></div>
+  <div id="pads"></div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+let ws, state = null;
+const send = (msg) => ws && ws.readyState === 1 && ws.send(JSON.stringify(msg));
+
+// Built once; the snapshot only restyles them.
+for (let i = 0; i < 16; i++) {
+  const c = document.createElement("div");
+  c.className = "cell" + (i % 4 === 0 ? " down" : "");
+  $("#acidLane").append(c);
+}
+for (let i = 0; i < 7; i++) {
+  const p = document.createElement("div");
+  p.className = "pad";
+  p.innerHTML = '<div class="num">-</div><div class="name"></div>';
+  // Pointer capture keeps the release on this pad even if the finger slides off it.
+  p.addEventListener("pointerdown", (e) => { p.setPointerCapture(e.pointerId);
+    p.classList.add("held"); send({op: "press", pad: i}); });
+  const up = () => { if (!p.classList.contains("held")) return;
+    p.classList.remove("held"); send({op: "release", pad: i}); };
+  p.addEventListener("pointerup", up);
+  p.addEventListener("pointercancel", up);
+  $("#pads").append(p);
+}
+
+$$("[data-click]").forEach((b) => b.addEventListener("click", () => send({op: "click", id: b.dataset.click})));
+$$("[data-toggle]").forEach((b) => b.addEventListener("click", () => {
+  const id = b.dataset.toggle;
+  send({op: "set", id, value: !(state && state.controls[id].value)});
+}));
+$$("select[data-id]").forEach((s) => s.addEventListener("change", () => send({op: "set", id: s.dataset.id, value: s.value})));
+$$("[data-step]").forEach((b) => b.addEventListener("click", () => {
+  const o = state.controls.octave;
+  send({op: "set", id: "octave", value: o.value + Number(b.dataset.step)});
+}));
+const noise = $('[data-id="acidNoise"]');
+noise.addEventListener("input", () => send({op: "set", id: "acidNoise", value: Number(noise.value)}));
+const bpm = $('[data-id="bpm"]');
+bpm.addEventListener("change", () => send({op: "set", id: "bpm", value: bpm.value}));
+bpm.addEventListener("keydown", (e) => { if (e.key === "Enter") bpm.blur(); });
+
+function render(s) {
+  state = s;
+  const busy = document.activeElement;  // never yank a control out from under a finger
+  for (const [id, c] of Object.entries(s.controls)) {
+    const el = $(`[data-id="${id}"]`);
+    if (el && el.tagName === "SELECT") {
+      const items = c.items.join("\n");
+      if (el.dataset.items !== items) {
+        el.dataset.items = items;
+        el.replaceChildren(...c.items.map((t) => new Option(t, t)));
+      }
+      if (el !== busy) el.value = c.value;
+      el.disabled = !c.enabled;
+      el.classList.toggle("dim", c.active === false);
+    } else if (el && el !== busy) {
+      if (el.type === "range") { el.min = c.min; el.max = c.max; }
+      el.value = c.value;
+      el.disabled = !c.enabled;
+    }
+    const t = $(`[data-toggle="${id}"]`);
+    if (t) { t.classList.toggle("on", !!c.value); t.disabled = !c.enabled; }
+  }
+  $("#octave").textContent = (s.controls.octave.value > 0 ? "+" : "") + s.controls.octave.value;
+  $("#play").classList.toggle("on", s.playing);
+  $("#reading").innerHTML = s.reading;
+  $("#noiseLabel").textContent = s.noiseLabel;
+  $$("#acidLane .cell").forEach((c, i) => {
+    const a = s.acid[i];
+    c.textContent = a.text;
+    for (const k of ["rest", "accent", "slide", "playing"]) c.classList.toggle(k, a[k]);
+  });
+  $$("#pads .pad").forEach((p, i) => {
+    const d = s.pads[i];
+    p.querySelector(".num").textContent = d.numeral;
+    p.querySelector(".name").textContent = d.name;
+    p.classList.toggle("playing", d.playing);
+  });
+}
+
+function connect() {
+  ws = new WebSocket(`ws://${location.hostname}:__WS_PORT__`);
+  ws.onopen = () => { $("#status").textContent = "connected"; $("#status").className = ""; };
+  ws.onmessage = (e) => render(JSON.parse(e.data));
+  ws.onclose = () => {
+    $("#status").textContent = "disconnected — retrying"; $("#status").className = "bad";
+    $$(".pad.held").forEach((p) => p.classList.remove("held"));
+    setTimeout(connect, 1000);
+  };
+}
+connect();
+</script>
+</body>
+</html>
