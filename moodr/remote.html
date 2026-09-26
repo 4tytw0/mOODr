@@ -138,13 +138,22 @@ for (let i = 0; i < 7; i++) {
   $("#pads").append(p);
 }
 
-$$("[data-click]").forEach((b) => b.addEventListener("click", () => send({op: "click", id: b.dataset.click})));
-$$("[data-toggle]").forEach((b) => b.addEventListener("click", () => {
-  const id = b.dataset.toggle;
-  send({op: "set", id, value: !(state && state.controls[id].value)});
+// Buttons act on pointerdown, not click: iOS fires click only after the
+// finger lifts, which adds the whole length of the tap to every action.
+const onTap = (el, fn) => el.addEventListener("pointerdown", (e) => {
+  if (el.disabled) return; e.preventDefault(); fn();
+});
+$$("[data-click]").forEach((b) => onTap(b, () => send({op: "click", id: b.dataset.click})));
+$$("[data-toggle]").forEach((b) => onTap(b, () => {
+  const id = b.dataset.toggle, value = !(state && state.controls[id].value);
+  // Shown immediately rather than after the round trip; the next snapshot
+  // confirms it (or puts it back, if the window refused the change).
+  b.classList.toggle("on", value);
+  if (state) state.controls[id].value = value;
+  send({op: "set", id, value});
 }));
 $$("select[data-id]").forEach((s) => s.addEventListener("change", () => send({op: "set", id: s.dataset.id, value: s.value})));
-$$("[data-step]").forEach((b) => b.addEventListener("click", () => {
+$$("[data-step]").forEach((b) => onTap(b, () => {
   const o = state.controls.octave;
   send({op: "set", id: "octave", value: o.value + Number(b.dataset.step)});
 }));
@@ -178,7 +187,9 @@ function render(s) {
   }
   $("#octave").textContent = (s.controls.octave.value > 0 ? "+" : "") + s.controls.octave.value;
   $("#play").classList.toggle("on", s.playing);
-  $("#reading").innerHTML = s.reading;
+  if ($("#reading").dataset.html !== s.reading) {
+    $("#reading").dataset.html = s.reading; $("#reading").innerHTML = s.reading;
+  }
   $("#noiseLabel").textContent = s.noiseLabel;
   $$("#acidLane .cell").forEach((c, i) => {
     const a = s.acid[i];
@@ -196,13 +207,28 @@ function render(s) {
 function connect() {
   ws = new WebSocket(`ws://${location.hostname}:__WS_PORT__`);
   ws.onopen = () => { $("#status").textContent = "connected"; $("#status").className = ""; };
-  ws.onmessage = (e) => render(JSON.parse(e.data));
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if ("pong" in d) return showRtt(performance.now() - d.pong);
+    render(d);
+  };
   ws.onclose = () => {
     $("#status").textContent = "disconnected — retrying"; $("#status").className = "bad";
     $$(".pad.held").forEach((p) => p.classList.remove("held"));
     setTimeout(connect, 1000);
   };
 }
+// Round-trip readout, which doubles as a keep-alive: an idle iPad lets
+// its Wi-Fi radio doze, and the first tap after that can pay 100ms+ to
+// wake it. A tiny ping four times a second keeps it awake.
+const rtts = [];
+function showRtt(ms) {
+  rtts.push(ms); if (rtts.length > 20) rtts.shift();
+  const sorted = [...rtts].sort((a, b) => a - b);
+  const median = sorted[sorted.length >> 1], worst = sorted[sorted.length - 1];
+  $("#status").textContent = `${Math.round(median)} ms (worst ${Math.round(worst)})`;
+}
+setInterval(() => send({op: "ping", t: performance.now()}), 250);
 connect();
 </script>
 </body>

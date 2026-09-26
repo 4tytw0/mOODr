@@ -49,8 +49,16 @@ class WebRemote(QObject):
         self._ws_port = ws_port
         self._http = QTcpServer(self)
         self._http.newConnection.connect(self._on_http_connection)
+        # The WebSocket server doesn't listen itself: QWebSocket has no way to
+        # set TCP_NODELAY, and with Nagle on, the small frames this sends
+        # (a pong, a snapshot) sit waiting on the iPad's delayed ACK --
+        # tens to hundreds of ms per message. So a plain QTcpServer accepts,
+        # sets LowDelayOption, and hands the socket over for the handshake.
+        self._ws_tcp = QTcpServer(self)
+        self._ws_tcp.newConnection.connect(self._on_ws_tcp_connection)
         self._ws = QWebSocketServer("m00Dr", QWebSocketServer.NonSecureMode, self)
         self._ws.newConnection.connect(self._on_ws_connection)
+        self.low_delay = True
         # socket -> pad indices it is holding down, so a client that drops
         # mid-press (Wi-Fi blip, screen lock) doesn't leave a chord hanging.
         self._clients: dict = {}
@@ -74,7 +82,7 @@ class WebRemote(QObject):
             return True
         if not self._http.listen(QHostAddress.Any, self._http_port):
             return False
-        if not self._ws.listen(QHostAddress.Any, self._ws_port):
+        if not self._ws_tcp.listen(QHostAddress.Any, self._ws_port):
             self._http.close()
             return False
         self._timer.start()
@@ -86,7 +94,7 @@ class WebRemote(QObject):
             self._release_held(socket)
             socket.close()
         self._clients.clear()
-        self._ws.close()
+        self._ws_tcp.close()
         self._http.close()
         self._last_snapshot = ""
 
@@ -112,6 +120,13 @@ class WebRemote(QObject):
         socket.disconnectFromHost()
 
     # -- WebSocket ------------------------------------------------------------
+
+    def _on_ws_tcp_connection(self) -> None:
+        while self._ws_tcp.hasPendingConnections():
+            socket = self._ws_tcp.nextPendingConnection()
+            if self.low_delay:
+                socket.setSocketOption(QAbstractSocket.LowDelayOption, 1)
+            self._ws.handleConnection(socket)
 
     def _on_ws_connection(self) -> None:
         while self._ws.hasPendingConnections():
@@ -159,6 +174,10 @@ class WebRemote(QObject):
             message = json.loads(text)
             op = message["op"]
         except (ValueError, KeyError, TypeError):
+            return
+        if op == "ping":
+            # Echoed straight back, for the page's round-trip readout.
+            socket.sendTextMessage(json.dumps({"pong": message.get("t")}))
             return
         w = self._window
         if op == "click":

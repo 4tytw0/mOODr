@@ -18,6 +18,13 @@ its chords released.
   iPad size while playing. 197 tests still pass; **no automated test for the remote yet**.
 - Not yet tried on the actual iPad. If it can't connect, check the macOS firewall prompt for Python.
 - No auth: anyone on the same Wi-Fi can use it while it's on, which is why it's opt-in.
+- **Latency pass**: the Mac side measured at ~1 ms round trip (loopback, while playing), so
+  any lag is Wi-Fi or iPad. Changes: TCP_NODELAY on the WebSocket (Qt's QWebSocket can't set it,
+  so a QTcpServer accepts and hands over via `handleConnection`); buttons fire on pointerdown not
+  click; toggles update on the iPad immediately; a 250ms ping keeps the iPad's Wi-Fi awake and
+  drives a round-trip readout in the page's top-right corner. The real iPad number is still unmeasured.
+- Gotcha: with the setting saved on, a second m00Dr (or a test building `MainWindow`) can't get
+  the ports and shows a modal warning, which hangs offscreen. Override `WEB_REMOTE_SETTING` in tests.
 - Handoff: branch `web-remote`, not merged — `git checkout main && git merge --ff-only web-remote`.
 
 ## Session summary (2026-09-06 → 2026-09-07)
