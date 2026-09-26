@@ -84,6 +84,32 @@ everything back to a straight 16th-note pulse on the root. **Wide deviation** se
 around the circle of fifths the palette is drawn from — one fifth either way gives the
 fourth and the fifth, two fifths adds the flat seventh and the second.
 
+## Playing from an iPad
+
+![The web remote at iPad size, mid-bar](docs/img/web-remote.png)
+
+Tick **Web remote** in the window and its label changes to an address such as
+`192.168.1.14:8765`. Open that in Safari or Chrome on any device on the same Wi-Fi to get a
+touch version of the whole window: key, scale and Roll, the four slots, the transport,
+every voice toggle, the acid settings, the live acid lane, and hold-to-play chord pads (any
+number at once). "Add to Home Screen" runs it full-screen.
+
+**It is the same window, not a copy.** The page works the desktop window's own controls, so
+the two can't disagree: change something on either side and the other shows it at once. If
+the iPad drops off Wi-Fi mid-chord, m00Dr releases the notes rather than leaving them
+hanging.
+
+**It is built for playing, not just clicking.** Buttons and pads react when your finger
+touches, not when it lifts. Toggles light up on the iPad without waiting for the Mac. The
+page also keeps the iPad's Wi-Fi awake, since a dozing radio adds 100 ms or more to the
+first tap. The top-right corner shows the live round-trip time: on this side it is about
+1 ms, so a larger number there is the network.
+
+**It has no password.** While it is on, anyone on the same network can play m00Dr, which
+is why it is off by default. It remembers the setting between launches, and needs ports
+8765 (the page) and 8766 (the live connection) free. The first time, macOS may ask whether
+Python can accept incoming connections; allow it.
+
 ## Running it
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
@@ -131,4 +157,5 @@ moodr/
   midi_io.py     virtual MIDI ports and message generation
   bridge_manager.py   discovers, starts, adopts and stops the hardware bridge scripts
   theme.py       the stylesheet, derived from the running Qt palette
+  web_remote.py  the iPad/browser remote: serves remote.html and relays it to the window
 ```
