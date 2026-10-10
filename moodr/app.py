@@ -304,7 +304,8 @@ def _reopen_port(port, expected_name: str) -> bool:
         port.close()
         port.open()
         inputs, outputs = midi_status.list_ports()
-        if expected_name in inputs or expected_name in outputs:
+        if (midi_io.find_port(inputs, expected_name) is not None
+                or midi_io.find_port(outputs, expected_name) is not None):
             return True
     return False
 
@@ -444,11 +445,11 @@ class MidiStatusDialog(QDialog):
 
         parts = []
         if self._own_output_name:
-            found = self._own_output_name in outputs
+            found = midi_io.find_port(outputs, self._own_output_name) is not None
             parts.append(f'"{self._own_output_name}" (notes out): '
                          f'{"found" if found else "MISSING"}')
         if self._own_input_name:
-            found = self._own_input_name in inputs
+            found = midi_io.find_port(inputs, self._own_input_name) is not None
             parts.append(f'"{self._own_input_name}" (clock sync in): '
                          f'{"found" if found else "MISSING"}')
         self.own_ports_label.setText(" | ".join(parts))

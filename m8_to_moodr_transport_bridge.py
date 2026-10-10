@@ -34,6 +34,8 @@ import time
 
 import rtmidi
 
+from moodr.midi_io import find_port
+
 SOURCE_PORT_NAME = "M8"
 DEST_PORT_NAME = "m00Dr In"
 RECONNECT_INTERVAL_SECONDS = 3.0
@@ -46,18 +48,20 @@ def _open_source() -> rtmidi.MidiIn | None:
     # Let clock/start/stop through; sysex and active-sense aren't needed here.
     midi_in.ignore_types(sysex=True, timing=False, active_sense=True)
     ports = midi_in.get_ports()
-    if SOURCE_PORT_NAME not in ports:
+    index = find_port(ports, SOURCE_PORT_NAME)
+    if index is None:
         return None
-    midi_in.open_port(ports.index(SOURCE_PORT_NAME))
+    midi_in.open_port(index)
     return midi_in
 
 
 def _open_dest() -> rtmidi.MidiOut | None:
     midi_out = rtmidi.MidiOut()
     ports = midi_out.get_ports()
-    if DEST_PORT_NAME not in ports:
+    index = find_port(ports, DEST_PORT_NAME)
+    if index is None:
         return None
-    midi_out.open_port(ports.index(DEST_PORT_NAME))
+    midi_out.open_port(index)
     return midi_out
 
 

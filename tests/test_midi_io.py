@@ -130,3 +130,30 @@ def test_midi_input_reopen_after_close_works():
         assert midi_input.is_open
         midi_input.close()
         assert not midi_input.is_open
+
+
+def test_find_port_prefers_exact_match():
+    ports = ["Other", "M8", "M8:M8 MIDI 1 24:0"]
+    assert midi_io.find_port(ports, "M8") == 1
+
+
+def test_find_port_exact_beats_earlier_alsa_match():
+    ports = ["M8:M8 MIDI 1 24:0", "M8"]
+    assert midi_io.find_port(ports, "M8") == 1
+
+
+def test_find_port_matches_alsa_client_name():
+    ports = ["Midi Through:Midi Through Port-0 14:0", "M8:M8 MIDI 1 24:0"]
+    assert midi_io.find_port(ports, "M8") == 1
+
+
+def test_find_port_matches_alsa_port_name():
+    ports = ["RtMidiOut Client:m00Dr 130:0"]
+    assert midi_io.find_port(ports, "m00Dr") == 0
+
+
+def test_find_port_returns_none_when_nothing_matches():
+    assert midi_io.find_port([], "M8") is None
+    assert midi_io.find_port(["M8:M8 MIDI 1 24:0"], "m00Dr") is None
+    # Partial names are not matches: "m00Dr" must not claim "m00Dr In".
+    assert midi_io.find_port(["RtMidiIn Client:m00Dr In 131:0"], "m00Dr") is None

@@ -5,11 +5,31 @@ or scheduling logic lives here -- see moodr.clock and moodr.playback.
 """
 
 import random
+import re
 from typing import Callable
 
 import rtmidi
 
 ALL_NOTES_OFF = 0x7B
+
+# ALSA (Linux) appends the "client:port" address to rtmidi port names.
+_ALSA_ADDRESS_SUFFIX = re.compile(r" \d+:\d+$")
+
+
+def find_port(ports: list[str], name: str) -> int | None:
+    """Index in `ports` of the port called `name`, or None. An exact match
+    wins (all CoreMIDI/Windows ports, and the only thing macOS ever needs).
+    Otherwise falls back to ALSA naming, where python-rtmidi lists ports as
+    "<client name>:<port name> <client#>:<port#>" (e.g. "M8:M8 MIDI 1 24:0"
+    or "RtMidiOut Client:m00Dr 130:0"): matches if the client part or the
+    port part equals `name`."""
+    if name in ports:
+        return ports.index(name)
+    for index, port in enumerate(ports):
+        client, sep, port_part = _ALSA_ADDRESS_SUFFIX.sub("", port).partition(":")
+        if sep and name in (client, port_part):
+            return index
+    return None
 
 
 class _MidiPort:
