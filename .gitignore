@@ -1,1 +1,3 @@
-synths/
+synths/*.sf2
+synths/*.wav
+__pycache__/

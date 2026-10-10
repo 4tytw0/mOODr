@@ -29,8 +29,9 @@ bottom. Full plan: `~/.claude/plans/m00dr-still-plays-when-dreamy-flurry.md`.
 | Mix bus `m800dr_mix` | `~/.config/pipewire/pipewire.conf.d/m800dr-mix.conf` (null sink, 48 kHz, low priority so the M8 stays the default sink) | yes |
 | M8 audio → mix | user service `m800dr-mix-m8` (`pw-loopback`, pinned targets) | yes (enabled) |
 | Audio → browsers | user service `m800dr-audio` → `~/code/m800Dr/server.py`, `SOURCE = "m800dr_mix.monitor"` | yes (enabled) |
-| FluidSynth (ch1–3) | user service `m00dr-fluidsynth`. Config is `synths/fluidsynth.cfg`; soundfont is `synths/GeneralUser-GS.sf2`; `PULSE_SINK=m800dr_mix`, gain 1.5 (raised to roughly match the M8; 1.8 clipped). ALSA client `FLUID Synth (m00Dr-FluidSynth)`. TCP shell on :9800 (blocked by ufw; `nc localhost 9800` for live `prog` changes) | yes (enabled) |
-| m00Dr → synth links | user service `m00dr-synth-links` → `synths/links.sh` (re-runs `pw-link` for the pairs in `LINKS` every 2 s) | yes (enabled) |
+| FluidSynth (ch1 chords, ch3 arp) | user service `m00dr-fluidsynth`. Config is `synths/fluidsynth.cfg` (router passes ch1/ch3 only); fonts are `synths/GeneralUser-GS.sf2` and `synths/gamebreaks.sf2` (font 2, bank offset 1). Chords = preset 10 `phase_sine`, arp = preset 0 `smet_nor3`. `PULSE_SINK=m800dr_mix`, gain 1.5. TCP shell on :9800 (no `nc`; use python sockets) | yes (enabled) |
+| Reese bass (ch2) | user service `m00dr-reese` → `~/code/m800Dr/reese.py` (numpy synth: ALSA seq client `m00Dr-Reese` in, `pacat` out to `m800dr_mix`). Unit copy in `systemd/` | yes (enabled) |
+| m00Dr → synth links | user service `m00dr-synth-links` → `synths/links.sh` (re-runs `pw-link` for the pairs in `LINKS` every 2 s: m00Dr → FluidSynth and m00Dr → Reese) | yes (enabled) |
 | m00Dr → M8 notes | user service `m00dr-m8-midi` → `~/code/mOODr/m8_midi_route.sh` (aconnect) | **disabled** 2026-10-10: the user wants FluidSynth only |
 | Audio → HDMI | user service `m8-loopback` | enabled, but HDMI isn't a PipeWire sink right now, so it has nowhere to play |
 | Network MIDI | `rtpmidid` user service | yes |
@@ -42,9 +43,11 @@ the aconnect/pw-link keepers). Transport is fine: the user starts m00Dr from the
 
 ## Code / files
 
-- **`~/code/m800Dr/`** (not a git repo): `server.py`, `index.html` (player with the Lissajous scope:
+- **`~/code/m800Dr/`** (git repo since 2026-10-10; the Mac clone is `~/Desktop/Code-ish/m800Dr`, origin `cacheos:code/m800Dr`): `server.py`, `index.html` (player with the Lissajous scope:
   the square panel above Listen; XY or M/S; full screen with FULL, double-click or `f`; hard-refresh
-  if a cached old page shows), `synths/` (`fluidsynth.cfg`, `links.sh`, the soundfont).
+  if a cached old page shows), `reese.py`, `synths/` (`fluidsynth.cfg`, `links.sh`; `*.sf2`/`*.wav` are
+  git-ignored), `tools/` (soundfont recipe: `build_gamebreaks.sh` rebuilds `gamebreaks.sf2` on the Mac,
+  where the samples live), `systemd/` (unit copies).
 - **`~/code/mOODr/`**: the user's repo `4tytw0/mOODr`, branch `linux-alsa-ports`. Commit
   `055f3d8` (`find_port()`) is **not pushed**; `m8_midi_route.sh` is **untracked**. m00Dr part
   channels are in `moodr/playback.py` (`CHORD/BASS/ARP/ACID_CHANNEL` = 0/1/2/4).
@@ -78,27 +81,20 @@ the aconnect/pw-link keepers). Transport is fine: the user starts m00Dr from the
 6. End-to-end check: m00Dr playing → `/stream` has signal; muting acid leaves only FluidSynth,
    muting the others leaves only the 303; the scope moves on the TV/Mac.
 
-## Next task: custom soundfont from the gamebreaks samples
+## Done 2026-10-10: sounds and scope
 
-The user asked for an `.sf2` built from a tone in their gamebreaks sample folder. The samples are on
-the **MacBook** (`~/Documents/Production/<…>/gamebreaks`, exact path unconfirmed), not on the
-desktop. The desktop's `~/Documents` is empty, and nothing is on the main drive. The second drive
-(`sda5` "Transfer", `sda4` Windows) wasn't searched because mounting needs the user's polkit password.
-The user was told to copy the samples over by running this from a **Mac** terminal (not the SSH session):
-`scp -r ~/Documents/Production/gamebreaks emin0r@192.168.1.17:~/Documents/`. As of closing,
-**nothing has arrived yet** in `~/Documents`.
-
-When it arrives:
-1. Pick a clean pitched, sustained sample (not a drum loop). Detect its root note (e.g. with an
-   FFT or autocorrelation in a `uv run` script) and its loop points.
-2. Build `synths/gamebreaks.sf2`. Polyphone (`pacman -S polyphone`) has a CLI, or write the SF2
-   with a small Python script (`uv`, no pip/venv).
-3. Load it alongside GeneralUser GS in `fluidsynth.cfg` (`load …` + `select <chan> <font> 0 0`) on
-   whichever part the user wants, then restart `m00dr-fluidsynth`.
-
-Soundfont alternatives were also discussed: `soundfont-fluid` (in the repos), MuseScore General
-(.sf3), Arachno and Timbres of Heaven. Also offered: switching FluidSynth programs live over the
-:9800 shell (no `nc` installed; use python sockets, e.g. `gain 1.5`).
+- **`gamebreaks.sf2`**: built from the Mac's `~/Documents/PRODUCTION/SAMPLES/GAMEBREAKS/gamestabs`
+  (the other folders are drum breaks). Presets 0-9 are one-shot stabs, each mapped across the keyboard
+  at its detected root; preset 10 `phase_sine` is a generated loop (sine, soft-clipped, 4-stage
+  phaser, one 1.6 s sweep per loop). Rebuild with `tools/build_gamebreaks.sh`, then copy to cacheos.
+  FluidSynth applies only 0.4x of an SF2's initialAttenuation, which is why `build_sf2.py` uses 220 cB.
+- **Scope** (`index.html`): deep purple trace with a neon green glow and a black core; expanding,
+  fading echoes (`ECHOES`, `ECHO_EVERY`, `ECHO_GROW`); 0.25 ms Haas offset (`HAAS`) to widen shapes;
+  graticule rings and crosshair removed.
+- **Not pushed anywhere**: pushing from the Mac to cacheos is refused (non-bare repo). Commit on
+  cacheos and `git pull` on the Mac, or set `receive.denyCurrentBranch updateInstead` on cacheos.
+- The user had `sudo pacman -S jc303-lv2 carla pipewire-jack` waiting on a password; once
+  installed, a plugin synth via Carla could replace `reese.py` if wanted.
 
 ## Open issues
 
