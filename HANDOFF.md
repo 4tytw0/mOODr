@@ -24,7 +24,7 @@ bottom. Full plan: `~/.claude/plans/m00dr-still-plays-when-dreamy-flurry.md`.
 
 | Piece | How it runs | Survives reboot? |
 |---|---|---|
-| m00Dr GUI | transient unit `m00dr` (`systemd-run`, cwd `~/code/mOODr`, `uv run python main.py`) | **No.** Relaunch from the desktop launcher (`~/.local/share/applications/m00dr.desktop`) |
+| m00Dr GUI | user service `m00dr` (`uv run python main.py` in `~/code/mOODr`; unit copy in `systemd/`), wanted by `graphical-session.target`, `Restart=on-failure`. The desktop launcher now runs `systemctl --user start m00dr` | at Plasma login. SDDM autologin has no `User=`, so a reboot waits at the login screen |
 | m00Dr web remote | inside the GUI; `~/.config/m00Dr/m00Dr.conf` → `[web_remote] enabled=true` | with the GUI |
 | Mix bus `m800dr_mix` | `~/.config/pipewire/pipewire.conf.d/m800dr-mix.conf` (null sink, 48 kHz, low priority so the M8 stays the default sink) | yes |
 | M8 audio → mix | user service `m800dr-mix-m8` (`pw-loopback`, pinned targets) | yes (enabled) |
@@ -102,7 +102,6 @@ the aconnect/pw-link keepers). Transport is fine: the user starts m00Dr from the
   it; the TV is fed by the browser stream instead.
 - **Serial / m8c:** the user isn't in the `uucp` group (`sudo usermod -aG uucp emin0r` +
   re-login). That's needed for m8c, m8.run and screen mirroring.
-- **Persistence of the m00Dr GUI:** consider a real user service instead of `systemd-run`.
 - Push/PR `linux-alsa-ports` when happy; decide whether `m8_midi_route.sh` is still worth
   committing.
 
