@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M8 Audio</title>
+<style>
+  :root { --bg:#f4f4f2; --fg:#1b1b1b; --dim:#6b6b6b; --line:#d4d4d0; --accent:#e8501e; --ok:#2f9e5a;
+          --scope-bg:#07090a; --scope-dim:#5d6a66; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#ececec; --dim:#8a8a8a; --line:#2c2c2c; --ok:#4cc27a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg);
+         font:15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; padding:16px; }
+  main { width:100%; max-width:520px; display:grid; gap:18px; }
+  h1 { margin:0; font-size:20px; letter-spacing:.08em; }
+  h1 span { color:var(--accent); }
+  button { font:inherit; font-size:16px; padding:14px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
+           border-radius:6px; cursor:pointer; }
+  button.on { background:transparent; color:var(--fg); }
+  .meter { display:grid; gap:6px; }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width 60ms linear; }
+  label { display:grid; gap:6px; color:var(--dim); font-size:13px; }
+  label b { color:var(--fg); font-weight:normal; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  #status { color:var(--dim); font-size:13px; min-height:1.4em; }
+
+  /* Scope: always a dark "screen", whatever the page theme. */
+  #scope { position:relative; aspect-ratio:1; background:var(--scope-bg); border-radius:10px; overflow:hidden;
+           box-shadow:inset 0 0 60px rgba(0,0,0,.8); user-select:none; -webkit-user-select:none; }
+  #scope canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #scope .hud { position:absolute; left:12px; right:12px; top:10px; display:flex; gap:6px; align-items:center;
+                font-size:11px; letter-spacing:.12em; color:var(--scope-dim); transition:opacity .4s; }
+  #scope .hud .grow { flex:1; }
+  #scope .chip { padding:5px 9px; font-size:11px; letter-spacing:.12em; border:1px solid #2a3330; border-radius:4px;
+                 background:transparent; color:var(--scope-dim); }
+  #scope .chip.sel { color:#ffb08a; border-color:#7a3a1f; }
+  #scope .idle { position:absolute; inset:0; display:grid; place-items:center; color:var(--scope-dim);
+                 font-size:12px; letter-spacing:.2em; pointer-events:none; }
+  #scope.full { position:fixed; inset:0; z-index:10; aspect-ratio:auto; border-radius:0; }
+  #scope:fullscreen { aspect-ratio:auto; border-radius:0; }
+  #scope.calm .hud { opacity:0; }
+  #scope.calm { cursor:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>M8 <span>●</span> AUDIO</h1>
+  <div id="scope">
+    <canvas id="grid"></canvas>
+    <canvas id="trace"></canvas>
+    <div class="idle" id="idle">PRESS LISTEN</div>
+    <div class="hud">
+      <button class="chip sel" id="m-xy" title="X = left, Y = right">XY</button>
+      <button class="chip" id="m-ms" title="Goniometer: mono is vertical, stereo width spreads sideways">M/S</button>
+      <button class="chip sel" id="agc" title="Automatic gain: scales quiet signals up to fill the screen">AUTO</button>
+      <span class="grow"></span>
+      <button class="chip" id="fs" title="Full screen (or double-click the scope)">FULL ⤢</button>
+    </div>
+  </div>
+  <button id="go">Listen</button>
+  <div class="meter"><div class="bar"><i id="l"></i></div><div class="bar"><i id="r"></i></div></div>
+  <label>Volume <b id="volv">100%</b><input id="vol" type="range" min="0" max="150" value="100"></label>
+  <label>Buffer (lower = less delay, more dropouts) <b id="bufv">60 ms</b><input id="buf" type="range" min="20" max="300" step="10" value="60"></label>
+  <div id="status">Stopped</div>
+</main>
+<script>
+const RATE = 48000, CH = 2, BYTES_PER_FRAME = CH * 2, MIN_FRAMES = 480; // schedule >=10 ms at a time
+const $ = id => document.getElementById(id);
+let ctx, tap, gain, anL, anR, playAt = 0, running = false, abort, peaks = [0, 0], underruns = 0;
+let target = +$('buf').value / 1000;
+
+$('vol').oninput = e => { $('volv').textContent = e.target.value + '%'; if (gain) gain.gain.value = e.target.value / 100; };
+$('buf').oninput = e => { target = e.target.value / 1000; $('bufv').textContent = e.target.value + ' ms'; };
+$('go').onclick = () => running ? stop() : start();
+
+function stop() {
+  running = false; abort?.abort();
+  ctx?.close(); ctx = anL = anR = null;
+  $('go').textContent = 'Listen'; $('go').classList.remove('on'); $('status').textContent = 'Stopped';
+  $('idle').hidden = false;
+}
+
+async function start() {
+  ctx = new AudioContext({ sampleRate: RATE, latencyHint: 'interactive' });
+  // tap (unity) feeds both the speakers (via the volume gain) and the scope, so the
+  // scope shows the stream itself regardless of the volume slider.
+  tap = new GainNode(ctx);
+  gain = new GainNode(ctx, { gain: $('vol').value / 100 });
+  tap.connect(gain).connect(ctx.destination);
+  const split = new ChannelSplitterNode(ctx, { numberOfOutputs: 2 });
+  anL = new AnalyserNode(ctx, { fftSize: 2048 }); anR = new AnalyserNode(ctx, { fftSize: 2048 });
+  const sink = new GainNode(ctx, { gain: 0 }); // Safari only runs analysers that reach the destination
+  tap.connect(split); split.connect(anL, 0); split.connect(anR, 1);
+  anL.connect(sink); anR.connect(sink); sink.connect(ctx.destination);
+  running = true; $('go').textContent = 'Stop'; $('go').classList.add('on'); $('idle').hidden = true;
+  while (running) {
+    try { await pump(); } catch (e) { if (!running) break; $('status').textContent = 'Reconnecting… (' + e.message + ')'; }
+    if (running) await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+async function pump() {
+  abort = new AbortController();
+  const res = await fetch('stream', { signal: abort.signal, cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const reader = res.body.getReader();
+  let pending = new Uint8Array(0); playAt = 0;
+  $('status').textContent = 'Connected';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error('stream ended');
+    const joined = new Uint8Array(pending.length + value.length);
+    joined.set(pending); joined.set(value, pending.length);
+    const frames = Math.floor(joined.length / BYTES_PER_FRAME);
+    if (frames < MIN_FRAMES) { pending = joined; continue; }
+    play(new DataView(joined.buffer, 0, frames * BYTES_PER_FRAME), frames);
+    pending = joined.slice(frames * BYTES_PER_FRAME);
+  }
+}
+
+function play(view, frames) {
+  const buf = ctx.createBuffer(CH, frames, RATE);
+  for (let c = 0; c < CH; c++) {
+    const out = buf.getChannelData(c); let peak = 0;
+    for (let i = 0; i < frames; i++) {
+      const s = view.getInt16((i * CH + c) * 2, true) / 32768;
+      out[i] = s; if (Math.abs(s) > peak) peak = Math.abs(s);
+    }
+    peaks[c] = Math.max(peak, peaks[c] * 0.85);
+  }
+  const now = ctx.currentTime;
+  // Ran dry, or drifted too far behind live: snap back to the target delay.
+  if (playAt < now + 0.005) { if (playAt) underruns++; playAt = now + target; }
+  else if (playAt > now + target * 2 + 0.1) playAt = now + target;
+  const src = new AudioBufferSourceNode(ctx, { buffer: buf });
+  src.connect(tap); src.start(playAt);
+  playAt += frames / RATE;
+}
+
+// ---- Lissajous scope -------------------------------------------------------
+const scope = $('scope'), grid = $('grid'), trace = $('trace');
+const g = grid.getContext('2d'), t = trace.getContext('2d');
+const bufL = new Float32Array(2048), bufR = new Float32Array(2048);
+let mode = 'xy', agc = true, level = 0.25, W = 0, H = 0, dpr = 1;
+
+function chip(id, on) { $(id).classList.toggle('sel', on); }
+$('m-xy').onclick = () => { mode = 'xy'; chip('m-xy', true); chip('m-ms', false); drawGrid(); };
+$('m-ms').onclick = () => { mode = 'ms'; chip('m-ms', true); chip('m-xy', false); drawGrid(); };
+$('agc').onclick = () => { agc = !agc; chip('agc', agc); };
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = scope.getBoundingClientRect();
+  W = Math.round(r.width * dpr); H = Math.round(r.height * dpr);
+  for (const c of [grid, trace]) { c.width = W; c.height = H; }
+  drawGrid();
+}
+new ResizeObserver(resize).observe(scope);
+
+function drawGrid() {
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.45;
+  g.clearRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(120,150,140,.2)'; g.lineWidth = dpr;
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.arc(cx, cy, R / 2, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
+  // Mark where mono (L = R) lands: the diagonal in XY, straight up in M/S.
+  g.setLineDash([4 * dpr, 6 * dpr]); g.strokeStyle = 'rgba(232,80,30,.18)';
+  g.beginPath();
+  if (mode === 'xy') { const d = R * Math.SQRT1_2; g.moveTo(cx - d, cy + d); g.lineTo(cx + d, cy - d); }
+  else { g.moveTo(cx, cy + R); g.lineTo(cx, cy - R); }
+  g.stroke(); g.setLineDash([]);
+  g.fillStyle = 'rgba(120,150,140,.35)'; g.font = `${10 * dpr}px ui-monospace, monospace`;
+  if (mode === 'xy') { g.fillText('L', cx + R + 6 * dpr, cy + 4 * dpr); g.fillText('R', cx - 3 * dpr, cy - R - 6 * dpr); }
+  else { g.fillText('M', cx + 6 * dpr, cy - R + 10 * dpr); g.fillText('S', cx + R - 10 * dpr, cy - 6 * dpr); }
+}
+
+function frame() {
+  // Phosphor persistence: fade the previous frame rather than clearing it.
+  t.globalCompositeOperation = 'source-over';
+  t.fillStyle = 'rgba(7,9,10,.22)'; t.fillRect(0, 0, W, H);
+  if (anL && anR) {
+    anL.getFloatTimeDomainData(bufL); anR.getFloatTimeDomainData(bufR);
+    let peak = 0;
+    for (let i = 0; i < bufL.length; i++) peak = Math.max(peak, Math.abs(bufL[i]), Math.abs(bufR[i]));
+    // Auto gain: rise fast, fall slowly, floor so silence stays a dot instead of amplified noise.
+    level = peak > level ? level + (peak - level) * 0.3 : level + (peak - level) * 0.02;
+    const k = Math.min(W, H) * 0.45 * (agc ? 0.9 / Math.max(level, 0.02) : 1);
+    const cx = W / 2, cy = H / 2;
+    t.globalCompositeOperation = 'lighter';
+    t.lineJoin = 'round';
+    t.beginPath();
+    for (let i = 0; i < bufL.length; i++) {
+      const l = bufL[i], r = bufR[i];
+      const x = mode === 'xy' ? l : (r - l) * Math.SQRT1_2;
+      const y = mode === 'xy' ? r : (l + r) * Math.SQRT1_2;
+      const px = cx + x * k, py = cy - y * k;
+      i ? t.lineTo(px, py) : t.moveTo(px, py);
+    }
+    t.strokeStyle = 'rgba(255,90,30,.10)'; t.lineWidth = 7 * dpr; t.stroke();   // glow
+    t.strokeStyle = 'rgba(255,140,80,.35)'; t.lineWidth = 2.2 * dpr; t.stroke(); // body
+    t.strokeStyle = 'rgba(255,230,200,.55)'; t.lineWidth = 0.8 * dpr; t.stroke(); // hot core
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// Full screen: the real Fullscreen API where it exists, a fixed-position fallback where it
+// doesn't (iPhone Safari, some console browsers). The HUD and cursor hide after 2 s idle.
+function isFull() { return document.fullscreenElement === scope || document.webkitFullscreenElement === scope || scope.classList.contains('full'); }
+function toggleFull() {
+  if (isFull()) {
+    if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    scope.classList.remove('full');
+  } else {
+    const req = scope.requestFullscreen || scope.webkitRequestFullscreen;
+    if (req) req.call(scope)?.catch?.(() => scope.classList.add('full')); else scope.classList.add('full');
+  }
+}
+$('fs').onclick = toggleFull;
+scope.ondblclick = e => { if (!e.target.closest('button')) toggleFull(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'f' && !e.target.closest('input')) toggleFull();
+  if (e.key === 'Escape') scope.classList.remove('full');
+});
+let calm;
+function wake() { scope.classList.remove('calm'); clearTimeout(calm); calm = setTimeout(() => isFull() && scope.classList.add('calm'), 2000); }
+scope.addEventListener('pointermove', wake); document.addEventListener('fullscreenchange', wake);
+
+(function meters() {
+  $('l').style.width = Math.min(100, peaks[0] * 100) + '%';
+  $('r').style.width = Math.min(100, peaks[1] * 100) + '%';
+  if (running && ctx && playAt) {
+    const ms = Math.max(0, Math.round((playAt - ctx.currentTime) * 1000));
+    $('status').textContent = `Live · ${ms} ms buffered · ${underruns} dropouts`;
+  }
+  requestAnimationFrame(meters);
+})();
+</script>
+</body>
+</html>
