@@ -1,0 +1,147 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE CARLA-PROJECT>
+<CARLA-PROJECT VERSION='2.5'>
+ <EngineSettings>
+  <ForceStereo>true</ForceStereo>
+  <PreferPluginBridges>false</PreferPluginBridges>
+  <PreferUiBridges>true</PreferUiBridges>
+  <UIsAlwaysOnTop>true</UIsAlwaysOnTop>
+  <MaxParameters>200</MaxParameters>
+  <UIBridgesTimeout>4000</UIBridgesTimeout>
+ </EngineSettings>
+
+ <!-- MIDI Channel Filter -->
+ <Plugin>
+  <Info>
+   <Type>INTERNAL</Type>
+   <Name>MIDI Channel Filter</Name>
+   <Label>midichanfilter</Label>
+  </Info>
+
+  <Data>
+   <Active>Yes</Active>
+   <ControlChannel>1</ControlChannel>
+   <Options>0x0</Options>
+
+   <Parameter>
+    <Index>0</Index>
+    <Name>1</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>1</Index>
+    <Name>2</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>2</Index>
+    <Name>3</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>3</Index>
+    <Name>4</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>4</Index>
+    <Name>5</Name>
+    <Value>1</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>5</Index>
+    <Name>6</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>6</Index>
+    <Name>7</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>7</Index>
+    <Name>8</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>8</Index>
+    <Name>9</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>9</Index>
+    <Name>10</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>10</Index>
+    <Name>11</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>11</Index>
+    <Name>12</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>12</Index>
+    <Name>13</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>13</Index>
+    <Name>14</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>14</Index>
+    <Name>15</Name>
+    <Value>0</Value>
+   </Parameter>
+
+   <Parameter>
+    <Index>15</Index>
+    <Name>16</Name>
+    <Value>0</Value>
+   </Parameter>
+  </Data>
+ </Plugin>
+
+ <!-- JC303 -->
+ <Plugin>
+  <Info>
+   <Type>LV2</Type>
+   <Name>JC303</Name>
+   <URI>http://github.com/midilab/JC303</URI>
+  </Info>
+
+  <Data>
+   <Active>Yes</Active>
+   <ControlChannel>1</ControlChannel>
+   <Options>0x1</Options>
+
+   <CustomData>
+    <Type>http://lv2plug.in/ns/ext/atom#String</Type>
+    <Key>http://github.com/midilab/JC303:StateString</Key>
+    <Value>
+2817.VMjLgfuB...O+fWarAhckI2bo8la8HRLt.iHfTlai8FYo41Y8HRUTYTK3HxO9.BOAAkUTMkO7.UPRETSfjFY8HRXiMVYtQmHfXWXrUWY8HBLtXCM4jSN4jyM1DSM3DCMxDiHu3COPEjTA0DHoQVOhD1XiUlazQTYiEVdh.hcgwVck0iHv3BLxjSN4jSN4jyLxjCMzbyM0HxK9vCTAIUPMARZj0iHhE1byMzasAmHfXWXrUWY8HBLtXSN4jSN4jCN3.yM4.yMwHxK9vCTAIUPMARZj0iHiUGcuYlYh.hcgwVck0iHv3RL2jSN4jSN4HiL0DyL4XiLh7hO7.UPRETSfjFY8HBYkMVX4IBH1EFa0UVOh.iK0HxK9vCTAIUPMARZj0iHk4lcs8FYh.hcgwVck0iHv3RMh7hO7.UPRETSfjFY8HhYkUFYhE1XqYTZrQWYxIBH1EFa0UVOh.iK1HSN4jSN4jSMxLSL1HCNzHxK9vCTAIUPMARZj0iHlkFazUlbDIWZ1UlHfXWXrUWY8HBLtbSMh7hO7.UPRETSfjFY8HhYowFckIGU4AWYh.hcgwVck0iHv3BLh7hO7.UPRETSfjFY8HBal8FQkAGcnIBH1EFa0UVOh.iKvHxK9vCTAIUPMARZj0iHrY1aDU1bzklagQWZu4lHfXWXrUWY8HBLt.iHu3COPEjTA0DHoQVOhvlYuIUXzUlHfXWXrUWY8HBLtHSMh7hO7.UPRETSfjFY8HBal81UgYWYl8lbsIBH1EFa0UVOh.iKvHxK9vCTAIUPMARZj0iHr81ckImSuQWYh.hcgwVck0iHx.iKvHxK9vCTAIUPMARZj0iHt8lbsEFaDU1XgkmHfXWXrUWY8HBLtHSN4jSN4jCNxDSL3XCL1XiHu3COPEjTA0DHoQVOh3VcsIVYx8jYT8lakMmHfXWXrUWY8HBMt.iHu3COPEjTA0DHoQVOh7lckIGYxklckQjb4cUYzIBH1EFa0UVOh.iK2jSN4jSN4TiLyDiMxfCMxHxK9vCTAIUPMARZj0iHuYWYxQlboYWYLUlckwlHfXWXrUWY8HBLtTSN4jSN4jiMzHyL2HSLyDiHu3COPEjTA0DHoQVOh7lckIGYxklck0zajUFaI4FYkgmHfXWXrUWY8HRLt.iHu3COPEjTA0DHoQVOhHWXtcVYN8FckIBH1EFa0UVOhPCNt.iHu3COPEjTA0DHoQVOhHWYy8lag41XkIBH1EFa0UVOh.iK1HCLv.CLv.CM2XCNybSL1HxK9vCTAIUPMARZj0iHyUVbCwVYgImHfXWXrUWY8HBLt.iHu3COPEjTA0DHoQVOhLWYwcTYtUlbgQWYh.hcgwVck0iHv3BLh7hO7.UPRETSfjFY8HxbkE2Qk4VYxEFcoYWYAM1Xk4FcPI2ahElXowVZzkmHfXWXrUWY8HRMv3BLh7hO7.UPRETSfjFY8HxbkE2Qk4VYxEFcoYWYFkFarIBH1EFa0UVOhfCLt.iHu3COPEjTA0DHoQVOhLWYwcTYtUlbgQWZ1U1TrkFYkAkbuIVXhkFaoQWdh.hcgwVck0iHy.iKv.CLv.SL4.yMyPCN1LiHu3COPEjTA0DHoQVOhLWYwcTYtUlbgQWZ1UFUoUFTx8lXgIVZrkFc4IBH1EFa0UVOhDCLv3BLh7hO7.UPRETSfjFY8HxbkEGSk41YzglHfXWXrUWY8HRL13BLh7hO7.UPRETSfjFY8HxbkEGTrEVdSQWXzUlHfXWXrUWY8HBLt.iHu3COPEjTA0DHoQVOhLWYwMEcgIGcM8FYkIBH1EFa0UVOh.iKvHxK9vCTAIUPMARZj0iHyUVbSkmai0zajUlHfXWXrUWY8HBLt.iHu3COPEjTA0DHoQVOhLWYwQUYsA2ah.hcgwVck0iHwHCLt.iHu3COPEjTA0DHoQVOhLGaoQVYTkVakIBH1EFa0UVOh.iKyHSN4jSN4fyLyDCL1jSN0HxK9vCTAIUPMARZj0iHy8lYzEDczE1XqIBH1EFa0UVOh.iKxTSN4jSN4jCLzXyLxTiM3HxK9vCTAIUPMARZj0iHyEmbDIWZ1Ulbh.hcgwVck0iHv3hL0HxK9vCTAIUPMARZj0iHycWZzMFZM8FYSQWXzUlHfXWXrUWY8HBLt.iHu3COPEjTA0DHoQVOhL2coQ2Xn8jckIGYxklckMEcgQWYh.hcgwVck0iHw3BLh7hO7.UPRETSfjFY8HBc04VZtclHfXWXrUWY8HBLtTiHu3COPEjTA0DHoQVOhX2arUWakIBH1EFa0UVOh.iK1jSN4jSN4fCNvbSNvbSLh7hO7.UPRETSfjFY8HxcgYWYl8lbsIBH1EFa0UVOh.iKvHxK9vSPikFYSUVby.yLfLGckAGSk41YzgVOhDiMh.BcxElayA2ayUVOh.iH9vyTzUFbfjVOh.iHf31azUVOhLiMh.hbkMGc8HBLh.RXiMVYtQWOh.iHfLGaoQVY8HBLh.BcoUVOh.iHu3COSQWYvARZ8HRLh.hauQWY8HxL1HBHxU1bz0iHvHBHgM1Xk4Fc8HBLh.xbrkFYk0iHvHBHzkVY8HBLh7hO7LEckAGHo0iHxHBHt8Fck0iHyXiHfHWYyQWOh.iHfD1XiUlaz0iHvHBHywVZjUVOh.iHfPWZk0iHvHxK9vyTzUFbfjVOhLiHf31azUVOhLiMh.hbkMGc8HBLh.RXiMVYtQWOh.iHfLGaoQVY8HBLh.BcoUVOh.iHu3COSQWYvARZ8HBMh.hauQWY8HxL1HBHxU1bz0iHvHBHgM1Xk4Fc8HBLh.xbrkFYk0iHvHBHzkVY8HBLh7hO7LEckAGHo0iH0HBHt8Fck0iHyXiHfHWYyQWOh.iHfD1XiUlaz0iHvHBHywVZjUVOh.iHfPWZk0iHvHxK9vyTzUFbfjVOhXiHf31azUVOhLiMh.hbkMGc8HBLh.RXiMVYtQWOh.iHfLGaoQVY8HBLh.BcoUVOh.iHu3COSQWYvARZ8HxMh.hauQWY8HxL1HBHxU1bz0iHvHBHgM1Xk4Fc8HBLh.xbrkFYk0iHvHBHzkVY8HBLh7hO7LEckAGHo0iH3HBHt8Fck0iHyXiHfHWYyQWOh.iHfD1XiUlaz0iHvHBHywVZjUVOh.iHfPWZk0iHvHxK9vyTzUFbfjVOhjiHf31azUVOhLiMh.hbkMGc8HBLh.RXiMVYtQWOh.iHfLGaoQVY8HBLh.BcoUVOh.iHu3COSQWYvARZ8HRLvHBHt8Fck0iHyXiHfHWYyQWOh.iHfD1XiUlaz0iHvHBHywVZjUVOh.iHfPWZk0iHvHxK9vyTzUFbfjVOhDSLh.hauQWY8HxL1HBHxU1bz0iHvHBHgM1Xk4Fc8HBLh.xbrkFYk0iHvHBHzkVY8HBLh7hO7LEckAGHo0iHwHiHf31azUVOhLiMh.hbkMGc8HBLh.RXiMVYtQWOh.iHfLGaoQVY8HBLh.BcoUVOh.iHu3COSQWYvARZ8HRLyHBHt8Fck0iHyXiHfHWYyQWOh.iHfD1XiUlaz0iHvHBHywVZjUVOh.iHfPWZk0iHvHxK9vyTzUFbfjVOhDCMh.hauQWY8HxL1HBHxU1bz0iHvHBHgM1Xk4Fc8HBLh.xbrkFYk0iHvHBHzkVY8HBLh7hO7LEckAGHo0iHwTiHf31azUVOhLiMh.hbkMGc8HBLh.RXiMVYtQWOh.iHfLGaoQVY8HBLh.BcoUVOh.iHu3COuDzXoQ1TkE2LvLiO77RPPYEUS4C.
+    </Value>
+   </CustomData>
+  </Data>
+ </Plugin>
+
+</CARLA-PROJECT>

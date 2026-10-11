@@ -1,6 +1,6 @@
 [Unit]
-Description=m00Dr: reese bass synth (ch2) into the m800Dr Mix
-After=pipewire.service pipewire-pulse.service
+Description=m00Dr: reese bass synth (ch2) into the m800Dr Mixer
+After=pipewire.service
 
 [Service]
 WorkingDirectory=/home/emin0r/code/m800Dr

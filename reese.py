@@ -7,7 +7,7 @@
 Two detuned saws beating against each other (spread a little across L/R so the
 scope shows the movement), a sine sub, a low-pass filter with an envelope and a
 slow LFO, then soft-clip drive. Listens on ALSA sequencer client "m00Dr-Reese"
-(MIDI channel BASS_CHANNEL only) and plays into the m800dr_mix sink via pacat.
+(MIDI channel BASS_CHANNEL only) and plays through pw-cat into the m800Dr Mixer.
 
     uv run reese.py                # run (the m00dr-reese user service does this)
     uv run reese.py --demo x.wav   # render a short riff offline, for checking levels
@@ -18,7 +18,6 @@ from scipy.signal import lfilter
 
 SR, BLOCK = 48000, 256
 BASS_CHANNEL = 1                          # 0-based: m00Dr's bass part is MIDI ch2
-SINK = "m800dr_mix"
 
 DETUNE = 0.0075     # each saw +/- this ratio (~13 cents): the reese beating
 SPREAD = 0.3        # how far the two saws are panned apart (0 = mono)
@@ -136,9 +135,10 @@ def demo(path):
 def main():
     synth = Reese()
     threading.Thread(target=midi_loop, args=(open_midi(), synth), daemon=True).start()
-    p = subprocess.Popen(["pacat", "--raw", "--format=float32le", f"--rate={SR}", "--channels=2",
-                          f"--device={SINK}", "--latency-msec=15", "--client-name=m00Dr-Reese",
-                          "--stream-name=reese bass"], stdin=subprocess.PIPE)
+    # --target 0: left unlinked; synths/links.sh wires it into the mixer's bass strip.
+    p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
+                          "--target=0", f"--latency={BLOCK}",
+                          "-P", "{ node.name=m00Dr-Reese media.name=\"reese bass\" }", "-"], stdin=subprocess.PIPE)
     fcntl.fcntl(p.stdin.fileno(), fcntl.F_SETPIPE_SZ, 4096)   # keep the pipe from adding ~170 ms of latency
     while True:
         p.stdin.write(synth.render().tobytes())               # blocks at real-time pace

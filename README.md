@@ -1,0 +1,82 @@
+# m800Dr
+
+The audio side of a Dirtywave M8 + [m00Dr](https://github.com/4tytw0/mOODr) rig, running on a Linux
+desktop (PipeWire, KDE). m00Dr generates the music as MIDI. The synths here play it, a mixer
+balances and dirties the parts on a Launch Control XL, and an **audio server** streams the result to
+any browser on the LAN with a Lissajous scope and the mixer beside it.
+
+```
+m00Dr ──MIDI──▶ FluidSynth   ch1 chords · ch3 arp · ch4 drums ─┐
+            ├─▶ reese.py     ch2 bass ─────────────────────────┤
+            └─▶ Open303      ch5 acid (Carla + JC303) ─────────┤
+M8 USB audio ──────────────────────────────────────────────────┤
+Launch Control XL ──▶ mixer.py: a strip per part, faders, ◀────┘
+                      drive, sidechain ──▶ m800dr_mix ──▶ server.py :8808
+```
+
+## Pages (audio server, port 8808)
+
+- **`/`** is the player. **Listen** streams the mix. The scope is an XY plot turned 45° (mono lies
+  flat along the width), with an M/S mode, auto gain and full screen (`f` or double-click). The mixer
+  is a panel to its right (**MIXER** toggles it), so opening it never stops the audio.
+- **`/mixer`** is the mixer on its own, e.g. on a tablet while a TV shows the scope.
+
+## Mixer (`mixer.py`)
+
+One stereo strip per part. Fader N drives the part on MIDI channel N:
+
+| Fader | 1 | 2 | 3 | 4 | 5 | 8 |
+|---|---|---|---|---|---|---|
+| Strip | chords | bass | arp | drums | acid | M8 |
+
+- **Volume, then drive:** up to 80% of the throw is volume (unity at 80%). Above that, the strip blends
+  into an asymmetric fuzz that gets harder toward the top.
+- **Sidechain:** the drums' low end (the kick) ducks chords, bass, arp and acid, by up to about −8 dB
+  by default, recovering over a few hundred ms. Set it with the page slider or the middle knob in
+  the drums column.
+- **Inputs:** faders move on CC 7 on the strip's channel, on Launch Control XL CC 77–84 (any
+  channel), by dragging on the page (double-click = unity), or via `POST /mixer/control`. Other
+  knob CCs pass through to m00Dr's "m00Dr Control" input. The top knob in the drums column (CC 16)
+  morphs the drum pattern from house to two-step to broken beats.
+- **Persistence:** fader positions survive restarts.
+
+### Launch Control XL (mk2)
+
+Use factory template 1 (MIDI channel 9). If the controller is plugged into the desktop, it's picked
+up automatically. If it's on a Mac, run `uv run tools/midi_bridge.py`, which forwards its CCs to the
+audio server over the LAN. A launch agent for it is in `tools/com.m800dr.midi-bridge.plist`; macOS
+must allow it under Privacy & Security → Local Network. See `HANDOFF.md` for the controller's
+SysEx and LED reference.
+
+## Synths
+
+- **FluidSynth** (`synths/fluidsynth.cfg`) outputs to JACK, one output group per channel. Chords and
+  arp use `gamebreaks.sf2` (stabs and a phaser sine), drums use `gamedrums.sf2` (16 kits).
+- **`reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive.
+- **Open303** is JC303 in a headless Carla rack (`synths/open303.carxp`), behind a channel-5 filter.
+- **`synths/links.sh`** keeps the PipeWire graph wired (m00Dr → synths → mixer → mix bus, and
+  controllers → mixer), re-linking anything that restarts.
+
+## Building the sounds
+
+The soundfonts are git-ignored (the samples aren't licensed for redistribution). Rebuild them on a
+machine that has the GAMEBREAKS sample pack:
+
+```sh
+tools/build_gamebreaks.sh                              # synths/gamebreaks.sf2 (stabs + phase_sine)
+uv run tools/build_drumkit.py synths/gamedrums.sf2     # kits sliced from the raw drum breaks
+python3 tools/build_open303.py                         # synths/open303.carxp (edit PATCH first)
+```
+
+## Running
+
+Every piece is a systemd user service. Unit copies are in `systemd/`; install them into
+`~/.config/systemd/user/` and enable them:
+
+```sh
+systemctl --user enable --now m00dr-fluidsynth m00dr-reese m00dr-open303 \
+    m800dr-mixer m00dr-synth-links m800dr-mix-m8 m800dr-audio
+```
+
+Python tooling is run with [uv](https://docs.astral.sh/uv/). The scripts declare their dependencies
+inline. Current state, gotchas and next steps are in [`HANDOFF.md`](HANDOFF.md).

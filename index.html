@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M8 Audio</title>
+<title>Audio Server</title>
 <style>
   :root { --bg:#f4f4f2; --fg:#1b1b1b; --dim:#6b6b6b; --line:#d4d4d0; --accent:#e8501e; --ok:#2f9e5a;
           --scope-bg:#07090a; --scope-dim:#5d6a66; }
@@ -11,9 +11,18 @@
   * { box-sizing:border-box; }
   body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg);
          font:15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; padding:16px; }
-  main { width:100%; max-width:520px; display:grid; gap:18px; }
-  h1 { margin:0; font-size:20px; letter-spacing:.08em; }
+  /* Player on the left; the mixer panel (when open) to its right, top-aligned. */
+  main { width:100%; max-width:1180px; display:grid; gap:18px 32px; justify-content:center;
+         grid-template-columns:minmax(0, 520px); }
+  main.with-mixer { grid-template-columns:minmax(0, 560px) minmax(0, 560px); }
+  #player { display:grid; gap:18px; align-content:start; }
+  h1 { margin:0; font-size:20px; letter-spacing:.08em; grid-column:1 / -1; }
   h1 span { color:var(--accent); }
+  h1 .nav { float:right; font-size:13px; color:var(--dim); text-decoration:none; letter-spacing:.12em;
+            padding:4px 0 0; border:0; background:none; font-family:inherit; cursor:pointer; }
+  #mixer { width:100%; height:0; border:0; display:block; align-self:start; }
+  #mixer[hidden] { display:none; }
+  h1 .nav:hover { color:var(--fg); }
   button { font:inherit; font-size:16px; padding:14px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
            border-radius:6px; cursor:pointer; }
   button.on { background:transparent; color:var(--fg); }
@@ -45,13 +54,14 @@
 </head>
 <body>
 <main>
-  <h1>M8 <span>●</span> AUDIO</h1>
+  <h1>AUDIO <span>●</span> SERVER <button class="nav" id="mixbtn" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER ▸</button></h1>
+  <section id="player">
   <div id="scope">
     <canvas id="grid"></canvas>
     <canvas id="trace"></canvas>
     <div class="idle" id="idle">PRESS LISTEN</div>
     <div class="hud">
-      <button class="chip sel" id="m-xy" title="X = left, Y = right">XY</button>
+      <button class="chip sel" id="m-xy" title="XY turned 45°: mono lies flat along the screen's width, stereo spreads up and down">XY</button>
       <button class="chip" id="m-ms" title="Goniometer: mono is vertical, stereo width spreads sideways">M/S</button>
       <button class="chip sel" id="agc" title="Automatic gain: scales quiet signals up to fill the screen">AUTO</button>
       <span class="grow"></span>
@@ -63,6 +73,8 @@
   <label>Volume <b id="volv">100%</b><input id="vol" type="range" min="0" max="150" value="100"></label>
   <label>Buffer (lower = less delay, more dropouts) <b id="bufv">60 ms</b><input id="buf" type="range" min="20" max="300" step="10" value="60"></label>
   <div id="status">Stopped</div>
+  </section>
+  <iframe id="mixer" title="Mixer" hidden></iframe>
 </main>
 <script>
 const RATE = 48000, CH = 2, BYTES_PER_FRAME = CH * 2, MIN_FRAMES = 480; // schedule >=10 ms at a time
@@ -73,6 +85,24 @@ let target = +$('buf').value / 1000;
 $('vol').oninput = e => { $('volv').textContent = e.target.value + '%'; if (gain) gain.gain.value = e.target.value / 100; };
 $('buf').oninput = e => { target = e.target.value / 1000; $('bufv').textContent = e.target.value + ' ms'; };
 $('go').onclick = () => running ? stop() : start();
+// The mixer is a panel beside the scope (an iframe of /mixer?embed), so the
+// audio keeps playing. Open unless last closed; it reports its height so the
+// panel fits it.
+function showMixer(open) {
+  const f = $('mixer');
+  if (open && !f.src) f.src = '/mixer?embed';
+  f.hidden = !open;
+  document.querySelector('main').classList.toggle('with-mixer', open);
+  $('mixbtn').textContent = open ? 'MIXER ◂' : 'MIXER ▸';
+  try { localStorage.setItem('mixer', open ? 'open' : 'closed'); } catch {}
+}
+$('mixbtn').onclick = () => showMixer($('mixer').hidden);
+let mixerPref = 'open';
+try { mixerPref = localStorage.getItem('mixer') || 'open'; } catch {}
+showMixer(mixerPref === 'open');
+addEventListener('message', e => {
+  if (e.source === $('mixer').contentWindow && e.data?.mixerHeight) $('mixer').style.height = e.data.mixerHeight + 'px';
+});
 
 function stop() {
   running = false; abort?.abort();
@@ -159,17 +189,18 @@ function resize() {
 new ResizeObserver(resize).observe(scope);
 
 function drawGrid() {
-  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.45;
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.45, RX = W * 0.45;
   g.clearRect(0, 0, W, H);
   g.lineWidth = dpr;
-  // Mark where mono (L = R) lands: the diagonal in XY, straight up in M/S.
+  // Mark where mono (L = R) lands: flat across the width in XY (turned 45°),
+  // straight up in M/S.
   g.setLineDash([4 * dpr, 6 * dpr]); g.strokeStyle = 'rgba(232,80,30,.18)';
   g.beginPath();
-  if (mode === 'xy') { const d = R * Math.SQRT1_2; g.moveTo(cx - d, cy + d); g.lineTo(cx + d, cy - d); }
+  if (mode === 'xy') { g.moveTo(cx - RX, cy); g.lineTo(cx + RX, cy); }
   else { g.moveTo(cx, cy + R); g.lineTo(cx, cy - R); }
   g.stroke(); g.setLineDash([]);
   g.fillStyle = 'rgba(120,150,140,.35)'; g.font = `${10 * dpr}px ui-monospace, monospace`;
-  if (mode === 'xy') { g.fillText('L', cx + R + 6 * dpr, cy + 4 * dpr); g.fillText('R', cx - 3 * dpr, cy - R - 6 * dpr); }
+  if (mode === 'xy') { g.fillText('L+R', cx + RX - 24 * dpr, cy - 6 * dpr); g.fillText('R−L', cx + 6 * dpr, cy - R + 10 * dpr); }
   else { g.fillText('M', cx + 6 * dpr, cy - R + 10 * dpr); g.fillText('S', cx + R - 10 * dpr, cy - 6 * dpr); }
 }
 
@@ -198,14 +229,19 @@ function frame() {
     for (let i = 0; i < bufL.length; i++) peak = Math.max(peak, Math.abs(bufL[i]), Math.abs(bufR[i]));
     // Auto gain: rise fast, fall slowly, floor so silence stays a dot instead of amplified noise.
     level = peak > level ? level + (peak - level) * 0.3 : level + (peak - level) * 0.02;
-    const k = Math.min(W, H) * 0.45 * (agc ? 0.9 / Math.max(level, 0.02) : 1);
+    const gain = agc ? 0.9 / Math.max(level, 0.02) : 1;
+    const k = Math.min(W, H) * 0.45 * gain;
+    // XY's mono axis runs along the width, so it scales to the width: on a
+    // wide screen the trace spans the monitor rather than a centred square.
+    const kx = mode === 'xy' ? W * 0.45 * gain * Math.SQRT1_2 : k;
     // Haas: draw R a little behind L (visual only) so mono parts open from a
-    // diagonal line into ellipses and stereo shapes widen.
+    // flat line into ellipses and stereo shapes widen. XY is the classic L/R
+    // plot turned 45° (x = L + R, y = R - L), so mono lies horizontal.
     const pts = new Float32Array((bufL.length - HAAS) * 2);
     for (let i = 0; i < bufL.length - HAAS; i++) {
       const l = bufL[i + HAAS], r = bufR[i];
-      pts[2 * i] = (mode === 'xy' ? l : (r - l) * Math.SQRT1_2) * k;
-      pts[2 * i + 1] = (mode === 'xy' ? r : (l + r) * Math.SQRT1_2) * k;
+      pts[2 * i] = mode === 'xy' ? (l + r) * kx : (r - l) * Math.SQRT1_2 * k;
+      pts[2 * i + 1] = (mode === 'xy' ? r - l : l + r) * Math.SQRT1_2 * k;
     }
     if (tick % ECHO_EVERY === 0) { echoes.unshift({ pts, born: tick }); if (echoes.length > ECHOES) echoes.pop(); }
     t.globalCompositeOperation = 'lighter';
