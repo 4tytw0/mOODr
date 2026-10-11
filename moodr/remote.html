@@ -110,6 +110,12 @@
     <button data-click="randomize">Randomize</button>
   </div>
   <div id="acidLane"></div>
+  <div class="row">
+    <button data-toggle="drums">Drums</button>
+    <div class="field grow"><label id="drumLabel">House · 2-step · Broken</label>
+      <input type="range" data-id="drumMutate"></div>
+    <button data-click="drumsRandomize">Randomize</button>
+  </div>
   <div id="pads"></div>
 </main>
 <script>
@@ -159,6 +165,8 @@ $$("[data-step]").forEach((b) => onTap(b, () => {
 }));
 const noise = $('[data-id="acidNoise"]');
 noise.addEventListener("input", () => send({op: "set", id: "acidNoise", value: Number(noise.value)}));
+const drumMutate = $('[data-id="drumMutate"]');
+drumMutate.addEventListener("input", () => send({op: "set", id: "drumMutate", value: Number(drumMutate.value)}));
 const bpm = $('[data-id="bpm"]');
 bpm.addEventListener("change", () => send({op: "set", id: "bpm", value: bpm.value}));
 bpm.addEventListener("keydown", (e) => { if (e.key === "Enter") bpm.blur(); });
@@ -191,6 +199,7 @@ function render(s) {
     $("#reading").dataset.html = s.reading; $("#reading").innerHTML = s.reading;
   }
   $("#noiseLabel").textContent = s.noiseLabel;
+  $("#drumLabel").textContent = s.drumLabel;
   $$("#acidLane .cell").forEach((c, i) => {
     const a = s.acid[i];
     c.textContent = a.text;

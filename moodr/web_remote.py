@@ -163,7 +163,7 @@ class WebRemote(QObject):
             "circuit": w.circuit_channels_button, "sync": w.external_sync_checkbox,
             "arp": w.arp_button, "arpPattern": w.arp_pattern_box, "arpRate": w.arp_rate_box,
             "acid": w.acid_button, "acidNoise": w.acid_noise_slider,
-            "acidWide": w.acid_wide_checkbox, "bpm": w.bpm_edit,
+            "acidWide": w.acid_wide_checkbox, "drums": w.drums_button, "drumMutate": w.drums_mutation_slider, "bpm": w.bpm_edit,
         }
         for i, box in enumerate(w.numeral_boxes):
             controls[f"slot{i}"] = box
@@ -182,7 +182,8 @@ class WebRemote(QObject):
         w = self._window
         if op == "click":
             button = {"play": w.play_button, "stop": w.stop_button, "roll": w.roll_button,
-                      "randomize": w.acid_randomize_button}.get(message.get("id"))
+                      "randomize": w.acid_randomize_button,
+                      "drumsRandomize": w.drums_randomize_button}.get(message.get("id"))
             if button is not None and button.isEnabled():
                 button.click()
         elif op in ("press", "release"):
@@ -253,6 +254,7 @@ class WebRemote(QObject):
             "playing": bool(w.play_button.property("playing")),
             "reading": w.reading_label.text(),
             "noiseLabel": w.acid_noise_label.text(),
+            "drumLabel": w.drums_mutation_label.text(),
             "pads": [{"numeral": p.numeral_label.text(), "name": p.name_label.text(),
                       "playing": bool(p.property("playing"))} for p in w.chord_buttons],
             "acid": [{"text": c.text(), "rest": bool(c.property("rest")),

@@ -16,6 +16,7 @@ TICKS_PER_BAR = PPQN * BEATS_PER_BAR
 CHORD_CHANNEL = 0  # MIDI channel 1
 BASS_CHANNEL = 1  # MIDI channel 2
 ARP_CHANNEL = 2  # MIDI channel 3
+DRUM_CHANNEL = 3  # MIDI channel 4: lines up with fader 4 on the m800Dr Mixer
 ACID_CHANNEL = 4  # MIDI channel 5
 
 # Ticks-per-step for each supported arp rate (24 PPQN).
@@ -148,6 +149,105 @@ def _generate_acid_pattern(noise: float, wide_deviation: bool,
     return pattern
 
 
+# Drum sequencer: a 16-step, one-bar pattern on General MIDI drum keys,
+# stepped on the 16th-note grid with step 0 on the bar line.
+DRUM_STEPS = 16
+DRUM_STEP_TICKS = PPQN // 4
+KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
+
+DRUM_KICK_VELOCITY = 120
+DRUM_SNARE_VELOCITY = 112
+DRUM_GHOST_SNARE_VELOCITY = 48
+DRUM_HAT_VELOCITY = 92
+DRUM_GHOST_HAT_VELOCITY = 58
+DRUM_OPEN_HAT_VELOCITY = 96
+
+# The mutation knob (0.0-1.0) morphs between three grooves, each a chance
+# per step that a voice plays: house at 0.0, UK garage two-step at 0.5,
+# broken breakbeat at 1.0, linearly in between. A pattern's cast is one
+# random draw per voice per step, kept until the next Roll; a voice plays a
+# step when its draw is under that step's chance at the current mutation.
+# So turning the knob morphs the same cast smoothly and reversibly, and a
+# step that plays at one setting keeps playing as its chance rises.
+_HOUSE = {
+    # Four on the floor, backbeat snare, offbeat hats; the odd variation.
+    "kick":  [1, 0, 0, 0, .9, 0, 0, .12, .9, 0, 0, 0, .9, 0, .12, 0],
+    "snare": [0, 0, 0, .12, 1, .12, 0, .12, 0, .12, 0, .12, 1, .12, 0, .12],
+    "hat":   [0, .12, 1, .12, 0, .12, 1, .12, 0, .12, 1, .12, 0, .12, 1, .12],
+    "open":  [0, 0, .12, 0, 0, 0, .12, 0, 0, 0, .12, 0, 0, 0, .12, 0],
+}
+_TWO_STEP = {
+    # Garage: the kick skips beats 2 and 4 -- on the one and the "and" of
+    # three, with pickups -- over a backbeat snare and swung, busy hats.
+    "kick":  [1, 0, 0, .15, 0, 0, 0, .35, 0, 0, .9, 0, 0, 0, .2, 0],
+    "snare": [0, 0, 0, 0, 1, 0, 0, .2, 0, .15, 0, 0, 1, 0, 0, .3],
+    "hat":   [.2, .45, 1, .45, .2, .45, 1, .45, .2, .45, 1, .45, .2, .45, 1, .45],
+    "open":  [0, 0, 0, 0, 0, 0, .1, 0, 0, 0, 0, 0, 0, 0, .3, 0],
+}
+_BREAK = {
+    # Beyond: chopped-break kicks, ghost-snare rolls, rolling 16th hats.
+    "kick":  [1, 0, .5, 0, 0, 0, .25, 0, 0, 0, .85, .4, 0, .2, 0, 0],
+    "snare": [0, .1, 0, .2, 1, 0, .15, .45, 0, .35, 0, .2, 1, 0, .3, .5],
+    "hat":   [.75] * 16,
+    "open":  [0, 0, 0, 0, 0, 0, .35, 0, 0, 0, 0, 0, 0, 0, .35, 0],
+}
+# Ticks the off-16ths are pushed late (of DRUM_STEP_TICKS = 6): straight
+# house, a heavy two-step shuffle, a lighter push on the breaks.
+_SWING = (0, 2, 1)
+
+# Steps where a snare/hat hit is the main one rather than a ghost.
+_SNARE_MAIN = (4, 12)
+_HAT_MAIN = (2, 6, 10, 14)
+
+
+def _blend(voice: str, step: int, mutation: float) -> float:
+    """A voice's chance at a step, between the three grooves."""
+    house, two, brk = _HOUSE[voice][step], _TWO_STEP[voice][step], _BREAK[voice][step]
+    if mutation <= 0.5:
+        return house + (two - house) * mutation * 2
+    return two + (brk - two) * (mutation - 0.5) * 2
+
+
+def drum_swing_ticks(mutation: float) -> int:
+    """How late the off-16ths land at this mutation, in clock ticks."""
+    if mutation <= 0.5:
+        return round(_SWING[0] + (_SWING[1] - _SWING[0]) * mutation * 2)
+    return round(_SWING[1] + (_SWING[2] - _SWING[1]) * (mutation - 0.5) * 2)
+
+
+def _cast_drum_lines(rng: random.Random | None = None) -> list[dict[str, float]]:
+    """One draw per voice per step: the cast a pattern keeps until re-rolled."""
+    source = rng if rng is not None else random
+    return [{voice: source.random() for voice in ("kick", "snare", "hat", "open")}
+            for _ in range(DRUM_STEPS)]
+
+
+def _drum_pattern_for(lines: list[dict[str, float]],
+                      mutation: float) -> list[list[tuple[int, int]]]:
+    """The (note, velocity) hits per step for a cast at a mutation."""
+    pattern: list[list[tuple[int, int]]] = []
+    for step, draw in enumerate(lines):
+        hits: list[tuple[int, int]] = []
+        if draw["kick"] < _blend("kick", step, mutation):
+            hits.append((KICK, DRUM_KICK_VELOCITY))
+        if draw["snare"] < _blend("snare", step, mutation):
+            hits.append((SNARE, DRUM_SNARE_VELOCITY if step in _SNARE_MAIN
+                         else DRUM_GHOST_SNARE_VELOCITY))
+        if draw["open"] < _blend("open", step, mutation):
+            hits.append((OPEN_HAT, DRUM_OPEN_HAT_VELOCITY))
+        elif draw["hat"] < _blend("hat", step, mutation):
+            hits.append((CLOSED_HAT, DRUM_HAT_VELOCITY if step in _HAT_MAIN
+                         else DRUM_GHOST_HAT_VELOCITY))
+        pattern.append(hits)
+    return pattern
+
+
+def _generate_drum_pattern(rng: random.Random | None = None,
+                           mutation: float = 0.0) -> list[list[tuple[int, int]]]:
+    """A fresh pattern from a fresh cast, at `mutation`."""
+    return _drum_pattern_for(_cast_drum_lines(rng), mutation)
+
+
 def acid_note_for_step(step_value: int | None, home_note: int,
                        scale_roots: list[int]) -> int | None:
     """The MIDI note one acid step sounds, or None for a rest. `step_value`
@@ -198,7 +298,8 @@ def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
 class PlaybackEngine:
     def __init__(self, midi_output, clock, chord_channel: int = CHORD_CHANNEL,
                  bass_channel: int = BASS_CHANNEL, arp_channel: int = ARP_CHANNEL,
-                 acid_channel: int = ACID_CHANNEL, rng: random.Random | None = None,
+                 acid_channel: int = ACID_CHANNEL, drum_channel: int = DRUM_CHANNEL,
+                 rng: random.Random | None = None,
                  on_loop_complete: Callable[[], None] | None = None,
                  on_chord_change: Callable[[int | None], None] | None = None,
                  on_acid_step: Callable[[int | None], None] | None = None):
@@ -208,6 +309,7 @@ class PlaybackEngine:
         self._bass_channel = bass_channel
         self._arp_channel = arp_channel
         self._acid_channel = acid_channel
+        self._drum_channel = drum_channel
         self._rng = rng
         self._chords: list[list[int]] = []
         self._roots: list[int] = []
@@ -274,6 +376,15 @@ class PlaybackEngine:
         self.acid_wide_deviation = True
         self._acid_pattern: list[int | None] = _generate_acid_pattern(
             self.acid_noise, self.acid_wide_deviation, self._rng)
+        # Drum sequencer state: the acid line's 16th-note stepping, but
+        # each step can sound several hits at once. Hits are one-shots, so
+        # their note-offs go out at the next step.
+        self._sounding_drum_notes: list[int] = []
+        self._drums_enabled = True
+        self._drum_mutation = 0.0
+        self._drum_lines = _cast_drum_lines(self._rng)
+        self._drum_pattern = _drum_pattern_for(self._drum_lines, self._drum_mutation)
+        self._drum_swing = 0
         self._ticks_since_advance = 0
         self._playing = False
         # Fires once the loaded progression has played all the way through
@@ -429,6 +540,41 @@ class PlaybackEngine:
             self._turn_off_acid_note()
 
     @property
+    def drums_enabled(self) -> bool:
+        return self._drums_enabled
+
+    @drums_enabled.setter
+    def drums_enabled(self, value: bool) -> None:
+        if value == self._drums_enabled:
+            return
+        self._drums_enabled = value
+        if not value:
+            self._turn_off_drum_notes()
+
+    @property
+    def drum_pattern(self) -> list[list[tuple[int, int]]]:
+        """The locked-in drum pattern -- a copy, like acid_pattern."""
+        return [list(hits) for hits in self._drum_pattern]
+
+    def randomize_drum_pattern(self) -> None:
+        """Casts a fresh drum pattern. Like randomize_acid_pattern(), takes
+        effect from the step the sequencer is on."""
+        self._drum_lines = _cast_drum_lines(self._rng)
+        self._drum_pattern = _drum_pattern_for(self._drum_lines, self._drum_mutation)
+
+    @property
+    def drum_mutation(self) -> float:
+        """0.0 house, 0.5 two-step, 1.0 broken beats: morphs the current
+        cast rather than re-rolling it, so it can be swept live."""
+        return self._drum_mutation
+
+    @drum_mutation.setter
+    def drum_mutation(self, value: float) -> None:
+        self._drum_mutation = min(max(value, 0.0), 1.0)
+        self._drum_pattern = _drum_pattern_for(self._drum_lines, self._drum_mutation)
+        self._drum_swing = drum_swing_ticks(self._drum_mutation)
+
+    @property
     def position(self) -> int:
         """Index of the chord that will play at the next bar boundary."""
         return self._position
@@ -508,6 +654,7 @@ class PlaybackEngine:
         self._acid_step_index = 0
         self._acid_slide_pending = False
         self._advance()
+        self._drum_tick(0)
         self._clock.add_tick_callback(self._on_tick)
         if not self._clock.is_running:
             self._clock.start()
@@ -521,6 +668,8 @@ class PlaybackEngine:
         self._midi_output.all_notes_off(self._bass_channel)
         self._midi_output.all_notes_off(self._arp_channel)
         self._midi_output.all_notes_off(self._acid_channel)
+        self._midi_output.all_notes_off(self._drum_channel)
+        self._sounding_drum_notes = []
         self._sounding_position = None
         self._sounding_chords_enabled = False
         self._sounding_bass_enabled = False
@@ -543,6 +692,8 @@ class PlaybackEngine:
         if self._acid_ticks_since_step >= ACID_STEP_TICKS:
             self._acid_ticks_since_step = 0
             self._advance_acid_step()
+
+        self._drum_tick(self._ticks_since_advance)
 
         self._arp_ticks_since_step += 1
         if self._arp_ticks_since_step >= ARP_RATE_TICKS[self.arp_rate]:
@@ -721,3 +872,23 @@ class PlaybackEngine:
                                  self._sounding_acid_octave_shift)
         self._sounding_acid_note = None
         self._acid_slide_pending = False
+
+    def _drum_tick(self, tick_in_bar: int) -> None:
+        """Fires a drum step if one lands on this tick of the bar: even
+        16ths on the grid, odd ones pushed late by the current swing."""
+        step, offset = divmod(tick_in_bar, DRUM_STEP_TICKS)
+        if offset == (self._drum_swing if step % 2 else 0):
+            self._advance_drum_step(step)
+
+    def _advance_drum_step(self, index: int) -> None:
+        self._turn_off_drum_notes()
+        if not self._drums_enabled or self._sounding_position is None:
+            return
+        for note, velocity in self._drum_pattern[index % len(self._drum_pattern)]:
+            self._midi_output.send([0x90 | self._drum_channel, note, velocity])
+            self._sounding_drum_notes.append(note)
+
+    def _turn_off_drum_notes(self) -> None:
+        for note in self._sounding_drum_notes:
+            self._midi_output.send([0x80 | self._drum_channel, note, 0])
+        self._sounding_drum_notes = []

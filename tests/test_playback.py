@@ -10,6 +10,17 @@ from moodr.playback import (
     ARP_RATE_TICKS,
     BASS_CHANNEL,
     CHORD_CHANNEL,
+    CLOSED_HAT,
+    DRUM_CHANNEL,
+    DRUM_STEP_TICKS,
+    DRUM_STEPS,
+    KICK,
+    OPEN_HAT,
+    SNARE,
+    _cast_drum_lines,
+    _drum_pattern_for,
+    _generate_drum_pattern,
+    drum_swing_ticks,
     TICKS_PER_BAR,
     PlaybackEngine,
     _arp_note_for_step,
@@ -1005,3 +1016,119 @@ def test_the_octave_offset_does_not_swallow_a_patterns_own_octave_jump():
     clock.tick(ACID_STEP_TICKS * 2)
     plain, jumped = [note for kind, note in _acid_events(output) if kind == "on"]
     assert jumped == plain + 12
+
+
+def test_drum_step_count_and_rate_span_exactly_one_bar():
+    assert DRUM_STEPS * DRUM_STEP_TICKS == TICKS_PER_BAR
+
+
+def test_drum_channel_is_free():
+    assert DRUM_CHANNEL not in (CHORD_CHANNEL, BASS_CHANNEL, ARP_CHANNEL, ACID_CHANNEL)
+
+
+def _notes(pattern):
+    return [{note for note, _ in hits} for hits in pattern]
+
+
+def test_house_keeps_the_four_on_the_floor_skeleton():
+    for seed in range(200):
+        notes = _notes(_generate_drum_pattern(random.Random(seed), mutation=0.0))
+        assert len(notes) == DRUM_STEPS
+        assert KICK in notes[0]                       # the downbeat always lands
+        assert SNARE in notes[4] and SNARE in notes[12]
+        for step in (2, 6, 10, 14):                   # an offbeat hat, open or closed
+            assert notes[step] & {CLOSED_HAT, OPEN_HAT}
+
+
+def test_two_step_skips_the_kick_on_beats_two_and_four():
+    for seed in range(200):
+        notes = _notes(_generate_drum_pattern(random.Random(seed), mutation=0.5))
+        assert KICK in notes[0]
+        assert KICK not in notes[4] and KICK not in notes[12]
+        assert SNARE in notes[4] and SNARE in notes[12]
+
+
+def test_breaks_are_busier_than_house():
+    def hits(mutation):
+        return sum(len(h) for seed in range(100)
+                   for h in _generate_drum_pattern(random.Random(seed), mutation))
+    assert hits(1.0) > hits(0.0)
+
+
+def test_mutation_morphs_the_same_cast_and_comes_back():
+    lines = _cast_drum_lines(random.Random(3))
+    house = _drum_pattern_for(lines, 0.0)
+    assert _drum_pattern_for(lines, 0.0) == house
+    assert _drum_pattern_for(lines, 0.5) != house
+    output, clock, engine = make_engine()
+    engine._drum_lines = lines
+    engine.drum_mutation = 0.8
+    engine.drum_mutation = 0.0
+    assert engine.drum_pattern == house
+
+
+def test_swing_pushes_off_16ths_late_in_two_step():
+    assert drum_swing_ticks(0.0) == 0
+    assert drum_swing_ticks(0.5) == 2
+    assert 0 < drum_swing_ticks(1.0) < DRUM_STEP_TICKS
+
+
+def test_generate_drum_pattern_varies_but_is_seedable():
+    a = _generate_drum_pattern(random.Random(7))
+    assert a == _generate_drum_pattern(random.Random(7))
+    casts = {str(_generate_drum_pattern(random.Random(seed))) for seed in range(20)}
+    assert len(casts) > 10
+
+
+def _drums_on(output):
+    return [m for m in output.sent if m[0] == 0x90 | DRUM_CHANNEL]
+
+
+def test_drum_step_zero_lands_on_the_bar_with_the_chord():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine._drum_pattern = [[(KICK, 120)]] + [[] for _ in range(DRUM_STEPS - 1)]
+    engine.start()
+    assert [0x90 | DRUM_CHANNEL, KICK, 120] in output.sent
+    output.sent.clear()
+
+    clock.tick(DRUM_STEP_TICKS)                       # step 1: releases step 0's hit
+    assert [0x80 | DRUM_CHANNEL, KICK, 0] in output.sent
+    output.sent.clear()
+    clock.tick(TICKS_PER_BAR - DRUM_STEP_TICKS)       # next bar line
+    assert [0x90 | DRUM_CHANNEL, KICK, 120] in output.sent
+
+
+def test_swing_delays_odd_steps():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.drum_mutation = 0.5                        # 2 ticks of swing
+    engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
+    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine.start()
+    clock.tick(DRUM_STEP_TICKS + 1)
+    assert not _drums_on(output)
+    clock.tick(1)
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]
+
+
+def test_muting_drums_releases_the_sounding_hit_and_silences_later_steps():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine._drum_pattern = [[(KICK, 120)] for _ in range(DRUM_STEPS)]
+    engine.start()
+    output.sent.clear()
+
+    engine.drums_enabled = False
+    assert [0x80 | DRUM_CHANNEL, KICK, 0] in output.sent
+    output.sent.clear()
+    clock.tick(DRUM_STEP_TICKS * 4)
+    assert not _drums_on(output)
+
+
+def test_stop_silences_the_drum_channel():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    engine.stop()
+    assert ["all_off", DRUM_CHANNEL] in output.sent

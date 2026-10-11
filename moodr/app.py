@@ -54,6 +54,9 @@ OCTAVE_SHIFT_RANGE = (-1, 1)
 SETTINGS_ORG = "m00Dr"
 SETTINGS_APP = "m00Dr"
 WEB_REMOTE_SETTING = "web_remote/enabled"
+# Remembered, so a restart doesn't silently switch a clock-master setup
+# (nothing sending clock) back to waiting on a clock that never comes.
+EXTERNAL_SYNC_SETTING = "clock/external_sync"
 M8_UI_PATH_SETTING = "m8_ui_path"
 
 # How long to let CoreMIDI's MIDIServer actually respawn after being killed before this app
@@ -98,6 +101,14 @@ DEFAULT_ARP_RATE = "1/8"
 # notes, octave jumps, accents and slides back toward a plain root; at 0
 # the acid line is a straight unaccented 16th-note pulse on the root.
 DEFAULT_ACID_NOISE_PERCENT = 100
+
+# The drum mutation knob: 0 house, 50 UK garage two-step, 100 broken beats
+# (see playback._drum_pattern_for). Also driven by MIDI CC DRUM_MUTATION_CC
+# on any channel arriving at the "m00Dr Control" input -- the top knob of
+# the drums column (column 4) on a Launch Control XL's factory template,
+# relayed by the m800Dr Mixer.
+DRUM_MUTATION_CC = 16
+CONTROL_INPUT_NAME = "m00Dr Control"
 
 # Novation Circuit Tracks' default MIDI map (confirmed against its own
 # manual): Synth 1 = ch1, Synth 2 = ch2 are its only two actual synth
@@ -274,6 +285,8 @@ class EngineSignals(QObject):
     # reasoning as chord_changed for the -1 rather than None. Fires at a
     # 16th note, so its slot must stay cheap (see AcidLane).
     acid_step = Signal(int)
+    # A drum mutation CC's value (0-127), from the control input's thread.
+    drum_mutation_cc = Signal(int)
 
 
 class MidiResetSignals(QObject):
@@ -784,18 +797,29 @@ class MainWindow(QWidget):
         self._preview_bass_channel: dict[int, int] = {}
 
         self._build_widgets()
+        # Always open, unlike the clock-sync input: performance CCs from a
+        # controller (via the m800Dr Mixer) arrive here, sync mode or not.
+        self._control_input = midi_io.MidiInput()
+        self._control_input.open(virtual_name=CONTROL_INPUT_NAME)
+        self._control_input.set_callback(self._on_control_message)
+        self._engine_signals.drum_mutation_cc.connect(
+            lambda value: self.drums_mutation_slider.setValue(round(value * 100 / 127)))
         theme.apply(self)
         self._on_mode_changed()
         self._update_progression_slots()
 
-        # External sync is the default: m00Dr is nearly always run against
+        # External sync is the default (then remembered, see
+        # EXTERNAL_SYNC_SETTING): m00Dr is nearly always run against
         # a DAW or hardware that owns the tempo, and being clock master by
         # default meant every session started by unchecking this. Done here
         # rather than with setChecked() at construction time so the toggle
         # handler runs against a fully built window -- it opens a MIDI port
         # and touches bpm_edit. Falls back to master mode if the port can't
         # be opened, rather than refusing to start.
-        self.external_sync_checkbox.setChecked(True)
+        self.external_sync_checkbox.setChecked(
+            QSettings(SETTINGS_ORG, SETTINGS_APP).value(EXTERNAL_SYNC_SETTING, True, type=bool))
+        self.external_sync_checkbox.toggled.connect(
+            lambda on: QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(EXTERNAL_SYNC_SETTING, on))
         self.web_remote_checkbox.setChecked(
             QSettings(SETTINGS_ORG, SETTINGS_APP).value(WEB_REMOTE_SETTING, False, type=bool))
 
@@ -955,6 +979,30 @@ class MainWindow(QWidget):
 
         self.acid_lane = AcidLane()
 
+        self.drums_button = QPushButton("Drums")
+        self.drums_button.setCheckable(True)
+        self.drums_button.setChecked(True)
+        self.drums_button.setToolTip(
+            "A 16-step drum pattern on MIDI channel 4: four-on-the-floor kick, backbeat "
+            "snare and offbeat hats, varied by an I Ching cast like the acid line. Every "
+            "Roll casts a new one along with the acid line.")
+        self.drums_button.toggled.connect(self._on_drums_toggled)
+
+        self.drums_mutation_label = QLabel()
+        self.drums_mutation_slider = QSlider(Qt.Horizontal)
+        self.drums_mutation_slider.setRange(0, 100)
+        self.drums_mutation_slider.setToolTip(
+            "Morphs the drum pattern without re-rolling it: house at the left, UK "
+            "garage two-step in the middle (the kick skips beats 2 and 4, the hats "
+            "swing), broken breakbeat at the right. Also on MIDI CC 16 (a Launch "
+            "Control XL's top knob, drums column).")
+        self.drums_mutation_slider.valueChanged.connect(self._on_drums_mutation_changed)
+        self._update_drums_mutation_label(0)
+
+        self.drums_randomize_button = QPushButton("Randomize")
+        self.drums_randomize_button.setToolTip("Cast a new drum pattern now.")
+        self.drums_randomize_button.clicked.connect(self._on_drums_randomize_clicked)
+
         self.external_sync_checkbox = QCheckBox("External clock sync")
         self.external_sync_checkbox.setToolTip(
             "Follow an external MIDI clock (e.g. Ableton set as clock master) instead of "
@@ -988,6 +1036,7 @@ class MainWindow(QWidget):
         for widget in (self.bpm_edit, self.loop_length_box,
                        self.humanize_checkbox, self.octave_spinbox, self.arp_pattern_box,
                        self.arp_rate_box, self.acid_wide_checkbox, self.acid_noise_slider,
+                       self.drums_mutation_slider,
                        self.external_sync_checkbox, self.web_remote_checkbox):
             _grow(widget)
 
@@ -1001,7 +1050,8 @@ class MainWindow(QWidget):
         # just not stretchy.
         for button in (self.chords_button, self.bass_button, self.stab_button,
                        self.circuit_channels_button, self.arp_button,
-                       self.acid_button, self.acid_randomize_button, self.midi_status_button):
+                       self.acid_button, self.acid_randomize_button, self.drums_button,
+                       self.drums_randomize_button, self.midi_status_button):
             _grow(button, min_height=PRIMARY_BUTTON_HEIGHT, point_size=PRIMARY_POINT_SIZE)
 
         # Key and scale: compact, measured widths rather than half the
@@ -1069,6 +1119,11 @@ class MainWindow(QWidget):
                        self.acid_wide_checkbox, self.acid_randomize_button):
             acid_row.addWidget(widget)
 
+        drums_row = QHBoxLayout()
+        for widget in (self.drums_button, self.drums_mutation_label,
+                       self.drums_mutation_slider, self.drums_randomize_button):
+            drums_row.addWidget(widget)
+
         self.chord_buttons: list[ChordPad] = []
         chord_row = QHBoxLayout()
         chord_row.setSpacing(8)
@@ -1095,6 +1150,7 @@ class MainWindow(QWidget):
         layout.addLayout(arp_row)
         layout.addLayout(acid_row)
         layout.addWidget(self.acid_lane)
+        layout.addLayout(drums_row)
         layout.addLayout(chord_row, 1)  # chord buttons get first claim on extra window space
 
     # -- state -------------------------------------------------------------
@@ -1330,6 +1386,26 @@ class MainWindow(QWidget):
     def _on_acid_toggled(self, checked: bool) -> None:
         self._engine.acid_enabled = checked
 
+    def _on_drums_toggled(self, checked: bool) -> None:
+        self._engine.drums_enabled = checked
+
+    def _on_drums_randomize_clicked(self) -> None:
+        self._engine.randomize_drum_pattern()
+
+    def _on_drums_mutation_changed(self, value: int) -> None:
+        self._engine.drum_mutation = value / 100
+        self._update_drums_mutation_label(value)
+
+    def _update_drums_mutation_label(self, percent: int) -> None:
+        style = "House" if percent < 25 else "2-step" if percent < 75 else "Broken"
+        self.drums_mutation_label.setText(f"{style}: {percent}%")
+
+    def _on_control_message(self, message: list[int], _delta_time: float) -> None:
+        """Control input callback, on rtmidi's thread: hands drum mutation
+        CCs to the GUI thread, where they move the slider."""
+        if len(message) == 3 and message[0] & 0xF0 == 0xB0 and message[1] == DRUM_MUTATION_CC:
+            self._engine_signals.drum_mutation_cc.emit(message[2])
+
     def _on_acid_noise_changed(self, value: int) -> None:
         self._engine.acid_noise = value / 100
         self._update_acid_noise_label(value)
@@ -1356,6 +1432,8 @@ class MainWindow(QWidget):
             return
         self._pending_acid_cast = False
         self._engine.randomize_acid_pattern()
+        # The drums are cast by the same roll, landing at the same boundary.
+        self._engine.randomize_drum_pattern()
         self._refresh_acid_lane()
 
     def _on_sync_mode_toggled(self, external: bool) -> None:
@@ -1588,6 +1666,7 @@ class MainWindow(QWidget):
         self._midi_output.close()
         if self._slave_input is not None:
             self._slave_input.close()
+        self._control_input.close()
         super().closeEvent(event)
 
     def _shutdown_bridges(self) -> None:
