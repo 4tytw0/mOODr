@@ -7,20 +7,32 @@ Each break is sliced at its onsets into one-shot hits, every hit is sorted by
 spectrum into a drum role (kick, snare, hats, toms, perc, crash), and the
 cleanest hit per role wins. Preset 0 ("gamebreaks best") takes the best hit of
 each role across all breaks; presets 1.. are kits cut from a single break each,
-the KITS breaks that yield the most complete, cleanest kits. All presets are in
-bank 128 (drums), so FluidSynth plays them on MIDI channel 10.
+the KITS breaks that yield the most complete, cleanest kits. After those come
+MIXES mixed kits: every role drawn at random from a different break among the
+top candidates, so each kit is a new combination. Some mixes ("driven",
+"extreme") take their kick, snare and toms from the distorted type1 folders
+next to BREAKS_DIR. All presets are in bank 128 (drums); m00Dr picks one per
+Roll with a program change on its drum channel.
 
-    uv run tools/build_drumkit.py synths/gamedrums.sf2 [BREAKS_DIR] [--kits N]
+    uv run tools/build_drumkit.py synths/gamedrums.sf2 [BREAKS_DIR] [--kits N] [--seed S]
 
 BREAKS_DIR defaults to gamebreaks_raw: the type1/type2 versions are dulled
 (spectral centroid ~2 kHz against ~6 kHz raw), which leaves no hats to find.
 """
-import pathlib, struct, sys
+import pathlib, random, struct, sys
 import numpy as np, soundfile as sf
 from scipy.signal import resample_poly
 
 SR = 48000
 KITS = 15
+# Mixed kits: (name, folder the body comes from). The body roles (kick, snare,
+# toms) come from that folder; everything else from the raw breaks, since the
+# processed folders are too dull to yield hats.
+MIXES = [("mix", None)] * 8 + [("driven", "gamebreaks_type1_driven")] * 4 \
+    + [("extreme", "gamebreaks_type1_extreme")] * 4
+BODY = ("kick", "snare", "tom_lo", "tom_hi")
+POOL = 12                     # a mixed kit draws each role from this many best hits
+SEED = 8
 # role -> GM drum keys it is mapped to. Hats share an exclusive class so a
 # closed hat chokes an open one, as on a real kit.
 ROLES = {
@@ -177,11 +189,54 @@ def write_sf2(out, kits):
     pathlib.Path(out).write_bytes(ck(b"RIFF", body))
 
 
+def pool(paths, roles):
+    """role -> the POOL best (q, pcm, break) hits of `roles` across `paths`."""
+    best = {r: [] for r in roles}
+    for path in paths:
+        for role, q, pcm in slices(path):
+            if role in best:
+                best[role].append((q, pcm, path.stem))
+    for r in best:
+        best[r].sort(key=lambda t: -t[0])
+        # One hit per break, so a kit's roles really do come from different breaks.
+        seen, top = set(), []
+        for q, pcm, stem in best[r]:
+            if stem not in seen:
+                seen.add(stem); top.append((q, pcm, stem))
+            if len(top) == POOL:
+                break
+        best[r] = top
+    return best
+
+
+def mixed_kits(src, rng):
+    """[(name, {role: pcm}, {role: break})] for MIXES."""
+    raw = pool(sorted(src.glob("*.wav")), ROLES)
+    bodies = {None: raw}
+    out, counts = [], {}
+    for label, folder in MIXES:
+        if folder not in bodies:
+            bodies[folder] = pool(sorted((src.parent / folder).glob("*.wav")), BODY)
+        counts[label] = counts.get(label, 0) + 1
+        roles, origin = {}, {}
+        for r in ROLES:
+            cands = (bodies[folder] if r in BODY else raw).get(r) or raw.get(r)
+            if not cands:
+                continue
+            # Favor the better hits without always taking the top one.
+            q, pcm, stem = rng.choices(cands, weights=[len(cands) - i for i in range(len(cands))])[0]
+            roles[r], origin[r] = finish(pcm), stem
+        out.append((f"{label} {counts[label]}", roles, origin))
+    return out
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    kits_n = int(sys.argv[sys.argv.index("--kits") + 1]) if "--kits" in sys.argv else KITS
-    if "--kits" in sys.argv:
-        args.remove(str(kits_n))
+    opt = lambda flag, default: int(sys.argv[sys.argv.index(flag) + 1]) if flag in sys.argv else default
+    kits_n, seed = opt("--kits", KITS), opt("--seed", SEED)
+    for flag in ("--kits", "--seed"):
+        if flag in sys.argv:
+            args.remove(sys.argv[sys.argv.index(flag) + 1])
     out = args[0]
     src = pathlib.Path(args[1] if len(args) > 1 else
                        pathlib.Path.home() / "Documents/PRODUCTION/SAMPLES/GAMEBREAKS/gamebreaks_raw")
@@ -210,6 +265,9 @@ def main():
             full.setdefault(r, kits[0][1][r]) if r in kits[0][1] else None
         kits.append((stem, full))
         print(f"preset {len(kits) - 1:2}  {stem:24} own: {', '.join(sorted(roles))}")
+    for kname, roles, origin in mixed_kits(src, random.Random(seed)):
+        kits.append((kname, roles))
+        print(f"preset {len(kits) - 1:2}  {kname:24} " + ", ".join(f"{r}<-{b}" for r, b in origin.items()))
     write_sf2(out, kits)
     print(f"wrote {out}: {len(kits)} kits, {pathlib.Path(out).stat().st_size / 1e6:.1f} MB")
 

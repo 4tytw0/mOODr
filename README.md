@@ -23,20 +23,21 @@ Launch Control XL ──▶ mixer.py: a strip per part, faders, ◀────�
 
 ## Mixer (`mixer.py`)
 
-One stereo strip per part. Fader N drives the part on MIDI channel N:
+One stereo strip per part. Fader N drives the part on MIDI channel N, except the drums (MIDI ch 4),
+which sit in column 7 of the Launch Control XL:
 
-| Fader | 1 | 2 | 3 | 4 | 5 | 8 |
+| Fader | 1 | 2 | 3 | 5 | 7 | 8 |
 |---|---|---|---|---|---|---|
-| Strip | chords | bass | arp | drums | acid | M8 |
+| Strip | chords | bass | arp | acid | drums | M8 |
 
 - **Volume, then drive:** up to 80% of the throw is volume (unity at 80%). Above that, the strip blends
   into an asymmetric fuzz that gets harder toward the top.
 - **Sidechain:** the drums' low end (the kick) ducks chords, bass, arp and acid, by up to about −8 dB
   by default, recovering over a few hundred ms. Set it with the page slider or the middle knob in
-  the drums column.
+  the drums column (column 7, CC 35).
 - **Inputs:** faders move on CC 7 on the strip's channel, on Launch Control XL CC 77–84 (any
   channel), by dragging on the page (double-click = unity), or via `POST /mixer/control`. Other
-  knob CCs pass through to m00Dr's "m00Dr Control" input. The top knob in the drums column (CC 16)
+  knob CCs pass through to m00Dr's "m00Dr Control" input. The top knob in the drums column (column 7, CC 19)
   morphs the drum pattern from house to two-step to broken beats.
 - **Persistence:** fader positions survive restarts.
 
@@ -51,8 +52,11 @@ SysEx and LED reference.
 ## Synths
 
 - **FluidSynth** (`synths/fluidsynth.cfg`) outputs to JACK, one output group per channel. Chords and
-  arp use `gamebreaks.sf2` (stabs and a phaser sine), drums use `gamedrums.sf2` (16 kits).
-- **`reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive.
+  arp use `gamebreaks.sf2` (stabs and a phaser sine) or `chords.sf2` (15 looped string/organ/guitar
+  multisamples; m00Dr's Chord sound menu picks one), drums use `gamedrums.sf2` (32 kits, a new one
+  per Roll).
+- **`reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive. The saws' beat
+  follows the chords on ch1: consonant chords pulse slowly, dissonant ones beat faster.
 - **Open303** is JC303 in a headless Carla rack (`synths/open303.carxp`), behind a channel-5 filter.
 - **`synths/links.sh`** keeps the PipeWire graph wired (m00Dr → synths → mixer → mix bus, and
   controllers → mixer), re-linking anything that restarts.
@@ -64,6 +68,7 @@ machine that has the GAMEBREAKS sample pack:
 
 ```sh
 tools/build_gamebreaks.sh                              # synths/gamebreaks.sf2 (stabs + phase_sine)
+uv run tools/build_chords.py synths/chords.sf2         # strings/organ/guitar (Strings Custom Kit)
 uv run tools/build_drumkit.py synths/gamedrums.sf2     # kits sliced from the raw drum breaks
 python3 tools/build_open303.py                         # synths/open303.carxp (edit PATCH first)
 ```

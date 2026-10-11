@@ -12,8 +12,9 @@ m800dr_mix sink that server.py streams. Every CC that isn't a fader goes out
 on "controls" -- e.g. the knob that morphs m00Dr's drum pattern.
 
 Each strip has a MIDI channel (its m00Dr part's: chords 1, bass 2, arp 3,
-drums 4, acid 5) and a fader number, the same as the channel (the M8, with no
-channel of its own, is fader 8). A strip moves on CC FADER_CC on its channel,
+drums 4, acid 5) and a fader number, the same as the channel except for the
+drums, which sit on fader 7 (column 7 of the controller, knobs included), and
+the M8, with no channel of its own, on fader 8. A strip moves on CC FADER_CC on its channel,
 or on CC FADER_CCS[fader-1] on any channel: the Novation Launch Control XL's
 factory templates send faders 1-8 as CC 77-84.
 
@@ -41,7 +42,7 @@ import numpy as np
 from scipy.signal import butter, lfilter
 
 STRIPS = [  # (name, MIDI channel, fader)
-    ("chords", 1, 1), ("bass", 2, 2), ("arp", 3, 3), ("drums", 4, 4), ("acid", 5, 5), ("m8", 8, 8)]
+    ("chords", 1, 1), ("bass", 2, 2), ("arp", 3, 3), ("acid", 5, 5), ("drums", 4, 7), ("m8", 8, 8)]
 FADER_CC = 7          # CC 7 = channel volume
 FADER_CCS = list(range(77, 85))   # Launch Control XL faders 1-8, on its template's channel
 KNEE = 0.8            # fader position of unity gain; above it the strip distorts
@@ -53,7 +54,7 @@ DC_POLE = 0.9987      # DC blocker (~10 Hz): the bias leaves an offset behind
 SIDECHAIN_KEY = "drums"
 SIDECHAIN_DUCKED = ("chords", "bass", "arp", "acid")
 SIDECHAIN_DEFAULT = 0.6   # full duck = 1 - 0.6 = 0.4x, about -8 dB
-SIDECHAIN_CC = 32         # Launch Control XL middle knob, drums column (factory layout, assumed)
+SIDECHAIN_CC = 35         # Launch Control XL middle knob, drums column 7 (factory layout, assumed)
 SIDECHAIN_LPF = 150.0     # Hz: key on the kick, not the hats
 SIDECHAIN_FULL = 0.25     # key level (after the low-pass) that ducks by the full amount
 SIDECHAIN_RELEASE = 0.15  # s, exponential recovery: the pump

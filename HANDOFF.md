@@ -1,11 +1,13 @@
 # m800Dr / m00Dr on the desktop — handoff
 
-_Last updated 2026-10-10 (sidechain + README; committed and pushed)._ This is the M8 rig, which now runs entirely on the Linux desktop
+_Last updated 2026-10-11 (drum kits per Roll, drums on column 7, chord/arp sound menus, chord-following reese beat; committed and pushed)._ This is the M8 rig, which now runs entirely on the Linux desktop
 (`Desktop`, 192.168.1.17, CachyOS, KDE Wayland) instead of the MacBook. The Dirtywave M8
 (Teensy / M8 Headless) is plugged in here over USB.
 
 **In progress:** m00Dr's parts play on desktop synths (FluidSynth chords/arp/drums, reese.py bass,
 Open303 acid), all through `mixer.py`, a per-part mixer on the **Launch Control XL**'s faders.
+Everything added since 2026-10-10 night is built and live but **not yet judged by ear** (kits,
+chord sounds, reese beat range, levels).
 **The controller is plugged into the Mac; move it to the desktop** (links.sh then wires it up). See
 "Resume here" at the bottom. Full plan: `~/.claude/plans/m00dr-still-plays-when-dreamy-flurry.md`.
 
@@ -33,9 +35,9 @@ Open303 acid), all through `mixer.py`, a per-part mixer on the **Launch Control 
 | Mix bus `m800dr_mix` | `~/.config/pipewire/pipewire.conf.d/m800dr-mix.conf` (null sink, 48 kHz, low priority so the M8 stays the default sink) | yes |
 | M8 audio → mix | user service `m800dr-mix-m8` (`pw-loopback`, pinned targets). `Restart=always` since 2026-10-10: at boot it ran before the M8 node existed and exited 0. Unit copy in `systemd/` | yes (enabled) |
 | Audio server | user service `m800dr-audio` → `~/code/m800Dr/server.py` (`/` player, `/mixer` fader page polling `/mixer/state`), `SOURCE = "m800dr_mix.monitor"` | yes (enabled) |
-| Mixer | user service `m800dr-mixer` → `mixer.py` (JACK client `m800Dr-Mixer`). Strips (MIDI ch / fader): chords 1/1, bass 2/2, arp 3/3, drums 4/4, acid 5/5, m8 8/8. Moves on CC 7 on the strip's channel or Launch Control XL CC 77-84 (any channel). Unity at 80% of travel (`KNEE`); above it, asymmetric tanh fuzz. Positions saved in `~/.local/state/m800dr/mixer.json`; live state in `$XDG_RUNTIME_DIR/m800dr-mixer.json` | yes (enabled) |
-| FluidSynth (ch1 chords, ch3 arp, ch4 drums) | user service `m00dr-fluidsynth` (unit copy in `systemd/`). Config is `synths/fluidsynth.cfg` (router passes ch1/ch3/ch4 only); fonts are `synths/GeneralUser-GS.sf2`, `synths/gamebreaks.sf2` (font 2, bank offset 1) and `synths/gamedrums.sf2` (font 3, bank 128). Chords = preset 10 `phase_sine`, arp = preset 1 `toa_f` (rolled 2026-10-10), drums = kit 0. JACK, 4 output groups (chords l/r_00, arp _02, drums _03; 2 fx pairs per group), gain 1.5. TCP shell on :9800 (no `nc`; use python sockets) | yes (enabled) |
-| Reese bass (ch2) | user service `m00dr-reese` → `~/code/m800Dr/reese.py` (numpy synth: ALSA seq client `m00Dr-Reese` in, `pw-cat --target=0` out, linked to the mixer). Unit copy in `systemd/` | yes (enabled) |
+| Mixer | user service `m800dr-mixer` → `mixer.py` (JACK client `m800Dr-Mixer`). Strips (MIDI ch / fader): chords 1/1, bass 2/2, arp 3/3, acid 5/5, drums 4/7, m8 8/8. Moves on CC 7 on the strip's channel or Launch Control XL CC 77-84 (any channel). Unity at 80% of travel (`KNEE`); above it, asymmetric tanh fuzz. Positions saved in `~/.local/state/m800dr/mixer.json`; live state in `$XDG_RUNTIME_DIR/m800dr-mixer.json` | yes (enabled) |
+| FluidSynth (ch1 chords, ch3 arp, ch4 drums) | user service `m00dr-fluidsynth` (unit copy in `systemd/`). Config is `synths/fluidsynth.cfg` (router passes ch1/ch3/ch4 only); fonts are `synths/GeneralUser-GS.sf2`, `synths/gamebreaks.sf2` (font 2, bank offset 1), `synths/chords.sf2` (font 3, bank offset 2) and `synths/gamedrums.sf2` (font 4, bank 128, 32 kits). Startup: chords preset 10 `phase_sine`, arp preset 1 `toa_f`, drums kit 0; m00Dr then sets chords/arp from its sound menus and the kit per Roll. JACK, 4 output groups (chords l/r_00, arp _02, drums _03; 2 fx pairs per group), gain 1.5. TCP shell on :9800 (no `nc`; use python sockets) | yes (enabled) |
+| Reese bass (ch2) | user service `m00dr-reese` → `~/code/m800Dr/reese.py` (numpy synth: ALSA seq client `m00Dr-Reese` in, `pw-cat --target=0` out, linked to the mixer; also reads ch1 chords to set the saws' beat). Unit copy in `systemd/` | yes (enabled) |
 | Open303 acid (ch5) | user service `m00dr-open303` → `carla-rack --no-gui synths/open303.carxp` (rack: internal MIDI Channel Filter passing ch5 only → JC303 LV2). JACK client `m00Dr-Open303` via `CARLA_CLIENT_NAME`; `PIPEWIRE_QUANTUM=256/48000` (Carla asserts if the buffer size changes). Regenerate the project with `python3 tools/build_open303.py [--dump]` (uses Carla's backend; sets the starting patch in `PATCH`, strips `<ExternalPatchbay>`). Unit copy in `systemd/` | yes (enabled) |
 | Graph links | user service `m00dr-synth-links` → `synths/links.sh` (re-runs `pw-link` for the pairs in `LINKS` every 2 s: m00Dr → synths, synths and M8 → mixer strips, mixer → `m800dr_mix`; plus every USB MIDI device except Midi Through/M8 → `m800Dr-Mixer:faders`) | yes (enabled) |
 | m00Dr → M8 notes | user service `m00dr-m8-midi` → `~/code/mOODr/m8_midi_route.sh` (aconnect) | **disabled** 2026-10-10: the user wants FluidSynth only |
@@ -107,7 +109,7 @@ the aconnect/pw-link keepers). Transport is fine: the user starts m00Dr from the
 
 ## Done 2026-10-10 (latest): drum mutation knob, mixer inside the player
 
-- **Drum mutation:** the Launch Control XL's top knob in the drums column (column 4, CC 16, any
+- **Drum mutation:** the Launch Control XL's top knob in the drums column (now column 7, CC 19, any
   channel) morphs m00Dr's drums: house (0) → UK garage two-step (middle: the kick skips beats 2/4,
   swing on the off-16ths) → broken breakbeat (full). Each Roll keeps one cast, so the knob morphs
   it reversibly. Path: controller → mixer.py (CCs that aren't faders go out on
@@ -124,10 +126,51 @@ the aconnect/pw-link keepers). Transport is fine: the user starts m00Dr from the
 - **Sidechain** in mixer.py: the drums strip (post-fader, 150 Hz low-passed key) ducks chords,
   bass, arp and acid. Instant attack (2 ms smoothing), 150 ms release, full duck when the key reaches
   0.25. Amount 0-1 (default 0.6 ≈ −8 dB) via the mixer page slider, `{"sidechain": x}` on
-  `/mixer/control`, or CC 32 (the middle knob in the drums column, factory layout **assumed**). The
+  `/mixer/control`, or CC 35 (the middle knob in the drums column, now column 7; factory layout **assumed**). The
   amount is saved with the faders. Verified: 4 kicks on ch4 → −8.0 dB on the tonal strips.
 - `README.md` added. m800Dr committed on cacheos and pushed to `github` (private); the Mac clone
   pulled. mOODr's drums/knob/sync work is committed on `linux-alsa-ports` and pushed.
+
+## Done 2026-10-10 (night): a new drum kit on every Roll
+
+- `tools/build_drumkit.py` now also writes 16 **mixed kits** (presets 16-31): each role drawn from a
+  different break among the 12 best candidates (seeded, `--seed`). 16-23 `mix`, 24-27 `driven` and
+  28-31 `extreme` (kick/snare/toms from `gamebreaks_type1_driven`/`_extreme`). Crashes all come from
+  the ddpdoj breaks (only ones with crashes). Rebuilt `gamedrums.sf2` (32 kits, 4.1 MB) and deployed.
+- m00Dr (`linux-alsa-ports`, **uncommitted** on cacheos): each Roll sends a program change on ch4 to
+  a different kit (`DRUM_KITS = 32`, `PlaybackEngine.randomize_drum_kit`); Play re-sends the current
+  kit. The drums label shows `· kit N` (GUI and web remote). 216 tests pass; verified via the web
+  remote that Roll moves FluidSynth's ch4 preset.
+
+## Done 2026-10-10 (night): drums on LCXL column 7
+
+- The mixer's drums strip is now **fader 7** (still MIDI ch 4 / CC 7 on ch 4). Drum knobs moved with it:
+  sidechain `SIDECHAIN_CC = 35` (middle row) and m00Dr `DRUM_MUTATION_CC = 19` (top row), both from
+  the **assumed** factory layout (top 13-20, middle 29-36). Faders 4 and 6 are free.
+
+## Done 2026-10-11: chord sounds, chord-following reese beat
+
+- **`synths/chords.sf2`** (`tools/build_chords.py`, 15 presets, 25 MB, git-ignored): multisampled,
+  looped strings/organ/guitar from `SAMPLES/Synths/Strings Custom Kit` (OBX, P5, Arco, Section,
+  Stereo, Trans, Storm arco, Viola section, Solo violin, CES, CDG, RnB, Tremolo violins, Organ,
+  Acoustic guitar). Roots come from the filename's pitch class plus the detected octave and cents
+  (SWVla files are ~1.35 semitones flat of their names: wrong header rate). Loaded as font 3 with bank
+  offset 2, so **gamedrums is now font 4** (`select 3 4 128 <kit>`). The ROMpler Chords and DX-7
+  folders were skipped: every file there is a whole chord (the user chose single-note sounds only).
+- **m00Dr Chord sound menu** (GUI performance row + web remote `chordSound`): `CHORD_SOUNDS` in
+  `playback.py` = (name, bank, program); sends CC 0 = bank, then a program change, on the chord
+  channel, and again on Play. Remembered in `[sound] chords`; nothing is sent until a sound is picked
+  (so the Circuit/M8 setups aren't touched). The arp has the same menu (`arpSound`, ch3,
+  `[sound] arp`); both share `SOUNDS`. 220 tests pass. Levels not balanced by ear yet.
+- **Mute toggles show their channel** ("Chords ch1", "Bass ch2", "Arp ch3", "Drums ch4", "Acid ch5"),
+  updated by the Bass→Ch2 toggle; the web remote takes the labels from the app (`label` in the
+  snapshot). mOODr README updated (five voices, sounds, drums).
+- **Open303 went quiet on 2026-10-11:** the acid fader (5) was at 0, and Carla's buffer-size assertion
+  fired again on restart (`v1 256, v2 1024`) though it still played (test note peak 0.32 at unity).
+- **reese.py beat follows the chords:** it now also reads ch1 (chords) and sets the saws' beat in Hz
+  from each chord's roughness (Sethares/Plomp-Levelt over 8 harmonics per note): stable/high chords
+  pulse slowly (0.3 Hz), low or diminished ones faster (~3 Hz), clusters up to 6 Hz; 0.25 s glide.
+  `DETUNE` is gone; tune `BEAT_MIN/MAX`, `ROUGH_LO/HI`. Logs `chord [...]: beat x Hz` per chord.
 
 ## Launch Control XL notes (mk2: USB 1235:0061)
 
@@ -145,7 +188,7 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
   switch). Reset LEDs: `B<n> 00 00`.
 - The factory CC numbers aren't in the reference. Seen on the device: faders = CC 77-84. Assumed
   (common factory-1 layout, **not yet seen**): top knobs CC 13-20, so the drums column's top knob
-  is CC 16. Check it: turn that knob and look at the "last unmapped CC" line on the mixer page.
+  is CC 19 (the drums moved to column 7 on 2026-10-10). Check it: turn that knob and look at the "last unmapped CC" line on the mixer page.
 
 ## Resume here
 
@@ -157,8 +200,13 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
    `http://192.168.1.17:8808/mixer` (factory template; if a fader shows as "last unmapped CC",
    adjust `FADER_CCS` in `mixer.py`).
 4. Listen to the new acid and the drum kits; tune `PATCH` and balance levels. M8 (fader 8) is
-   unplugged right now, so `m800dr-mix-m8` restart-loops harmlessly.
-5. Listen to the m00Dr drums (ch4) and the 16 kits (`select 3 3 128 <kit>` on the :9800 shell). Open a PR for mOODr `linux-alsa-ports` when happy.
+   unplugged right now, so `m800dr-mix-m8` restart-loops harmlessly. Acid fader 5 was left at 0.
+5. Listen to the 32 kits (Roll, or `select 3 4 128 <kit>` on the :9800 shell); reseed the mixes
+   (`build_drumkit.py --seed`) if they repeat too much.
+6. Try the chord/arp sound menus; balance the new `chords.sf2` patches against Phase sine.
+7. Judge the reese beat (the journal logs `chord [...]: beat x Hz`); tune `BEAT_*`/`ROUGH_*` in reese.py.
+8. Check the column-7 knobs really send CC 19 / CC 35 once the controller is on the desktop.
+9. Open a PR for mOODr `linux-alsa-ports` when happy.
 
 ## Done 2026-10-10: Open303
 
