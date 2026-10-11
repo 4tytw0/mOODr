@@ -18,15 +18,29 @@ variant) and every diatonic chord is built for you. The seven pads along the bot
 what each scale degree actually sounds like — `iv · Gm7`, not a bare roman numeral — and
 play it when pressed or when you hit its number key.
 
-**Four voices, four MIDI channels.** Chords, bass, arp and acid run from one transport and
-can be muted independently while it plays.
+**Five voices, five MIDI channels.** Chords, bass, arp, drums and acid run from one
+transport and can be muted independently while it plays; each mute toggle shows its
+channel ("Bass ch2").
 
 | voice | MIDI channel | notes |
 |---|---|---|
 | Chords | 1 | sustained, or house-style off-beat stabs |
 | Bass | 2 | the root of whichever chord is sounding |
 | Arp | 3 | up / down / up-down / random, at 1/4, 1/8 or 1/16 |
+| Drums | 4 | a 16-step pattern, morphing house → two-step → broken beats |
 | Acid | 5 | a 16-step 303-style line — see below |
+
+**Sounds.** The chords and the arp each have a sound menu: picking one sends a bank select
+(CC 0) and a program change on that voice's channel, and both are sent again on Play. The
+list (`SOUNDS` in `moodr/playback.py`) matches the m800Dr desktop's FluidSynth fonts:
+looped string, organ and guitar multisamples, gamebreaks stabs and a few GM programs. The
+picks are remembered; until one is made nothing is sent, so hardware keeps its own patch.
+Each Roll also moves the drums to a different kit (program 0-31 on ch4).
+
+**Drums.** One I Ching-style cast per Roll (a draw per voice per step), morphed by the
+mutation slider (also MIDI CC 19 on the "m00Dr Control" input: the top knob of a Launch
+Control XL's column 7) from four-on-the-floor house through UK garage two-step to broken
+breakbeat, reversibly.
 
 **Clock.** m00Dr generates MIDI Beat Clock as master, or follows an external clock as a
 slave (the default — most sessions run against a DAW or hardware that owns the tempo).

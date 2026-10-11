@@ -16,7 +16,7 @@ TICKS_PER_BAR = PPQN * BEATS_PER_BAR
 CHORD_CHANNEL = 0  # MIDI channel 1
 BASS_CHANNEL = 1  # MIDI channel 2
 ARP_CHANNEL = 2  # MIDI channel 3
-DRUM_CHANNEL = 3  # MIDI channel 4: lines up with fader 4 on the m800Dr Mixer
+DRUM_CHANNEL = 3  # MIDI channel 4: the m800Dr Mixer's drums strip (fader 7)
 ACID_CHANNEL = 4  # MIDI channel 5
 
 # Ticks-per-step for each supported arp rate (24 PPQN).
@@ -162,6 +162,34 @@ DRUM_HAT_VELOCITY = 92
 DRUM_GHOST_HAT_VELOCITY = 58
 DRUM_OPEN_HAT_VELOCITY = 96
 
+# Drum kits the drum channel's synth offers as programs 0..DRUM_KITS-1: on
+# the desktop, m800Dr's gamedrums.sf2 (sliced from the GAMEBREAKS breaks).
+# Each Roll picks a different one with a program change.
+DRUM_KITS = 32
+
+# Sounds for the chord and arp channels, as (name, bank, program), picked with bank
+# select (CC 0, GS style: the bank is CC 0's value) and a program change. On
+# the desktop these are FluidSynth's fonts (m800Dr synths/fluidsynth.cfg):
+# bank 0 GeneralUser GM, bank 1 gamebreaks.sf2 (stabs from the gamestabs
+# samples, and the phase_sine loop), bank 2 chords.sf2 (multisampled strings,
+# organ and guitar from the Strings Custom Kit, all looped so chords hold).
+SOUNDS = [
+    ("Phase sine", 1, 10),
+    ("OBX strings", 2, 0), ("P5 strings", 2, 1), ("Arco strings", 2, 2),
+    ("Section strings", 2, 3), ("Stereo strings", 2, 4), ("Trans strings", 2, 5),
+    ("Storm arco", 2, 6), ("Viola section", 2, 7), ("Solo violin", 2, 8),
+    ("CES strings", 2, 9), ("CDG strings", 2, 10), ("RnB strings", 2, 11),
+    ("Tremolo violins", 2, 12), ("Organ", 2, 13), ("Acoustic guitar", 2, 14),
+    ("Stab smet_nor3", 1, 0), ("Stab toa_f", 1, 1), ("Stab toa_fm2", 1, 2),
+    ("Stab toa_lif", 1, 3), ("Stab toa_ns", 1, 4), ("Stab toa_oue", 1, 5),
+    ("Stab tyr_sav", 1, 6), ("Stab tyr_sav2", 1, 7), ("Stab vk_cfh2", 1, 8),
+    ("Stab vk_sos", 1, 9),
+    ("GM piano", 0, 0), ("GM electric piano", 0, 4), ("GM organ", 0, 16),
+    ("GM strings", 0, 48), ("GM synth strings", 0, 50), ("GM choir", 0, 52),
+    ("GM warm pad", 0, 89), ("GM polysynth", 0, 90), ("GM sweep pad", 0, 95),
+]
+SOUND_NAMES = [name for name, _, _ in SOUNDS]
+
 # The mutation knob (0.0-1.0) morphs between three grooves, each a chance
 # per step that a voice plays: house at 0.0, UK garage two-step at 0.5,
 # broken breakbeat at 1.0, linearly in between. A pattern's cast is one
@@ -295,6 +323,12 @@ def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
     return sequence[step_index % len(sequence)]
 
 
+def _check_sound(name: str) -> str:
+    if name not in SOUND_NAMES:
+        raise ValueError(f"unknown sound {name!r}")
+    return name
+
+
 class PlaybackEngine:
     def __init__(self, midi_output, clock, chord_channel: int = CHORD_CHANNEL,
                  bass_channel: int = BASS_CHANNEL, arp_channel: int = ARP_CHANNEL,
@@ -385,6 +419,11 @@ class PlaybackEngine:
         self._drum_lines = _cast_drum_lines(self._rng)
         self._drum_pattern = _drum_pattern_for(self._drum_lines, self._drum_mutation)
         self._drum_swing = 0
+        self._drum_kit = 0
+        # None until a sound is picked: until then the chord channel keeps
+        # whatever its synth was set up with, and nothing is sent.
+        self._chord_sound: str | None = None
+        self._arp_sound: str | None = None
         self._ticks_since_advance = 0
         self._playing = False
         # Fires once the loaded progression has played all the way through
@@ -475,6 +514,18 @@ class PlaybackEngine:
             self._sounding_bass_enabled = False
 
     @property
+    def arp_channel(self) -> int:
+        return self._arp_channel
+
+    @property
+    def acid_channel(self) -> int:
+        return self._acid_channel
+
+    @property
+    def drum_channel(self) -> int:
+        return self._drum_channel
+
+    @property
     def chord_channel(self) -> int:
         return self._chord_channel
 
@@ -561,6 +612,48 @@ class PlaybackEngine:
         effect from the step the sequencer is on."""
         self._drum_lines = _cast_drum_lines(self._rng)
         self._drum_pattern = _drum_pattern_for(self._drum_lines, self._drum_mutation)
+
+    @property
+    def chord_sound(self) -> str | None:
+        """The SOUNDS name the chords play on, or None if never set."""
+        return self._chord_sound
+
+    @chord_sound.setter
+    def chord_sound(self, name: str) -> None:
+        self._chord_sound = _check_sound(name)
+        self._send_sound(self._chord_channel, name)
+
+    @property
+    def arp_sound(self) -> str | None:
+        """The SOUNDS name the arp plays on, or None if never set."""
+        return self._arp_sound
+
+    @arp_sound.setter
+    def arp_sound(self, name: str) -> None:
+        self._arp_sound = _check_sound(name)
+        self._send_sound(self._arp_channel, name)
+
+    def _send_sound(self, channel: int, name: str | None) -> None:
+        if name is None:
+            return
+        _, bank, program = SOUNDS[SOUND_NAMES.index(name)]
+        self._midi_output.send([0xB0 | channel, 0, bank])
+        self._midi_output.send([0xC0 | channel, program])
+
+    @property
+    def drum_kit(self) -> int:
+        """The drum channel's program: which kit the drums play on."""
+        return self._drum_kit
+
+    def randomize_drum_kit(self) -> None:
+        """Switches the drums to a different kit, at once (a program change
+        doesn't cut hits already sounding)."""
+        source = self._rng if self._rng is not None else random
+        self._drum_kit = (self._drum_kit + source.randrange(1, DRUM_KITS)) % DRUM_KITS
+        self._send_drum_kit()
+
+    def _send_drum_kit(self) -> None:
+        self._midi_output.send([0xC0 | self._drum_channel, self._drum_kit])
 
     @property
     def drum_mutation(self) -> float:
@@ -654,6 +747,10 @@ class PlaybackEngine:
         self._acid_step_index = 0
         self._acid_slide_pending = False
         self._advance()
+        # Re-assert the kit and sounds: the synth may have restarted.
+        self._send_drum_kit()
+        self._send_sound(self._chord_channel, self._chord_sound)
+        self._send_sound(self._arp_channel, self._arp_sound)
         self._drum_tick(0)
         self._clock.add_tick_callback(self._on_tick)
         if not self._clock.is_running:

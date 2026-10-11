@@ -89,6 +89,7 @@
   </div>
   <div class="row">
     <button data-toggle="chords">Chords</button>
+    <select data-id="chordSound"></select>
     <button data-toggle="bass">Bass</button>
     <button data-toggle="stabs">Stabs</button>
     <button data-toggle="circuit">Bass→Ch2</button>
@@ -99,6 +100,7 @@
   </div>
   <div class="row">
     <button data-toggle="arp">Arp</button>
+    <select data-id="arpSound"></select>
     <select data-id="arpPattern"></select>
     <select data-id="arpRate"></select>
   </div>
@@ -191,7 +193,10 @@ function render(s) {
       el.disabled = !c.enabled;
     }
     const t = $(`[data-toggle="${id}"]`);
-    if (t) { t.classList.toggle("on", !!c.value); t.disabled = !c.enabled; }
+    if (t) {
+      t.classList.toggle("on", !!c.value); t.disabled = !c.enabled;
+      if (c.label && t.textContent !== c.label) t.textContent = c.label;
+    }
   }
   $("#octave").textContent = (s.controls.octave.value > 0 ? "+" : "") + s.controls.octave.value;
   $("#play").classList.toggle("on", s.playing);

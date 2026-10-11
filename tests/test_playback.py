@@ -10,8 +10,10 @@ from moodr.playback import (
     ARP_RATE_TICKS,
     BASS_CHANNEL,
     CHORD_CHANNEL,
+    SOUNDS,
     CLOSED_HAT,
     DRUM_CHANNEL,
+    DRUM_KITS,
     DRUM_STEP_TICKS,
     DRUM_STEPS,
     KICK,
@@ -1132,3 +1134,71 @@ def test_stop_silences_the_drum_channel():
     engine.start()
     engine.stop()
     assert ["all_off", DRUM_CHANNEL] in output.sent
+
+
+def _kit_changes(output):
+    return [m[1] for m in output.sent if m[0] == 0xC0 | DRUM_CHANNEL]
+
+
+def test_randomize_drum_kit_always_moves_to_another_kit_in_range():
+    output = RecordingOutput()
+    engine = PlaybackEngine(output, FakeClock(), rng=random.Random(5))
+    kits = [engine.drum_kit]
+    for _ in range(50):
+        engine.randomize_drum_kit()
+        kits.append(engine.drum_kit)
+    assert _kit_changes(output) == kits[1:]
+    assert all(0 <= k < DRUM_KITS for k in kits)
+    assert all(a != b for a, b in zip(kits, kits[1:]))
+    assert len(set(kits)) > 10
+
+
+def test_start_resends_the_current_drum_kit():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.randomize_drum_kit()
+    kit = engine.drum_kit
+    output.sent.clear()
+    engine.start()
+    assert _kit_changes(output) == [kit]
+
+
+def test_chord_sound_sends_bank_select_then_program_change():
+    output, clock, engine = make_engine()
+    assert engine.chord_sound is None
+    name, bank, program = SOUNDS[3]
+    engine.chord_sound = name
+    assert output.sent == [[0xB0 | CHORD_CHANNEL, 0, bank], [0xC0 | CHORD_CHANNEL, program]]
+
+
+def test_start_resends_the_chord_sound_only_once_one_is_picked():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    assert not [m for m in output.sent if m[0] == 0xC0 | CHORD_CHANNEL]
+    engine.stop()
+    engine.chord_sound = SOUNDS[0][0]
+    output.sent.clear()
+    engine.start()
+    assert [0xC0 | CHORD_CHANNEL, SOUNDS[0][2]] in output.sent
+
+
+def test_unknown_chord_sound_is_rejected():
+    _, _, engine = make_engine()
+    try:
+        engine.chord_sound = "kazoo"
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError")
+
+
+def test_arp_sound_goes_to_the_arp_channel_and_is_resent_on_start():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    name, bank, program = SOUNDS[5]
+    engine.arp_sound = name
+    assert output.sent == [[0xB0 | ARP_CHANNEL, 0, bank], [0xC0 | ARP_CHANNEL, program]]
+    output.sent.clear()
+    engine.start()
+    assert [0xC0 | ARP_CHANNEL, program] in output.sent
+    assert not [m for m in output.sent if m[0] == 0xC0 | CHORD_CHANNEL]

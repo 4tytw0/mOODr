@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 from . import bridge_manager, midi_io, midi_status, oracle, theme, theory, web_remote
 from .clock import MidiClock, MidiClockSlave
 from .playback import (ACID_STEPS, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL,
-                       PlaybackEngine, acid_note_for_step)
+                       SOUND_NAMES, PlaybackEngine, acid_note_for_step)
 
 DEFAULT_KEY = "E"
 DEFAULT_MODE = "Minor 7"
@@ -57,6 +57,8 @@ WEB_REMOTE_SETTING = "web_remote/enabled"
 # Remembered, so a restart doesn't silently switch a clock-master setup
 # (nothing sending clock) back to waiting on a clock that never comes.
 EXTERNAL_SYNC_SETTING = "clock/external_sync"
+CHORD_SOUND_SETTING = "sound/chords"
+ARP_SOUND_SETTING = "sound/arp"
 M8_UI_PATH_SETTING = "m8_ui_path"
 
 # How long to let CoreMIDI's MIDIServer actually respawn after being killed before this app
@@ -105,9 +107,9 @@ DEFAULT_ACID_NOISE_PERCENT = 100
 # The drum mutation knob: 0 house, 50 UK garage two-step, 100 broken beats
 # (see playback._drum_pattern_for). Also driven by MIDI CC DRUM_MUTATION_CC
 # on any channel arriving at the "m00Dr Control" input -- the top knob of
-# the drums column (column 4) on a Launch Control XL's factory template,
+# the drums column (column 7) on a Launch Control XL's factory template,
 # relayed by the m800Dr Mixer.
-DRUM_MUTATION_CC = 16
+DRUM_MUTATION_CC = 19
 CONTROL_INPUT_NAME = "m00Dr Control"
 
 # Novation Circuit Tracks' default MIDI map (confirmed against its own
@@ -822,6 +824,17 @@ class MainWindow(QWidget):
             lambda on: QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(EXTERNAL_SYNC_SETTING, on))
         self.web_remote_checkbox.setChecked(
             QSettings(SETTINGS_ORG, SETTINGS_APP).value(WEB_REMOTE_SETTING, False, type=bool))
+        # Only a remembered pick is sent at startup; with none, the synth keeps
+        # its own default and the box just shows the first entry.
+        for box, setting, attr in ((self.chord_sound_box, CHORD_SOUND_SETTING, "chord_sound"),
+                                   (self.arp_sound_box, ARP_SOUND_SETTING, "arp_sound")):
+            saved_sound = QSettings(SETTINGS_ORG, SETTINGS_APP).value(setting, None)
+            if saved_sound in SOUND_NAMES:
+                box.setCurrentText(saved_sound)
+                setattr(self._engine, attr, saved_sound)
+        self.chord_sound_box.currentTextChanged.connect(self._on_chord_sound_changed)
+        self.arp_sound_box.currentTextChanged.connect(self._on_arp_sound_changed)
+        self._update_part_labels()
 
         # Lets the 1-7 number keys trigger chord previews (see key{Press,
         # Release}Event below) while a text field like bpm_edit doesn't have
@@ -902,6 +915,12 @@ class MainWindow(QWidget):
         self.chords_button.setChecked(True)
         self.chords_button.toggled.connect(self._on_chords_toggled)
 
+        self.chord_sound_box = QComboBox()
+        self.chord_sound_box.addItems(SOUND_NAMES)
+        self.chord_sound_box.setToolTip(
+            "The chords' sound: bank select + program change on the chord channel "
+            "(on the m800Dr desktop, FluidSynth's strings, stabs and GM sounds).")
+
         self.bass_button = QPushButton("Bass")
         self.bass_button.setCheckable(True)
         self.bass_button.setChecked(True)
@@ -943,6 +962,12 @@ class MainWindow(QWidget):
         self.arp_rate_box.addItems(ARP_RATE_LABELS)
         self.arp_rate_box.setCurrentText(DEFAULT_ARP_RATE)
         self.arp_rate_box.currentTextChanged.connect(self._on_arp_rate_changed)
+
+        self.arp_sound_box = QComboBox()
+        self.arp_sound_box.addItems(SOUND_NAMES)
+        self.arp_sound_box.setToolTip(
+            "The arp's sound: bank select + program change on the arp channel "
+            "(on the m800Dr desktop, FluidSynth's strings, stabs and GM sounds).")
 
         self.acid_button = QPushButton("Acid")
         self.acid_button.setCheckable(True)
@@ -1105,13 +1130,13 @@ class MainWindow(QWidget):
 
         performance_row = QHBoxLayout()
         for widget in (self.humanize_checkbox, self.octave_spinbox, self.chords_button,
-                       self.bass_button, self.stab_button, self.circuit_channels_button,
+                       self.chord_sound_box, self.bass_button, self.stab_button, self.circuit_channels_button,
                        self.external_sync_checkbox, self.web_remote_checkbox,
                        self.midi_status_button):
             performance_row.addWidget(widget)
 
         arp_row = QHBoxLayout()
-        for widget in (self.arp_button, self.arp_pattern_box, self.arp_rate_box):
+        for widget in (self.arp_button, self.arp_sound_box, self.arp_pattern_box, self.arp_rate_box):
             arp_row.addWidget(widget)
 
         acid_row = QHBoxLayout()
@@ -1364,6 +1389,14 @@ class MainWindow(QWidget):
     def _on_chords_toggled(self, checked: bool) -> None:
         self._engine.chords_enabled = checked
 
+    def _on_chord_sound_changed(self, name: str) -> None:
+        self._engine.chord_sound = name
+        QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(CHORD_SOUND_SETTING, name)
+
+    def _on_arp_sound_changed(self, name: str) -> None:
+        self._engine.arp_sound = name
+        QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(ARP_SOUND_SETTING, name)
+
     def _on_bass_toggled(self, checked: bool) -> None:
         self._engine.bass_enabled = checked
 
@@ -1373,6 +1406,17 @@ class MainWindow(QWidget):
     def _on_circuit_channels_toggled(self, checked: bool) -> None:
         self._engine.chord_channel = CIRCUIT_CHORD_CHANNEL if checked else CHORD_CHANNEL
         self._engine.bass_channel = CIRCUIT_BASS_CHANNEL if checked else BASS_CHANNEL
+        self._update_part_labels()
+
+    def _update_part_labels(self) -> None:
+        """Each part's mute toggle shows the MIDI channel (1-16) it plays on."""
+        e = self._engine
+        for button, name, channel in ((self.chords_button, "Chords", e.chord_channel),
+                                      (self.bass_button, "Bass", e.bass_channel),
+                                      (self.arp_button, "Arp", e.arp_channel),
+                                      (self.acid_button, "Acid", e.acid_channel),
+                                      (self.drums_button, "Drums", e.drum_channel)):
+            button.setText(f"{name} ch{channel + 1}")
 
     def _on_arp_toggled(self, checked: bool) -> None:
         self._engine.arp_enabled = checked
@@ -1398,7 +1442,7 @@ class MainWindow(QWidget):
 
     def _update_drums_mutation_label(self, percent: int) -> None:
         style = "House" if percent < 25 else "2-step" if percent < 75 else "Broken"
-        self.drums_mutation_label.setText(f"{style}: {percent}%")
+        self.drums_mutation_label.setText(f"{style}: {percent}% · kit {self._engine.drum_kit}")
 
     def _on_control_message(self, message: list[int], _delta_time: float) -> None:
         """Control input callback, on rtmidi's thread: hands drum mutation
@@ -1432,8 +1476,11 @@ class MainWindow(QWidget):
             return
         self._pending_acid_cast = False
         self._engine.randomize_acid_pattern()
-        # The drums are cast by the same roll, landing at the same boundary.
+        # The drums are cast by the same roll, landing at the same boundary,
+        # and move to a new kit.
         self._engine.randomize_drum_pattern()
+        self._engine.randomize_drum_kit()
+        self._update_drums_mutation_label(self.drums_mutation_slider.value())
         self._refresh_acid_lane()
 
     def _on_sync_mode_toggled(self, external: bool) -> None:

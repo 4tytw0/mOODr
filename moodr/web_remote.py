@@ -159,9 +159,9 @@ class WebRemote(QObject):
         controls = {
             "key": w.key_box, "mode": w.mode_box, "loop": w.loop_length_box,
             "octave": w.octave_spinbox, "humanize": w.humanize_checkbox,
-            "chords": w.chords_button, "bass": w.bass_button, "stabs": w.stab_button,
+            "chords": w.chords_button, "chordSound": w.chord_sound_box, "bass": w.bass_button, "stabs": w.stab_button,
             "circuit": w.circuit_channels_button, "sync": w.external_sync_checkbox,
-            "arp": w.arp_button, "arpPattern": w.arp_pattern_box, "arpRate": w.arp_rate_box,
+            "arp": w.arp_button, "arpSound": w.arp_sound_box, "arpPattern": w.arp_pattern_box, "arpRate": w.arp_rate_box,
             "acid": w.acid_button, "acidNoise": w.acid_noise_slider,
             "acidWide": w.acid_wide_checkbox, "drums": w.drums_button, "drumMutate": w.drums_mutation_slider, "bpm": w.bpm_edit,
         }
@@ -241,6 +241,8 @@ class WebRemote(QObject):
                 entry["items"] = [widget.itemText(i) for i in range(widget.count())]
             elif isinstance(widget, (QAbstractButton, QCheckBox)):
                 entry["value"] = widget.isChecked()
+                if not isinstance(widget, QCheckBox):
+                    entry["label"] = widget.text()   # e.g. "Bass ch2": channel included
             elif control_id == "bpm":
                 entry["value"] = widget.text()
             else:
