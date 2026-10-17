@@ -71,7 +71,7 @@
   <button id="go">Listen</button>
   <div class="meter"><div class="bar"><i id="l"></i></div><div class="bar"><i id="r"></i></div></div>
   <label>Volume <b id="volv">100%</b><input id="vol" type="range" min="0" max="150" value="100"></label>
-  <label>Buffer (lower = less delay, more dropouts) <b id="bufv">60 ms</b><input id="buf" type="range" min="20" max="300" step="10" value="60"></label>
+  <label>Buffer <button class="chip sel" id="bufauto" title="Auto: keep the buffer just above what the network needs, growing after a dropout and shrinking while it's calm">AUTO</button> <b id="bufv">60 ms</b><input id="buf" type="range" min="10" max="300" step="5" value="60"></label>
   <div id="status">Stopped</div>
   </section>
   <iframe id="mixer" title="Mixer" hidden></iframe>
@@ -81,9 +81,28 @@ const RATE = 48000, CH = 2, BYTES_PER_FRAME = CH * 2, MIN_FRAMES = 480; // sched
 const $ = id => document.getElementById(id);
 let ctx, tap, gain, anL, anR, playAt = 0, running = false, abort, peaks = [0, 0], underruns = 0;
 let target = +$('buf').value / 1000;
+// Auto buffer: start low and let the network decide. A dropout grows the
+// target by AUTO_GROW; a calm AUTO_WINDOW (the buffer never got below
+// AUTO_HEADROOM) shrinks it by AUTO_SHRINK. Between, the playback rate is
+// nudged (up to RATE_TRIM, a few cents) so the buffer settles on the target
+// instead of floating: the two machines' clocks differ by ~50 ppm, and a late
+// burst would otherwise leave the delay higher until the next dropout.
+const AUTO_MIN = 0.02, AUTO_MAX = 0.3, AUTO_START = 0.03, AUTO_GROW = 0.015, AUTO_SHRINK = 0.005;
+const AUTO_WINDOW = 4, AUTO_HEADROOM = 0.012, RATE_GAIN = 0.05, RATE_TRIM = 0.004;
+let auto = true, minLead = Infinity, windowStart = 0, rate = 1;
+try { auto = localStorage.getItem('bufauto') !== 'off'; } catch {}
+function showTarget() { const ms = Math.round(target * 1000); $('bufv').textContent = ms + ' ms'; $('buf').value = ms; }
+function setAuto(on) {
+  auto = on; $('bufauto').classList.toggle('sel', on);
+  if (on) target = AUTO_START;
+  showTarget();
+  try { localStorage.setItem('bufauto', on ? 'on' : 'off'); } catch {}
+}
+setAuto(auto);
+$('bufauto').onclick = () => setAuto(!auto);
 
 $('vol').oninput = e => { $('volv').textContent = e.target.value + '%'; if (gain) gain.gain.value = e.target.value / 100; };
-$('buf').oninput = e => { target = e.target.value / 1000; $('bufv').textContent = e.target.value + ' ms'; };
+$('buf').oninput = e => { setAuto(false); target = e.target.value / 1000; showTarget(); };
 $('go').onclick = () => running ? stop() : start();
 // The mixer is a panel beside the scope (an iframe of /mixer?embed), so the
 // audio keeps playing. Open unless last closed; it reports its height so the
@@ -160,12 +179,26 @@ function play(view, frames) {
     peaks[c] = Math.max(peak, peaks[c] * 0.85);
   }
   const now = ctx.currentTime;
-  // Ran dry, or drifted too far behind live: snap back to the target delay.
-  if (playAt < now + 0.005) { if (playAt) underruns++; playAt = now + target; }
-  else if (playAt > now + target * 2 + 0.1) playAt = now + target;
-  const src = new AudioBufferSourceNode(ctx, { buffer: buf });
+  let lead = playAt - now;   // how much audio is queued ahead of the speaker
+  if (lead < 0.003) {
+    // Ran dry: count it, give auto more room, restart at the target delay.
+    if (playAt) { underruns++; if (auto) { target = Math.min(target + AUTO_GROW, AUTO_MAX); showTarget(); } }
+    playAt = now + target; lead = target; minLead = Infinity; windowStart = now;
+  } else if (lead > target + 0.25) {
+    playAt = now + target; lead = target;   // a big late burst: skip ahead rather than trim for minutes
+  }
+  if (auto) {
+    minLead = Math.min(minLead, lead);
+    if (now - windowStart > AUTO_WINDOW) {
+      if (minLead > AUTO_HEADROOM && target > AUTO_MIN) { target = Math.max(target - AUTO_SHRINK, AUTO_MIN); showTarget(); }
+      minLead = Infinity; windowStart = now;
+    }
+  }
+  // Ahead of the target: play a hair fast to drain; behind: a hair slow.
+  rate = 1 + Math.max(-RATE_TRIM, Math.min(RATE_TRIM, (lead - target) * RATE_GAIN));
+  const src = new AudioBufferSourceNode(ctx, { buffer: buf, playbackRate: rate });
   src.connect(tap); src.start(playAt);
-  playAt += frames / RATE;
+  playAt += frames / RATE / rate;
 }
 
 // ---- Lissajous scope -------------------------------------------------------
@@ -295,7 +328,9 @@ scope.addEventListener('pointermove', wake); document.addEventListener('fullscre
   $('r').style.width = Math.min(100, peaks[1] * 100) + '%';
   if (running && ctx && playAt) {
     const ms = Math.max(0, Math.round((playAt - ctx.currentTime) * 1000));
-    $('status').textContent = `Live · ${ms} ms buffered · ${underruns} dropouts`;
+    // outputLatency: what the Mac's audio output adds after the buffer (large on Bluetooth).
+    const out = Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000);
+    $('status').textContent = `Live · ${ms} ms buffered + ${out} ms output · ${underruns} dropouts`;
   }
   requestAnimationFrame(meters);
 })();
