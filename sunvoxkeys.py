@@ -23,10 +23,9 @@ into the m800Dr Mixer's chords strip, like reese.py.
     uv run sunvoxkeys.py                 # run (the m00dr-sunvoxkeys user service does this)
     uv run sunvoxkeys.py --demo x.wav    # render a few chords offline, for listening
 """
-import fcntl, subprocess, sys, threading, time
-from collections import deque
+import fcntl, subprocess, sys, threading
 import numpy as np
-from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, find_module, load, open_lib
+from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, ClockFollower, find_module, load, open_lib
 
 SR, BLOCK = 48000, 256
 KEYS_CHANNEL = 6                          # 0-based: m00Dr's SunVox chords are MIDI ch7
@@ -50,7 +49,6 @@ NOTE_OFFSET = 1
 TREMOLO_MODULE = "Tremolo"
 TREMOLO_PER_BEAT = 2                      # 8th notes: 4 Hz at 120 bpm
 TREMOLO_PHASE = 128                       # loudest on the beat
-CLOCKS_PER_BEAT = 24                      # MIDI Beat Clock
 DEFAULT_BPM = 120.0
 
 
@@ -64,8 +62,7 @@ class SunVoxKeys:
         ctls = [sv.sv_get_module_ctl_name(0, self.lfo, c).decode()
                 for c in range(sv.sv_get_number_of_module_ctls(0, self.lfo))]
         self.lfo_freq, self.lfo_phase = ctls.index("Freq"), ctls.index("Set phase")
-        self.clock_times = deque(maxlen=CLOCKS_PER_BEAT + 1)   # the last beat's pulses
-        self.clock_count = 0
+        self.clock = ClockFollower(on_tempo=self._set_tempo, on_beat=self._restart_tremolo)
         self.period_ms = 0
         self._set_tempo(DEFAULT_BPM)
         sv.sv_volume(0, VOLUME)
@@ -106,24 +103,17 @@ class SunVoxKeys:
             self.period_ms = period
             self.sv.sv_set_module_ctl_value(0, self.lfo, self.lfo_freq, period, 0)
 
+    def _restart_tremolo(self):
+        self.sv.sv_set_module_ctl_value(0, self.lfo, self.lfo_phase, TREMOLO_PHASE, 0)
+
     def clock_start(self):
         with self.lock:
-            self.clock_count = 0
-            self.clock_times.clear()
+            self.clock.start()
 
     def clock_tick(self, now=None):
-        """A MIDI clock pulse, arriving at `now` (default: this moment):
-        follow the tempo, and restart the wobble on every beat (the first
-        pulse after Start is beat one)."""
+        """A MIDI clock pulse: follow the tempo, restart the wobble each beat."""
         with self.lock:
-            self.clock_times.append(time.monotonic() if now is None else now)
-            if len(self.clock_times) == self.clock_times.maxlen:   # a whole beat measured
-                beat = self.clock_times[-1] - self.clock_times[0]
-                if beat > 0:
-                    self._set_tempo(60 / beat)
-            if self.clock_count % CLOCKS_PER_BEAT == 0:
-                self.sv.sv_set_module_ctl_value(0, self.lfo, self.lfo_phase, TREMOLO_PHASE, 0)
-            self.clock_count += 1
+            self.clock.tick(now)
 
     def all_off(self):
         with self.lock:

@@ -41,6 +41,16 @@ room.
 uv run python -m m00drc.build_keys   # writes ../synths/wurli.sunvox
 ```
 
+## Fuzz bass
+
+`m00drc/build_bass.py` writes `fuzzbass.sunvox` for m800Dr's `sunvoxbass.py`: the reese's
+oscillators (a saw with its second oscillator detuned, a sine sub at the same pitch) mixed into
+hard-clipping fuzz and a low-pass. The player re-detunes per note so the swell follows the tempo.
+
+```sh
+uv run python -m m00drc.build_bass   # writes ../synths/fuzzbass.sunvox
+```
+
 ## Drum kits
 
 `m00drc/build_drumkits.py` writes three kits for m800Dr's `sunvoxdrums.py`, and `drumkits.json`,
@@ -49,7 +59,7 @@ which says which module(s) and SunVox library note each of m00Dr's drum keys (36
 
 | Kit | Sound |
 |---|---|
-| Machine | 909-ish: Kicker thump, triangle + noise snare, high-passed noise hats |
+| Machine | 909-ish: a punchy Kicker (fast drop, ~115 ms) with a noise click, triangle + noise snare, high-passed noise hats |
 | Boom | 808-ish: long low Kicker, snare in a small room, FM metal hats |
 | Crunch | SunVox's DrumSynth through a 6-bit crusher and a low-pass |
 
