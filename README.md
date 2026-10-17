@@ -38,7 +38,8 @@ yet, only measured. The SunVox work is in open, stacked PRs (merge bottom-up: m8
 
 ## Video
 
-[▶ The rig running](docs/video/m800dr-demo.mp4) <!-- TODO: placeholder path; no video is in the repo yet. Add the file at docs/video/m800dr-demo.mp4, or swap this link for a GitHub upload URL, which GitHub plays inline. -->
+[▶ Triple Mutant Pullout](docs/video/triple-mutant-pullout.mp4): a 10 s fractal render (2026-10-03,
+21 MB). GitHub shows it as a file you can play or download.
 
 ## Pages (audio server, port 8808)
 
