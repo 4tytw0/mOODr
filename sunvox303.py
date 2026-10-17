@@ -19,21 +19,18 @@ m00Dr slides by sending the next note-on before the previous note-off. Each
 held note gets its own SunVox track, so a slide reaches the Glide module as two
 overlapping notes, which it turns into a pitch sweep instead of a retrigger.
 
-The SunVox library isn't in git: synths/sunvox_lib/ holds sunvox.so (Linux
-x86_64) or sunvox.dylib (macOS), from warmplace.ru/soft/sunvox (sunvox_lib-*.zip).
+The SunVox library is loaded by sunvoxlib.py (see there for where it lives).
 
     uv run sunvox303.py                # run (the m00dr-sunvox303 user service does this)
     uv run sunvox303.py --demo x.wav   # render a short riff offline, for checking levels
 """
-import ctypes, fcntl, subprocess, sys, threading
-from pathlib import Path
+import fcntl, subprocess, sys, threading
 import numpy as np
+from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, find_module, load, open_lib
 
 SR, BLOCK = 48000, 256
 ACID_CHANNEL = 4                          # 0-based: m00Dr's acid part is MIDI ch5
-HERE = Path(__file__).resolve().parent
 PROJECT = HERE / "synths" / "acid303.sunvox"
-LIB = HERE / "synths" / "sunvox_lib" / ("sunvox.dylib" if sys.platform == "darwin" else "sunvox.so")
 # The modules in PROJECT that take the notes: Glide plays them, Velocity2Ctl
 # kicks the filter open on each one (harder on accents).
 INPUT_MODULES = ("Acid glide ch5", "Acid accent ch5")
@@ -57,37 +54,13 @@ SOUND_CCS = {
 }
 SOUND_GLIDE = 0.5                         # s, time constant for easing to a new CC value
 
-SV_INIT_FLAG_NO_DEBUG_OUTPUT = 1 << 0
-SV_INIT_FLAG_USER_AUDIO_CALLBACK = 1 << 1
-SV_INIT_FLAG_AUDIO_FLOAT32 = 1 << 3
-SV_INIT_FLAG_ONE_THREAD = 1 << 4
-NOTECMD_NOTE_OFF, NOTECMD_ALL_NOTES_OFF = 128, 129
-
 
 class SunVox303:
     def __init__(self):
-        sv = self.sv = ctypes.CDLL(str(LIB))
-        sv.sv_load.argtypes = [ctypes.c_int, ctypes.c_char_p]
-        sv.sv_find_module.argtypes = [ctypes.c_int, ctypes.c_char_p]
-        sv.sv_audio_callback.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_uint32]
-        sv.sv_get_ticks.restype = ctypes.c_uint32
-        flags = (SV_INIT_FLAG_NO_DEBUG_OUTPUT | SV_INIT_FLAG_USER_AUDIO_CALLBACK
-                 | SV_INIT_FLAG_AUDIO_FLOAT32 | SV_INIT_FLAG_ONE_THREAD)
-        if sv.sv_init(None, SR, 2, flags) < 0:
-            raise RuntimeError("sv_init failed")
-        sv.sv_open_slot(0)
-        if sv.sv_load(0, str(PROJECT).encode()) != 0:
-            raise RuntimeError(f"can't load {PROJECT}")
-        self.modules = []
-        for name in INPUT_MODULES:
-            module = sv.sv_find_module(0, name.encode())
-            if module < 0:
-                raise RuntimeError(f"no module {name!r} in {PROJECT}")
-            self.modules.append(module + 1)  # sv_send_event wants module number + 1
+        sv = self.sv = open_lib(SR)
+        load(sv, 0, PROJECT)
+        self.modules = [find_module(sv, 0, name, PROJECT) for name in INPUT_MODULES]
         sv.sv_volume(0, VOLUME)
-        # Events are applied at the start of the next sv_audio_callback.
-        sv.sv_set_event_t(0, 1, 0)
-        sv.sv_get_module_ctl_name.restype = ctypes.c_char_p
         self.sound = {}               # CC -> [module, ctl, lo, hi, current, target]
         for cc, (name, ctl_name, lo, hi) in SOUND_CCS.items():
             mod = sv.sv_find_module(0, name.encode())

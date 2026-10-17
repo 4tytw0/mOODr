@@ -29,13 +29,29 @@ uv run python -m m00drc.build_project --acid   # acid303.sunvox; copy it to ../s
 
 The acid filter settings are at the top of `build_project.py`.
 
+## Drum kits
+
+`m00drc/build_drumkits.py` writes three kits for m800Dr's `sunvoxdrums.py`, and `drumkits.json`,
+which says which module(s) and SunVox library note each of m00Dr's drum keys (36 kick, 38 snare,
+42 closed hat, 46 open hat) plays. A closed hat chokes the open one.
+
+| Kit | Sound |
+|---|---|
+| Machine | 909-ish: Kicker thump, triangle + noise snare, high-passed noise hats |
+| Boom | 808-ish: long low Kicker, snare in a small room, FM metal hats |
+| Crunch | SunVox's DrumSynth through a 6-bit crusher and a low-pass |
+
+```sh
+uv run python -m m00drc.build_drumkits   # writes ../synths/drumkit-*.sunvox and drumkits.json
+```
+
 ## Roller
 
 `m00drc/roller.py` draws one seeded stream of 7-bit random ints (0..127, a MIDI CC value), one per
 cycle of `--bars` bars at m00Dr's tempo. Lanes read the stream:
 
-- **m00Dr's controls**: Roll, scale, arp pattern and rate, acid noise and wide deviation, acid
-  randomize, octave, stabs. These are set over m00Dr's web remote (port 8766).
+- **m00Dr's controls**: Roll, scale, arp pattern, acid noise and wide deviation, acid randomize,
+  stabs. (Not the arp rate or octave: those are left to the player.) These are set over m00Dr's web remote (port 8766).
 - **Sound**: `acid.cutoff`, `acid.resonance`, `acid.decay`, `acid.accent`, `acid.glide` and
   `acid.drive`. These are sent as CCs on ch5 to `sunvox303.py`, which eases each one in.
 

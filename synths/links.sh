@@ -19,6 +19,7 @@ LINKS="RtMidiOut Client:m00Dr (capture)|Synth input port (m00Dr-FluidSynth:0) (p
 RtMidiOut Client:m00Dr (capture)|m00Dr-Reese:bass in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVox303:acid in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-SunVox303:acid in (playback)
+RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxDrums:drums in (playback)
 m00Dr-FluidSynth:l_00|$MIXER:chords_L
 m00Dr-FluidSynth:r_00|$MIXER:chords_R
 m00Dr-FluidSynth:fx_l_00|$MIXER:chords_L
@@ -33,6 +34,8 @@ m00Dr-FluidSynth:fx_l_06|$MIXER:drums_L
 m00Dr-FluidSynth:fx_r_06|$MIXER:drums_R
 m00Dr-FluidSynth:fx_l_07|$MIXER:drums_L
 m00Dr-FluidSynth:fx_r_07|$MIXER:drums_R
+m00Dr-SunVoxDrums:output_FL|$MIXER:drums_L
+m00Dr-SunVoxDrums:output_FR|$MIXER:drums_R
 m00Dr-FluidSynth:l_02|$MIXER:arp_L
 m00Dr-FluidSynth:r_02|$MIXER:arp_R
 m00Dr-FluidSynth:fx_l_04|$MIXER:arp_L
