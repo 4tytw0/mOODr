@@ -1,0 +1,16 @@
+[project]
+name = "m00drc"
+version = "0.1.0"
+description = "SunVox instruments for m00Dr, and a phase-shifted roller for its parameters"
+authors = [
+    { name = "Tyler Watson", email = "tlwatson91@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alsa-midi>=1.0.4 ; sys_platform == 'linux'",
+    "radiant-voices>=2.0.1.2.1.4.0",
+    "websockets>=17.2",
+]
+
+[tool.uv]
+package = false

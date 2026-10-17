@@ -58,11 +58,15 @@ SysEx and LED reference.
 - **`reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive. The saws' beat
   follows the chords on ch1: consonant chords pulse slowly, dissonant ones beat faster.
 - **`sunvox303.py`** plays the acid on a headless SunVox library: `synths/acid303.sunvox`, a 303-shaped
-  patch built by [m00Drc](../m00Drc) (Glide → mono saw → resonant low-pass kicked open per note,
+  patch built by [m00Drc](m00Drc/) (Glide → mono saw → resonant low-pass kicked open per note,
   harder on accents → drive). 7-bit CCs on ch5 move its key controls (74 cutoff, 71 resonance,
   75 filter decay, 76 accent depth, 5 glide time, 77 drive), eased in over half a second; m00Drc's
   roller sends them. The library (`synths/sunvox_lib/sunvox.so`, from warmplace.ru's
   `sunvox_lib-*.zip`) is git-ignored.
+- **m00Drc's roller** (`m00Drc/`, user service `m00drc-roller`) rolls m00Dr's controls over its web
+  remote and sends the sound CCs above, from one phase-shifted stream of 7-bit random ints. Roll
+  fires at most once every 2-4 minutes. Its shift, bars, lanes and seed are on Launch Control XL
+  knobs; see `m00Drc/README.md`.
 - **Open303** (JC303 in a headless Carla rack, `synths/open303.carxp`) played ch5 before SunVox. Its
   unit is still in `systemd/`; `synths/links.sh` says how to switch back.
 - **`synths/links.sh`** keeps the PipeWire graph wired (m00Dr → synths → mixer → mix bus, and
@@ -86,7 +90,7 @@ Every piece is a systemd user service. Unit copies are in `systemd/`; install th
 `~/.config/systemd/user/` and enable them:
 
 ```sh
-systemctl --user enable --now m00dr-fluidsynth m00dr-reese m00dr-sunvox303 \
+systemctl --user enable --now m00dr-fluidsynth m00dr-reese m00dr-sunvox303 m00drc-roller \
     m800dr-mixer m00dr-synth-links m800dr-mix-m8 m800dr-audio
 ```
 

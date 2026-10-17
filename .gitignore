@@ -2,3 +2,7 @@ synths/*.sf2
 synths/*.wav
 __pycache__/
 synths/sunvox_lib/
+
+# m00Drc build output and environment
+m00Drc/*.sunvox
+m00Drc/.venv/

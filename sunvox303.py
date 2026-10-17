@@ -4,7 +4,7 @@
 # ///
 """m00Dr's acid, on SunVox: a headless SunVox library playing a 303-shaped patch.
 
-The patch is synths/acid303.sunvox (built by m00Drc: `uv run python -m
+The patch is synths/acid303.sunvox (built by m00Drc/: `uv run python -m
 m00drc.build_project --acid`): Glide -> mono saw -> resonant 24 dB low-pass
 that a Velocity2Ctl kicks open on every note (further on accents) ->
 Distortion. Listens on ALSA sequencer
