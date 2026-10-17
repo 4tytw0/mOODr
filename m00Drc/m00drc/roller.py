@@ -91,9 +91,10 @@ class Lane:
 
 
 # The default lanes. Key isn't one of them because Roll already moves the key
-# around the circle of fifths. BPM is left alone because a DAW usually owns it.
-DEFAULT_LANES = ["roll", "mode", "arpPattern", "arpRate", "acidNoise",
-                 "acidWide", "randomize", "octave", "stabs", *SOUND_LANES]
+# around the circle of fifths. BPM is left alone because a DAW usually owns it,
+# and the arp rate and octave because they're played by hand.
+DEFAULT_LANES = ["roll", "mode", "arpPattern", "acidNoise",
+                 "acidWide", "randomize", "stabs", *SOUND_LANES]
 
 
 class PhaseShiftedInts:
