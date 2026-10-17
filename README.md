@@ -8,7 +8,7 @@ any browser on the LAN with a Lissajous scope and the mixer beside it.
 ```
 m00Dr ──MIDI──▶ FluidSynth   ch1 chords · ch3 arp · ch4 drums ─┐
             ├─▶ reese.py     ch2 bass ─────────────────────────┤
-            └─▶ Open303      ch5 acid (Carla + JC303) ─────────┤
+            └─▶ SunVox       ch5 acid (sunvox303.py) ──────────┤
 M8 USB audio ──────────────────────────────────────────────────┤
 Launch Control XL ──▶ mixer.py: a strip per part, faders, ◀────┘
                       drive, sidechain ──▶ m800dr_mix ──▶ server.py :8808
@@ -57,7 +57,14 @@ SysEx and LED reference.
   per Roll).
 - **`reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive. The saws' beat
   follows the chords on ch1: consonant chords pulse slowly, dissonant ones beat faster.
-- **Open303** is JC303 in a headless Carla rack (`synths/open303.carxp`), behind a channel-5 filter.
+- **`sunvox303.py`** plays the acid on a headless SunVox library: `synths/acid303.sunvox`, a 303-shaped
+  patch built by [m00Drc](../m00Drc) (Glide → mono saw → resonant low-pass kicked open per note,
+  harder on accents → drive). 7-bit CCs on ch5 move its key controls (74 cutoff, 71 resonance,
+  75 filter decay, 76 accent depth, 5 glide time, 77 drive), eased in over half a second; m00Drc's
+  roller sends them. The library (`synths/sunvox_lib/sunvox.so`, from warmplace.ru's
+  `sunvox_lib-*.zip`) is git-ignored.
+- **Open303** (JC303 in a headless Carla rack, `synths/open303.carxp`) played ch5 before SunVox. Its
+  unit is still in `systemd/`; `synths/links.sh` says how to switch back.
 - **`synths/links.sh`** keeps the PipeWire graph wired (m00Dr → synths → mixer → mix bus, and
   controllers → mixer), re-linking anything that restarts.
 
@@ -79,7 +86,7 @@ Every piece is a systemd user service. Unit copies are in `systemd/`; install th
 `~/.config/systemd/user/` and enable them:
 
 ```sh
-systemctl --user enable --now m00dr-fluidsynth m00dr-reese m00dr-open303 \
+systemctl --user enable --now m00dr-fluidsynth m00dr-reese m00dr-sunvox303 \
     m800dr-mixer m00dr-synth-links m800dr-mix-m8 m800dr-audio
 ```
 

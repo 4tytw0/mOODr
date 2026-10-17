@@ -1,3 +1,4 @@
 synths/*.sf2
 synths/*.wav
 __pycache__/
+synths/sunvox_lib/

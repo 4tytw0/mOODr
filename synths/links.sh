@@ -7,13 +7,18 @@
 #
 # Replaces ~/code/mOODr/m8_midi_route.sh (m00Dr -> M8) now that m00Dr drives
 # FluidSynth (ch1 chords, ch3 arp, ch4 drums), the reese synth (ch2) and
-# Open303/JC303 (ch5) instead.
+# SunVox (sunvox303.py, ch5) instead. Open303/JC303 played ch5 before SunVox;
+# to switch back, swap the m00Dr-SunVox303 lines for
+#   RtMidiOut Client:m00Dr (capture)|m00Dr-Open303:events-in
+#   m00Dr-Open303:audio-out1|$MIXER:acid_L
+#   m00Dr-Open303:audio-out2|$MIXER:acid_R
 
 INTERVAL=${INTERVAL:-2}
 MIXER=m800Dr-Mixer
 LINKS="RtMidiOut Client:m00Dr (capture)|Synth input port (m00Dr-FluidSynth:0) (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-Reese:bass in (playback)
-RtMidiOut Client:m00Dr (capture)|m00Dr-Open303:events-in
+RtMidiOut Client:m00Dr (capture)|m00Dr-SunVox303:acid in (playback)
+m00Drc-Roller:sound out (capture)|m00Dr-SunVox303:acid in (playback)
 m00Dr-FluidSynth:l_00|$MIXER:chords_L
 m00Dr-FluidSynth:r_00|$MIXER:chords_R
 m00Dr-FluidSynth:fx_l_00|$MIXER:chords_L
@@ -34,11 +39,12 @@ m00Dr-FluidSynth:fx_l_04|$MIXER:arp_L
 m00Dr-FluidSynth:fx_r_04|$MIXER:arp_R
 m00Dr-FluidSynth:fx_l_05|$MIXER:arp_L
 m00Dr-FluidSynth:fx_r_05|$MIXER:arp_R
-m00Dr-Open303:audio-out1|$MIXER:acid_L
-m00Dr-Open303:audio-out2|$MIXER:acid_R
+m00Dr-SunVox303:output_FL|$MIXER:acid_L
+m00Dr-SunVox303:output_FR|$MIXER:acid_R
 m800dr_mix_m8_out:output_FL|$MIXER:m8_L
 m800dr_mix_m8_out:output_FR|$MIXER:m8_R
 $MIXER:controls|RtMidiIn Client:m00Dr Control (playback)
+$MIXER:controls|m00Drc-Roller:knobs in (playback)
 $MIXER:out_L|m800dr_mix:playback_FL
 $MIXER:out_R|m800dr_mix:playback_FR"
 
