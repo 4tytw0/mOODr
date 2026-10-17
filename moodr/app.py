@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 from . import bridge_manager, midi_io, midi_status, oracle, theme, theory, web_remote
 from .clock import MidiClock, MidiClockSlave
 from .playback import (ACID_STEPS, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, DRUM_SOURCES,
-                       SOUND_NAMES, PlaybackEngine, acid_note_for_step)
+                       CHORD_SOUND_NAMES, SOUND_NAMES, PlaybackEngine, acid_note_for_step)
 
 DEFAULT_KEY = "E"
 DEFAULT_MODE = "Minor 7"
@@ -827,10 +827,11 @@ class MainWindow(QWidget):
             QSettings(SETTINGS_ORG, SETTINGS_APP).value(WEB_REMOTE_SETTING, False, type=bool))
         # Only a remembered pick is sent at startup; with none, the synth keeps
         # its own default and the box just shows the first entry.
-        for box, setting, attr in ((self.chord_sound_box, CHORD_SOUND_SETTING, "chord_sound"),
-                                   (self.arp_sound_box, ARP_SOUND_SETTING, "arp_sound")):
+        for box, setting, attr, names in (
+                (self.chord_sound_box, CHORD_SOUND_SETTING, "chord_sound", CHORD_SOUND_NAMES),
+                (self.arp_sound_box, ARP_SOUND_SETTING, "arp_sound", SOUND_NAMES)):
             saved_sound = QSettings(SETTINGS_ORG, SETTINGS_APP).value(setting, None)
-            if saved_sound in SOUND_NAMES:
+            if saved_sound in names:
                 box.setCurrentText(saved_sound)
                 setattr(self._engine, attr, saved_sound)
         self.chord_sound_box.currentTextChanged.connect(self._on_chord_sound_changed)
@@ -922,10 +923,12 @@ class MainWindow(QWidget):
         self.chords_button.toggled.connect(self._on_chords_toggled)
 
         self.chord_sound_box = QComboBox()
-        self.chord_sound_box.addItems(SOUND_NAMES)
+        self.chord_sound_box.addItems(CHORD_SOUND_NAMES)
         self.chord_sound_box.setToolTip(
             "The chords' sound: bank select + program change on the chord channel "
-            "(on the m800Dr desktop, FluidSynth's strings, stabs and GM sounds).")
+            "(on the m800Dr desktop, FluidSynth's strings, stabs and GM sounds). "
+            "\"SunVox Wurli\" moves the chords to MIDI channel 7 instead, where the "
+            "desktop's sunvoxkeys.py plays a DX7-style FM Wurlitzer.")
 
         self.bass_button = QPushButton("Bass")
         self.bass_button.setCheckable(True)
@@ -1405,6 +1408,7 @@ class MainWindow(QWidget):
     def _on_chord_sound_changed(self, name: str) -> None:
         self._engine.chord_sound = name
         QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(CHORD_SOUND_SETTING, name)
+        self._update_part_labels()
 
     def _on_arp_sound_changed(self, name: str) -> None:
         self._engine.arp_sound = name
@@ -1417,7 +1421,7 @@ class MainWindow(QWidget):
         self._engine.stab_enabled = checked
 
     def _on_circuit_channels_toggled(self, checked: bool) -> None:
-        self._engine.chord_channel = CIRCUIT_CHORD_CHANNEL if checked else CHORD_CHANNEL
+        self._engine.soundfont_chord_channel = CIRCUIT_CHORD_CHANNEL if checked else CHORD_CHANNEL
         self._engine.bass_channel = CIRCUIT_BASS_CHANNEL if checked else BASS_CHANNEL
         self._update_part_labels()
 

@@ -3,6 +3,8 @@ import random
 from moodr.midi_io import FULL_VELOCITY
 from moodr import theory
 from moodr.playback import (
+    HAT_STEP_TICKS,
+    SUNVOX_CHORD_CHANNEL,
     SUNVOX_DRUM_CHANNEL,
     SUNVOX_DRUM_KITS,
     ACID_CHANNEL,
@@ -1109,9 +1111,39 @@ def test_swing_delays_odd_steps():
     engine.load_progression([[60, 64, 67]], [48])
     engine.drum_mutation = 0.5                        # 2 ticks of swing
     engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
-    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine._drum_pattern[1] = [(SNARE, 48)]
     engine.start()
     clock.tick(DRUM_STEP_TICKS + 1)
+    assert not _drums_on(output)
+    clock.tick(1)
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, SNARE, 48]]
+
+
+def test_hats_play_their_pattern_double_time_on_32nds():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
+    engine._drum_pattern[0] = [(KICK, 120), (CLOSED_HAT, 90)]
+    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine.start()
+    # Bar line: kick and hat together.
+    assert sorted(m[1] for m in _drums_on(output)) == [KICK, CLOSED_HAT]
+    output.sent.clear()
+    clock.tick(HAT_STEP_TICKS)                        # a 32nd later: the hat's step 1
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]
+    output.sent.clear()
+    clock.tick(DRUM_STEPS * HAT_STEP_TICKS - HAT_STEP_TICKS)   # half a bar: hats start over
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 90]]   # the kick doesn't
+
+
+def test_two_step_swing_pushes_odd_32nd_hats_by_half():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.drum_mutation = 0.5                        # 2 ticks of swing, 1 for the hats
+    engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
+    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine.start()
+    clock.tick(HAT_STEP_TICKS)
     assert not _drums_on(output)
     clock.tick(1)
     assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]
@@ -1234,6 +1266,40 @@ def test_start_resends_the_chord_sound_only_once_one_is_picked():
     output.sent.clear()
     engine.start()
     assert [0xC0 | CHORD_CHANNEL, SOUNDS[0][2]] in output.sent
+
+
+def test_sunvox_chord_sound_moves_the_chords_to_channel_7_without_a_program_change():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.start()
+    held = sorted(m[1] for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL)
+    output.sent.clear()
+    engine.chord_sound = "SunVox Wurli"
+    assert engine.chord_channel == SUNVOX_CHORD_CHANNEL
+    # The held chord is released on ch1; nothing is sent as a program.
+    assert all(m[0] == 0x80 | CHORD_CHANNEL for m in output.sent)
+    assert sorted(m[1] for m in output.sent) == held
+    output.sent.clear()
+    engine.stop(); engine.start()
+    assert not [m for m in output.sent if isinstance(m[0], int)
+                and m[0] & 0xF0 in (0xB0, 0xC0) and m[0] & 0x0F == SUNVOX_CHORD_CHANNEL]
+    assert sorted(m[1] for m in output.sent if m[0] == 0x90 | SUNVOX_CHORD_CHANNEL) == held
+
+
+def test_soundfont_chord_sound_returns_the_chords_to_their_channel():
+    output, clock, engine = make_engine()
+    engine.chord_sound = "SunVox Wurli"
+    engine.chord_sound = SOUNDS[0][0]
+    assert engine.chord_channel == CHORD_CHANNEL
+
+
+def test_circuit_channel_waits_while_a_sunvox_chord_sound_plays():
+    output, clock, engine = make_engine()
+    engine.chord_sound = "SunVox Wurli"
+    engine.soundfont_chord_channel = 3
+    assert engine.chord_channel == SUNVOX_CHORD_CHANNEL
+    engine.chord_sound = SOUNDS[0][0]
+    assert engine.chord_channel == 3
 
 
 def test_unknown_chord_sound_is_rejected():

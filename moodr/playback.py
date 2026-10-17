@@ -154,6 +154,10 @@ def _generate_acid_pattern(noise: float, wide_deviation: bool,
 DRUM_STEPS = 16
 DRUM_STEP_TICKS = PPQN // 4
 KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
+# The hats run double time: their 16 steps of the pattern play on the 32nd
+# grid, twice per bar, while the kick and snare stay on 16ths.
+HATS = (CLOSED_HAT, OPEN_HAT)
+HAT_STEP_TICKS = DRUM_STEP_TICKS // 2
 
 DRUM_KICK_VELOCITY = 120
 DRUM_SNARE_VELOCITY = 112
@@ -199,6 +203,15 @@ SOUNDS = [
     ("GM warm pad", 0, 89), ("GM polysynth", 0, 90), ("GM sweep pad", 0, 95),
 ]
 SOUND_NAMES = [name for name, _, _ in SOUNDS]
+
+# Chord sounds that aren't on the soundfont: m800Dr's sunvoxkeys.py plays them
+# on SUNVOX_CHORD_CHANNEL (a DX7-style FM electric piano voiced like a
+# Wurlitzer, built by m00Drc). Picking one moves the chords there, as a
+# SunVox drum kit moves the drums, so FluidSynth (ch1) and SunVox (ch7) never
+# both play them.
+SUNVOX_CHORD_CHANNEL = 6  # MIDI channel 7
+SUNVOX_CHORD_SOUNDS = ["SunVox Wurli"]
+CHORD_SOUND_NAMES = SOUND_NAMES + SUNVOX_CHORD_SOUNDS
 
 # The mutation knob (0.0-1.0) morphs between three grooves, each a chance
 # per step that a voice plays: house at 0.0, UK garage two-step at 0.5,
@@ -333,8 +346,8 @@ def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
     return sequence[step_index % len(sequence)]
 
 
-def _check_sound(name: str) -> str:
-    if name not in SOUND_NAMES:
+def _check_sound(name: str, names: list[str] = SOUND_NAMES) -> str:
+    if name not in names:
         raise ValueError(f"unknown sound {name!r}")
     return name
 
@@ -350,6 +363,7 @@ class PlaybackEngine:
         self._midi_output = midi_output
         self._clock = clock
         self._chord_channel = chord_channel
+        self._soundfont_chord_channel = chord_channel
         self._bass_channel = bass_channel
         self._arp_channel = arp_channel
         self._acid_channel = acid_channel
@@ -424,6 +438,7 @@ class PlaybackEngine:
         # each step can sound several hits at once. Hits are one-shots, so
         # their note-offs go out at the next step.
         self._sounding_drum_notes: list[int] = []
+        self._sounding_hat_notes: list[int] = []
         self._drums_enabled = True
         self._drum_mutation = 0.0
         self._drum_lines = _cast_drum_lines(self._rng)
@@ -632,8 +647,23 @@ class PlaybackEngine:
 
     @chord_sound.setter
     def chord_sound(self, name: str) -> None:
-        self._chord_sound = _check_sound(name)
+        self._chord_sound = _check_sound(name, CHORD_SOUND_NAMES)
+        # The channel setter releases what's sounding on the old one first.
+        self.chord_channel = (SUNVOX_CHORD_CHANNEL if name in SUNVOX_CHORD_SOUNDS
+                              else self._soundfont_chord_channel)
         self._send_sound(self._chord_channel, name)
+
+    @property
+    def soundfont_chord_channel(self) -> int:
+        """Where the chords play on a soundfont sound (the Circuit toggle's
+        choice); a SunVox sound overrides it with SUNVOX_CHORD_CHANNEL."""
+        return self._soundfont_chord_channel
+
+    @soundfont_chord_channel.setter
+    def soundfont_chord_channel(self, value: int) -> None:
+        self._soundfont_chord_channel = value
+        if self._chord_sound not in SUNVOX_CHORD_SOUNDS:
+            self.chord_channel = value
 
     @property
     def arp_sound(self) -> str | None:
@@ -646,8 +676,8 @@ class PlaybackEngine:
         self._send_sound(self._arp_channel, name)
 
     def _send_sound(self, channel: int, name: str | None) -> None:
-        if name is None:
-            return
+        if name is None or name in SUNVOX_CHORD_SOUNDS:
+            return  # a SunVox sound is picked by its channel, not a program
         _, bank, program = SOUNDS[SOUND_NAMES.index(name)]
         self._midi_output.send([0xB0 | channel, 0, bank])
         self._midi_output.send([0xC0 | channel, program])
@@ -809,6 +839,7 @@ class PlaybackEngine:
         self._midi_output.all_notes_off(self._acid_channel)
         self._midi_output.all_notes_off(self._drum_channel)
         self._sounding_drum_notes = []
+        self._sounding_hat_notes = []
         self._sounding_position = None
         self._sounding_chords_enabled = False
         self._sounding_bass_enabled = False
@@ -1013,21 +1044,32 @@ class PlaybackEngine:
         self._acid_slide_pending = False
 
     def _drum_tick(self, tick_in_bar: int) -> None:
-        """Fires a drum step if one lands on this tick of the bar: even
-        16ths on the grid, odd ones pushed late by the current swing."""
+        """Fires the drum steps that land on this tick of the bar. Kick and
+        snare: even 16ths on the grid, odd ones pushed late by the current
+        swing. Hats: the same on the 32nd grid, with half the swing."""
         step, offset = divmod(tick_in_bar, DRUM_STEP_TICKS)
         if offset == (self._drum_swing if step % 2 else 0):
-            self._advance_drum_step(step)
+            self._advance_drum_step(step, hats=False)
+        hat_step, offset = divmod(tick_in_bar, HAT_STEP_TICKS)
+        if offset == (self._drum_swing // 2 if hat_step % 2 else 0):
+            self._advance_drum_step(hat_step, hats=True)
 
-    def _advance_drum_step(self, index: int) -> None:
-        self._turn_off_drum_notes()
+    def _advance_drum_step(self, index: int, hats: bool) -> None:
+        """Plays step `index` of the pattern's hats, or of everything else."""
+        sounding = self._sounding_hat_notes if hats else self._sounding_drum_notes
+        self._release_drum_notes(sounding)
         if not self._drums_enabled or self._sounding_position is None:
             return
         for note, velocity in self._drum_pattern[index % len(self._drum_pattern)]:
-            self._midi_output.send([0x90 | self._drum_channel, note, velocity])
-            self._sounding_drum_notes.append(note)
+            if (note in HATS) == hats:
+                self._midi_output.send([0x90 | self._drum_channel, note, velocity])
+                sounding.append(note)
+
+    def _release_drum_notes(self, sounding: list[int]) -> None:
+        for note in sounding:
+            self._midi_output.send([0x80 | self._drum_channel, note, 0])
+        sounding.clear()
 
     def _turn_off_drum_notes(self) -> None:
-        for note in self._sounding_drum_notes:
-            self._midi_output.send([0x80 | self._drum_channel, note, 0])
-        self._sounding_drum_notes = []
+        self._release_drum_notes(self._sounding_drum_notes)
+        self._release_drum_notes(self._sounding_hat_notes)
