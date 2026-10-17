@@ -68,6 +68,11 @@ SysEx and LED reference.
   **Boom** (808-ish, FM hats, a small room on the snare) and **Crunch** (SunVox's DrumSynth,
   bitcrushed). m00Dr sends those drums on ch6 with a program change 0-2 for the kit, and the
   soundfont kits on ch4, so FluidSynth and SunVox never both play; both feed the drums strip.
+- **`sunvoxkeys.py`** plays m00Dr's chords when its chord sound is "SunVox Wurli": a DX7-style FM
+  electric piano voiced like a Wurlitzer (`synths/wurli.sunvox`, built by m00Drc): a 1:1 FM reed
+  whose brightness decays after the attack, a short 1:2 odd-harmonic bark set by velocity, ~5.5 Hz
+  tremolo, a little amp saturation and a small room. m00Dr sends those chords on ch7; both it and
+  FluidSynth feed the chords strip.
 - **m00Drc's roller** (`m00Drc/`, user service `m00drc-roller`) rolls m00Dr's controls over its web
   remote and sends the sound CCs above, from one phase-shifted stream of 7-bit random ints. Roll
   fires at most once every 2-4 minutes. Its shift, bars, lanes and seed are on Launch Control XL
@@ -95,7 +100,8 @@ Every piece is a systemd user service. Unit copies are in `systemd/`; install th
 `~/.config/systemd/user/` and enable them:
 
 ```sh
-systemctl --user enable --now m00dr-fluidsynth m00dr-reese m00dr-sunvox303 m00dr-sunvoxdrums m00drc-roller \
+systemctl --user enable --now m00dr-fluidsynth m00dr-reese m00dr-sunvox303 m00dr-sunvoxdrums \
+    m00dr-sunvoxkeys m00drc-roller \
     m800dr-mixer m00dr-synth-links m800dr-mix-m8 m800dr-audio
 ```
 

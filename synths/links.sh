@@ -20,12 +20,15 @@ RtMidiOut Client:m00Dr (capture)|m00Dr-Reese:bass in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVox303:acid in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-SunVox303:acid in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxDrums:drums in (playback)
+RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxKeys:keys in (playback)
 m00Dr-FluidSynth:l_00|$MIXER:chords_L
 m00Dr-FluidSynth:r_00|$MIXER:chords_R
 m00Dr-FluidSynth:fx_l_00|$MIXER:chords_L
 m00Dr-FluidSynth:fx_r_00|$MIXER:chords_R
 m00Dr-FluidSynth:fx_l_01|$MIXER:chords_L
 m00Dr-FluidSynth:fx_r_01|$MIXER:chords_R
+m00Dr-SunVoxKeys:output_FL|$MIXER:chords_L
+m00Dr-SunVoxKeys:output_FR|$MIXER:chords_R
 m00Dr-Reese:output_FL|$MIXER:bass_L
 m00Dr-Reese:output_FR|$MIXER:bass_R
 m00Dr-FluidSynth:l_03|$MIXER:drums_L

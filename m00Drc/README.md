@@ -29,6 +29,18 @@ uv run python -m m00drc.build_project --acid   # acid303.sunvox; copy it to ../s
 
 The acid filter settings are at the top of `build_project.py`.
 
+## Wurli
+
+`m00drc/build_keys.py` writes `wurli.sunvox` for m800Dr's `sunvoxkeys.py`: a DX7-style FM electric
+piano voiced like a Wurlitzer. Two FM layers: a 1:1 reed whose modulation falls fast after the
+attack (bright, then round), and a short 1:2 bark (odd harmonics, the reed's nasal bite) whose
+level the player sets from velocity. Then ~5.5 Hz tremolo, light saturation, a low-pass and a small
+room.
+
+```sh
+uv run python -m m00drc.build_keys   # writes ../synths/wurli.sunvox
+```
+
 ## Drum kits
 
 `m00drc/build_drumkits.py` writes three kits for m800Dr's `sunvoxdrums.py`, and `drumkits.json`,
