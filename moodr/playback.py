@@ -154,6 +154,10 @@ def _generate_acid_pattern(noise: float, wide_deviation: bool,
 DRUM_STEPS = 16
 DRUM_STEP_TICKS = PPQN // 4
 KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
+# The hats run double time: their 16 steps of the pattern play on the 32nd
+# grid, twice per bar, while the kick and snare stay on 16ths.
+HATS = (CLOSED_HAT, OPEN_HAT)
+HAT_STEP_TICKS = DRUM_STEP_TICKS // 2
 
 DRUM_KICK_VELOCITY = 120
 DRUM_SNARE_VELOCITY = 112
@@ -434,6 +438,7 @@ class PlaybackEngine:
         # each step can sound several hits at once. Hits are one-shots, so
         # their note-offs go out at the next step.
         self._sounding_drum_notes: list[int] = []
+        self._sounding_hat_notes: list[int] = []
         self._drums_enabled = True
         self._drum_mutation = 0.0
         self._drum_lines = _cast_drum_lines(self._rng)
@@ -834,6 +839,7 @@ class PlaybackEngine:
         self._midi_output.all_notes_off(self._acid_channel)
         self._midi_output.all_notes_off(self._drum_channel)
         self._sounding_drum_notes = []
+        self._sounding_hat_notes = []
         self._sounding_position = None
         self._sounding_chords_enabled = False
         self._sounding_bass_enabled = False
@@ -1038,21 +1044,32 @@ class PlaybackEngine:
         self._acid_slide_pending = False
 
     def _drum_tick(self, tick_in_bar: int) -> None:
-        """Fires a drum step if one lands on this tick of the bar: even
-        16ths on the grid, odd ones pushed late by the current swing."""
+        """Fires the drum steps that land on this tick of the bar. Kick and
+        snare: even 16ths on the grid, odd ones pushed late by the current
+        swing. Hats: the same on the 32nd grid, with half the swing."""
         step, offset = divmod(tick_in_bar, DRUM_STEP_TICKS)
         if offset == (self._drum_swing if step % 2 else 0):
-            self._advance_drum_step(step)
+            self._advance_drum_step(step, hats=False)
+        hat_step, offset = divmod(tick_in_bar, HAT_STEP_TICKS)
+        if offset == (self._drum_swing // 2 if hat_step % 2 else 0):
+            self._advance_drum_step(hat_step, hats=True)
 
-    def _advance_drum_step(self, index: int) -> None:
-        self._turn_off_drum_notes()
+    def _advance_drum_step(self, index: int, hats: bool) -> None:
+        """Plays step `index` of the pattern's hats, or of everything else."""
+        sounding = self._sounding_hat_notes if hats else self._sounding_drum_notes
+        self._release_drum_notes(sounding)
         if not self._drums_enabled or self._sounding_position is None:
             return
         for note, velocity in self._drum_pattern[index % len(self._drum_pattern)]:
-            self._midi_output.send([0x90 | self._drum_channel, note, velocity])
-            self._sounding_drum_notes.append(note)
+            if (note in HATS) == hats:
+                self._midi_output.send([0x90 | self._drum_channel, note, velocity])
+                sounding.append(note)
+
+    def _release_drum_notes(self, sounding: list[int]) -> None:
+        for note in sounding:
+            self._midi_output.send([0x80 | self._drum_channel, note, 0])
+        sounding.clear()
 
     def _turn_off_drum_notes(self) -> None:
-        for note in self._sounding_drum_notes:
-            self._midi_output.send([0x80 | self._drum_channel, note, 0])
-        self._sounding_drum_notes = []
+        self._release_drum_notes(self._sounding_drum_notes)
+        self._release_drum_notes(self._sounding_hat_notes)

@@ -3,6 +3,7 @@ import random
 from moodr.midi_io import FULL_VELOCITY
 from moodr import theory
 from moodr.playback import (
+    HAT_STEP_TICKS,
     SUNVOX_CHORD_CHANNEL,
     SUNVOX_DRUM_CHANNEL,
     SUNVOX_DRUM_KITS,
@@ -1110,9 +1111,39 @@ def test_swing_delays_odd_steps():
     engine.load_progression([[60, 64, 67]], [48])
     engine.drum_mutation = 0.5                        # 2 ticks of swing
     engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
-    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine._drum_pattern[1] = [(SNARE, 48)]
     engine.start()
     clock.tick(DRUM_STEP_TICKS + 1)
+    assert not _drums_on(output)
+    clock.tick(1)
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, SNARE, 48]]
+
+
+def test_hats_play_their_pattern_double_time_on_32nds():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
+    engine._drum_pattern[0] = [(KICK, 120), (CLOSED_HAT, 90)]
+    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine.start()
+    # Bar line: kick and hat together.
+    assert sorted(m[1] for m in _drums_on(output)) == [KICK, CLOSED_HAT]
+    output.sent.clear()
+    clock.tick(HAT_STEP_TICKS)                        # a 32nd later: the hat's step 1
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]
+    output.sent.clear()
+    clock.tick(DRUM_STEPS * HAT_STEP_TICKS - HAT_STEP_TICKS)   # half a bar: hats start over
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 90]]   # the kick doesn't
+
+
+def test_two_step_swing_pushes_odd_32nd_hats_by_half():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.drum_mutation = 0.5                        # 2 ticks of swing, 1 for the hats
+    engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
+    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine.start()
+    clock.tick(HAT_STEP_TICKS)
     assert not _drums_on(output)
     clock.tick(1)
     assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]
