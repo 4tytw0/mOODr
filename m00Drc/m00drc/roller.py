@@ -19,6 +19,11 @@ same stream shifted in two ways:
 `--shift` rotates every phase by the same amount. That moves the whole
 pattern relative to the bar without changing it.
 
+The acid line's notes change only every ACID_EVERY bars, all at once on the
+bar line: the lanes that reshape it (ACID_NOTE_LANES: noise, wide deviation
+and a fresh randomize) fire together then, instead of at their own phases,
+so a riff holds for four bars before it moves.
+
 Roll rewrites the key, scale and progression, so it is held back: after a
 roll, the next one waits ROLL_GAP seconds, 2 to 4 minutes, set by the int that
 triggered it. The first roll waits the minimum after the roller starts, so
@@ -64,6 +69,12 @@ INT_MAX = 127
 # Seconds between rolls: ROLL_GAP[0] at int 0 up to ROLL_GAP[1] at INT_MAX.
 ROLL_GAP = (120.0, 240.0)
 
+# Lanes that change the acid line's notes, and how often they may: every
+# ACID_EVERY bars, on the bar line, whatever the cycle length. Randomize
+# always fires then (it is the 4-bar re-roll); noise and wide take their int.
+ACID_NOTE_LANES = ("acidNoise", "acidWide", "randomize")
+ACID_EVERY = 4
+
 # Sound lane -> (MIDI channel, 1-based; CC). The CCs are the ones m800Dr's
 # sunvox303.py maps onto the SunVox acid patch (its SOUND_CCS).
 SOUND_LANES = {
@@ -88,13 +99,14 @@ class Lane:
                         # or a SOUND_LANES name
     lag: int = 0        # cycles behind the head of the stream
     phase: float = 0.0  # 0..1, where in the cycle it fires
+    every: int = 0      # if set, fires every this many 16ths from Play instead
 
 
 # The default lanes. Key isn't one of them because Roll already moves the key
 # around the circle of fifths. BPM is left alone because a DAW usually owns it,
-# and the arp rate and octave because they're played by hand.
-DEFAULT_LANES = ["roll", "mode", "arpPattern", "acidNoise",
-                 "acidWide", "randomize", "stabs", *SOUND_LANES]
+# and the arp's pattern, rate and octave because they're played by hand.
+DEFAULT_LANES = ["roll", "mode", "acidNoise", "acidWide", "randomize", "stabs",
+                 *SOUND_LANES]
 
 
 class PhaseShiftedInts:
@@ -116,16 +128,21 @@ class PhaseShiftedInts:
 
 
 def make_lanes(names: list[str], shift: float) -> list[Lane]:
-    # Spread the phases evenly and add the shift, so lane k fires at
-    # (k/n + shift) mod 1. Its lag counts up within its chain (m00Dr or
-    # sound), so each lane gets the value the lane before it had one cycle
-    # earlier.
-    n = len(names)
+    # Spread the phased lanes evenly and add the shift, so the k-th of n fires
+    # at (k/n + shift) mod 1; the acid-note lanes fire on their own 4-bar grid.
+    # A lane's lag counts up within its chain (m00Dr or sound), so each lane
+    # gets the value the lane before it had one cycle earlier.
+    phased = [name for name in names if name not in ACID_NOTE_LANES]
     lags = {False: 0, True: 0}
     lanes = []
-    for k, name in enumerate(names):
+    for name in names:
         sound = name in SOUND_LANES
-        lanes.append(Lane(name, lag=lags[sound], phase=(k / n + shift) % 1.0))
+        if name in ACID_NOTE_LANES:
+            lane = Lane(name, lag=lags[sound], every=16 * ACID_EVERY)
+        else:
+            k = phased.index(name)
+            lane = Lane(name, lag=lags[sound], phase=(k / len(phased) + shift) % 1.0)
+        lanes.append(lane)
         lags[sound] += 1
     return lanes
 
@@ -137,8 +154,7 @@ def to_message(lane: Lane, value: int, control: dict | None) -> dict | None:
     if lane.control == "roll":
         return {"op": "click", "id": "roll"}  # Roller._fire holds it to ROLL_GAP
     if lane.control == "randomize":
-        # Fires on odd ints only, so about every other cycle.
-        return {"op": "click", "id": lane.control} if value & 1 else None
+        return {"op": "click", "id": lane.control}  # on the ACID_EVERY grid
     if control is None or not control.get("enabled", True):
         return None
     current = control.get("value")
@@ -263,7 +279,9 @@ class Roller:
                     break
             position = (step % steps_per_cycle) / steps_per_cycle
             for lane in self.lanes:
-                if int(lane.phase * steps_per_cycle) == step % steps_per_cycle:
+                due = (step % lane.every == 0 if lane.every
+                       else int(lane.phase * steps_per_cycle) == step % steps_per_cycle)
+                if due:
                     await self._fire(ws, lane, cycle, position)
 
             step += 1
