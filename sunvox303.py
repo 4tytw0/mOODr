@@ -50,7 +50,7 @@ SOUND_CCS = {
     75: ("Acid filter", "Response", 10, 2),              # filter decay: 10 snaps shut, 2 lingers
     76: ("Acid accent ch5", "OUT max", 9000, 22000),         # how far a hard note kicks the filter (ctl units)
     5:  ("Acid glide ch5", "Response", 900, 300),        # slide time: 900 fast, 300 slow
-    77: ("Acid drive", "Power", 20, 140),
+    77: ("Acid drive", "Power", 60, 220),               # saturation into the 10-bit crush
 }
 SOUND_GLIDE = 0.5                         # s, time constant for easing to a new CC value
 

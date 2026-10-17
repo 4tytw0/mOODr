@@ -9,7 +9,7 @@ that happens to be selected in SunVox.
     Bass    ch2  mono square + LP   (dry, centre)
     Arp     ch3  FM pluck           -> Delay -> Reverb
     Acid    ch5  Glide -> mono saw -> resonant LP that snaps open on every
-                 note -> Distortion
+                 note -> saturation with a light bit crush
 
 Run: uv run python -m m00drc.build_project [out.sunvox]
      uv run python -m m00drc.build_project --acid [acid303.sunvox]   # ch5 voice only
@@ -20,6 +20,7 @@ from pathlib import Path
 
 from rv.api import Project, m
 from rv.modules.base.analoggenerator import BaseAnalogGenerator as AG
+from rv.modules.base.distortion import BaseDistortion
 from rv.modules.base.filter import BaseFilter
 from rv.modules.base.fm import BaseFm
 
@@ -81,8 +82,11 @@ def add_acid(project: Project, out, x: int, y: int):
         out_max=round(ACID_IMPULSE_MAX * 0x8000 / 14000),
         out_controller=IMPULSE_CTL,
     ), ACID_CH)
+    # Saturation into a light bit and sample-rate crush: grit on top of the
+    # squelch (10-bit, 22 kHz; 8-bit/16 kHz measured as noticeably harsher).
     drive = project.new_module(
-        m.Distortion, name="Acid drive", x=x + 600, y=y, volume=110, power=60)
+        m.Distortion, name="Acid drive", x=x + 600, y=y, volume=90,
+        type=BaseDistortion.Type.saturation3, power=140, bit_depth=10, freq=22050)
     glide >> acid >> squelch >> drive >> out
     kick >> squelch
     return glide
