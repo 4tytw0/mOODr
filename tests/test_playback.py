@@ -1020,8 +1020,8 @@ def test_the_octave_offset_does_not_swallow_a_patterns_own_octave_jump():
     assert jumped == plain + 12
 
 
-def test_drum_step_count_and_rate_span_exactly_one_bar():
-    assert DRUM_STEPS * DRUM_STEP_TICKS == TICKS_PER_BAR
+def test_drum_pattern_plays_twice_per_bar():
+    assert DRUM_STEPS * DRUM_STEP_TICKS * 2 == TICKS_PER_BAR
 
 
 def test_drum_channel_is_free():
@@ -1069,9 +1069,9 @@ def test_mutation_morphs_the_same_cast_and_comes_back():
     assert engine.drum_pattern == house
 
 
-def test_swing_pushes_off_16ths_late_in_two_step():
+def test_swing_pushes_odd_steps_late_in_two_step():
     assert drum_swing_ticks(0.0) == 0
-    assert drum_swing_ticks(0.5) == 2
+    assert drum_swing_ticks(0.5) == 1
     assert 0 < drum_swing_ticks(1.0) < DRUM_STEP_TICKS
 
 
@@ -1097,18 +1097,21 @@ def test_drum_step_zero_lands_on_the_bar_with_the_chord():
     clock.tick(DRUM_STEP_TICKS)                       # step 1: releases step 0's hit
     assert [0x80 | DRUM_CHANNEL, KICK, 0] in output.sent
     output.sent.clear()
-    clock.tick(TICKS_PER_BAR - DRUM_STEP_TICKS)       # next bar line
+    clock.tick(TICKS_PER_BAR // 2 - DRUM_STEP_TICKS)  # half a bar: the pattern again
+    assert [0x90 | DRUM_CHANNEL, KICK, 120] in output.sent
+    output.sent.clear()
+    clock.tick(TICKS_PER_BAR // 2)                    # next bar line
     assert [0x90 | DRUM_CHANNEL, KICK, 120] in output.sent
 
 
 def test_swing_delays_odd_steps():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
-    engine.drum_mutation = 0.5                        # 2 ticks of swing
+    engine.drum_mutation = 0.5                        # 1 tick of swing
     engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
     engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
     engine.start()
-    clock.tick(DRUM_STEP_TICKS + 1)
+    clock.tick(DRUM_STEP_TICKS)
     assert not _drums_on(output)
     clock.tick(1)
     assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]

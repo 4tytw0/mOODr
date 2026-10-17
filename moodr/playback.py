@@ -149,10 +149,11 @@ def _generate_acid_pattern(noise: float, wide_deviation: bool,
     return pattern
 
 
-# Drum sequencer: a 16-step, one-bar pattern on General MIDI drum keys,
-# stepped on the 16th-note grid with step 0 on the bar line.
+# Drum sequencer: a 16-step pattern on General MIDI drum keys, stepped on the
+# 32nd-note grid -- double time against the other parts -- so it plays twice
+# per bar, with step 0 on the bar line and again halfway through it.
 DRUM_STEPS = 16
-DRUM_STEP_TICKS = PPQN // 4
+DRUM_STEP_TICKS = PPQN // 8
 KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
 
 DRUM_KICK_VELOCITY = 120
@@ -219,9 +220,11 @@ _BREAK = {
     "hat":   [.75] * 16,
     "open":  [0, 0, 0, 0, 0, 0, .35, 0, 0, 0, 0, 0, 0, 0, .35, 0],
 }
-# Ticks the off-16ths are pushed late (of DRUM_STEP_TICKS = 6): straight
-# house, a heavy two-step shuffle, a lighter push on the breaks.
-_SWING = (0, 2, 1)
+# Ticks the odd steps are pushed late (of DRUM_STEP_TICKS = 3): straight
+# house, a shuffle on two-step and the breaks. At double time one tick is
+# the finest push there is, so the breaks can no longer swing lighter than
+# two-step.
+_SWING = (0, 1, 1)
 
 # Steps where a snare/hat hit is the main one rather than a ghost.
 _SNARE_MAIN = (4, 12)
@@ -972,7 +975,7 @@ class PlaybackEngine:
 
     def _drum_tick(self, tick_in_bar: int) -> None:
         """Fires a drum step if one lands on this tick of the bar: even
-        16ths on the grid, odd ones pushed late by the current swing."""
+        32nds on the grid, odd ones pushed late by the current swing."""
         step, offset = divmod(tick_in_bar, DRUM_STEP_TICKS)
         if offset == (self._drum_swing if step % 2 else 0):
             self._advance_drum_step(step)
