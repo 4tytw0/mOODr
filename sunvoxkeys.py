@@ -9,6 +9,12 @@ m00drc.build_keys`): two FM layers, a 1:1 reed whose brightness decays fast
 and a short 1:2 odd-harmonic bark, through tremolo, a little amp
 saturation, a low-pass and a small room.
 
+The tremolo follows m00Dr's tempo: m00Dr's master clock sends MIDI Start and
+24 clock pulses per beat out of the same port, so the tremolo runs at
+TREMOLO_PER_BEAT pulses per beat at the clock's tempo, and its phase is reset
+on every beat (TREMOLO_PHASE: loudest on the beat). Without a clock (m00Dr
+following an external one, or stopped) it keeps the last tempo it heard.
+
 m00Dr sends its chords here, on MIDI ch7, when its chord sound is "SunVox
 Wurli", and on ch1 to FluidSynth otherwise, so only one of the two plays.
 Listens on ALSA sequencer client "m00Dr-SunVoxKeys" and plays through pw-cat
@@ -17,7 +23,8 @@ into the m800Dr Mixer's chords strip, like reese.py.
     uv run sunvoxkeys.py                 # run (the m00dr-sunvoxkeys user service does this)
     uv run sunvoxkeys.py --demo x.wav    # render a few chords offline, for listening
 """
-import fcntl, subprocess, sys, threading
+import fcntl, subprocess, sys, threading, time
+from collections import deque
 import numpy as np
 from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, find_module, load, open_lib
 
@@ -37,6 +44,15 @@ VOLUME = 256                              # sv_volume, 0..256
 # here library note 58 plays 220 Hz (A3, MIDI 57). Measured, not derived.
 NOTE_OFFSET = 1
 
+# Tempo-synced tremolo. The LFO's rate is set as a period in ms (see m00Drc's
+# build_keys.py). Its "Set phase" restarts the wobble: measured with a 250 ms
+# period, 0 puts the quietest point on the reset and 128 the loudest.
+TREMOLO_MODULE = "Tremolo"
+TREMOLO_PER_BEAT = 2                      # 8th notes: 4 Hz at 120 bpm
+TREMOLO_PHASE = 128                       # loudest on the beat
+CLOCKS_PER_BEAT = 24                      # MIDI Beat Clock
+DEFAULT_BPM = 120.0
+
 
 class SunVoxKeys:
     def __init__(self):
@@ -44,6 +60,14 @@ class SunVoxKeys:
         load(sv, 0, PROJECT)
         self.modules = [find_module(sv, 0, name, PROJECT) for name in INPUT_MODULES]
         self.bark = find_module(sv, 0, BARK_MODULE, PROJECT) - 1   # module number, for ctl calls
+        self.lfo = find_module(sv, 0, TREMOLO_MODULE, PROJECT) - 1
+        ctls = [sv.sv_get_module_ctl_name(0, self.lfo, c).decode()
+                for c in range(sv.sv_get_number_of_module_ctls(0, self.lfo))]
+        self.lfo_freq, self.lfo_phase = ctls.index("Freq"), ctls.index("Set phase")
+        self.clock_times = deque(maxlen=CLOCKS_PER_BEAT + 1)   # the last beat's pulses
+        self.clock_count = 0
+        self.period_ms = 0
+        self._set_tempo(DEFAULT_BPM)
         sv.sv_volume(0, VOLUME)
         self.lock = threading.Lock()  # ONE_THREAD: events and rendering must not overlap
         self.tracks = {}              # held MIDI note -> SunVox track
@@ -76,6 +100,31 @@ class SunVoxKeys:
                 self._send(track, NOTECMD_NOTE_OFF)
                 self.free.append(track)
 
+    def _set_tempo(self, bpm):
+        period = round(60000 / bpm / TREMOLO_PER_BEAT)
+        if period != self.period_ms:
+            self.period_ms = period
+            self.sv.sv_set_module_ctl_value(0, self.lfo, self.lfo_freq, period, 0)
+
+    def clock_start(self):
+        with self.lock:
+            self.clock_count = 0
+            self.clock_times.clear()
+
+    def clock_tick(self, now=None):
+        """A MIDI clock pulse, arriving at `now` (default: this moment):
+        follow the tempo, and restart the wobble on every beat (the first
+        pulse after Start is beat one)."""
+        with self.lock:
+            self.clock_times.append(time.monotonic() if now is None else now)
+            if len(self.clock_times) == self.clock_times.maxlen:   # a whole beat measured
+                beat = self.clock_times[-1] - self.clock_times[0]
+                if beat > 0:
+                    self._set_tempo(60 / beat)
+            if self.clock_count % CLOCKS_PER_BEAT == 0:
+                self.sv.sv_set_module_ctl_value(0, self.lfo, self.lfo_phase, TREMOLO_PHASE, 0)
+            self.clock_count += 1
+
     def all_off(self):
         with self.lock:
             self.tracks.clear(); self.free = list(range(TRACKS))
@@ -97,9 +146,11 @@ def open_midi():
 
 
 def midi_loop(client, keys):
-    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent
+    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent, ClockEvent, StartEvent
     while True:
         ev = client.event_input()
+        if isinstance(ev, ClockEvent): keys.clock_tick(); continue
+        if isinstance(ev, StartEvent): keys.clock_start(); continue
         if getattr(ev, "channel", None) != KEYS_CHANNEL: continue
         if isinstance(ev, NoteOnEvent):
             keys.note_on(ev.note, ev.velocity) if ev.velocity else keys.note_off(ev.note)

@@ -9,7 +9,9 @@ through the things that make a Wurlitzer a Wurlitzer:
            sine body: the DX7 EP's decay.
     Bark   1:2, which gives mostly odd harmonics: the nasal, hollow bite of a
            struck reed. Short, so it's only there on the attack.
-    -> Tremolo   the Wurlitzer's built-in amplitude tremolo, ~5.5 Hz, shallow
+    -> Tremolo   the Wurlitzer's built-in amplitude tremolo, shallow. 5.5 Hz in
+                 the file; sunvoxkeys.py sets it to 8th notes at m00Dr's tempo
+                 and restarts it on each beat
     -> Amp       a little saturation, the small amp's grit
     -> Tone      low-pass, takes the FM fizz off the top
     -> Room      a short reverb
