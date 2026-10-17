@@ -167,6 +167,16 @@ DRUM_OPEN_HAT_VELOCITY = 96
 # Each Roll picks a different one with a program change.
 DRUM_KITS = 32
 
+# Where the drums play: the soundfont kits above on DRUM_CHANNEL, or one of
+# the SunVox kits (m800Dr's sunvoxdrums.py, built by m00Drc) on
+# SUNVOX_DRUM_CHANNEL, picked by a program change 0..2 in this order. A
+# separate channel means only one of the two synths hears the drums, with no
+# re-routing: FluidSynth only takes ch4, sunvoxdrums.py only ch6.
+SUNVOX_DRUM_CHANNEL = 5  # MIDI channel 6
+SUNVOX_DRUM_KITS = ["Machine", "Boom", "Crunch"]
+SOUNDFONT_DRUMS = "Soundfont"
+DRUM_SOURCES = [SOUNDFONT_DRUMS, *(f"SunVox {name}" for name in SUNVOX_DRUM_KITS)]
+
 # Sounds for the chord and arp channels, as (name, bank, program), picked with bank
 # select (CC 0, GS style: the bank is CC 0's value) and a program change. On
 # the desktop these are FluidSynth's fonts (m800Dr synths/fluidsynth.cfg):
@@ -420,6 +430,8 @@ class PlaybackEngine:
         self._drum_pattern = _drum_pattern_for(self._drum_lines, self._drum_mutation)
         self._drum_swing = 0
         self._drum_kit = 0
+        self._drum_source = SOUNDFONT_DRUMS
+        self._soundfont_drum_channel = drum_channel
         # None until a sound is picked: until then the chord channel keeps
         # whatever its synth was set up with, and nothing is sent.
         self._chord_sound: str | None = None
@@ -645,15 +657,45 @@ class PlaybackEngine:
         """The drum channel's program: which kit the drums play on."""
         return self._drum_kit
 
+    @property
+    def drum_source(self) -> str:
+        """A DRUM_SOURCES name: the soundfont kits, or one SunVox kit."""
+        return self._drum_source
+
+    @drum_source.setter
+    def drum_source(self, name: str) -> None:
+        if name not in DRUM_SOURCES:
+            raise ValueError(f"unknown drum source {name!r}")
+        if name == self._drum_source:
+            return
+        # Release the sounding hit on the old channel before moving, as the
+        # chord/bass channel setters do.
+        self._turn_off_drum_notes()
+        self._drum_source = name
+        self._drum_channel = (self._soundfont_drum_channel if name == SOUNDFONT_DRUMS
+                              else SUNVOX_DRUM_CHANNEL)
+        self._send_drum_kit()
+
+    @property
+    def sunvox_drum_kit(self) -> str | None:
+        """The SunVox kit's name, or None while the soundfont plays."""
+        if self._drum_source == SOUNDFONT_DRUMS:
+            return None
+        return SUNVOX_DRUM_KITS[DRUM_SOURCES.index(self._drum_source) - 1]
+
     def randomize_drum_kit(self) -> None:
-        """Switches the drums to a different kit, at once (a program change
-        doesn't cut hits already sounding)."""
+        """Switches the soundfont drums to a different kit, at once (a
+        program change doesn't cut hits already sounding). A SunVox kit is
+        picked by hand, so it stays: the new soundfont kit waits for the
+        source to come back to the soundfont."""
         source = self._rng if self._rng is not None else random
         self._drum_kit = (self._drum_kit + source.randrange(1, DRUM_KITS)) % DRUM_KITS
         self._send_drum_kit()
 
     def _send_drum_kit(self) -> None:
-        self._midi_output.send([0xC0 | self._drum_channel, self._drum_kit])
+        kit = self.sunvox_drum_kit
+        program = self._drum_kit if kit is None else SUNVOX_DRUM_KITS.index(kit)
+        self._midi_output.send([0xC0 | self._drum_channel, program])
 
     @property
     def drum_mutation(self) -> float:

@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 
 from . import bridge_manager, midi_io, midi_status, oracle, theme, theory, web_remote
 from .clock import MidiClock, MidiClockSlave
-from .playback import (ACID_STEPS, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL,
+from .playback import (ACID_STEPS, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, DRUM_SOURCES,
                        SOUND_NAMES, PlaybackEngine, acid_note_for_step)
 
 DEFAULT_KEY = "E"
@@ -59,6 +59,7 @@ WEB_REMOTE_SETTING = "web_remote/enabled"
 EXTERNAL_SYNC_SETTING = "clock/external_sync"
 CHORD_SOUND_SETTING = "sound/chords"
 ARP_SOUND_SETTING = "sound/arp"
+DRUM_SOURCE_SETTING = "sound/drums"
 M8_UI_PATH_SETTING = "m8_ui_path"
 
 # How long to let CoreMIDI's MIDIServer actually respawn after being killed before this app
@@ -834,6 +835,11 @@ class MainWindow(QWidget):
                 setattr(self._engine, attr, saved_sound)
         self.chord_sound_box.currentTextChanged.connect(self._on_chord_sound_changed)
         self.arp_sound_box.currentTextChanged.connect(self._on_arp_sound_changed)
+        saved_source = QSettings(SETTINGS_ORG, SETTINGS_APP).value(DRUM_SOURCE_SETTING, None)
+        if saved_source in DRUM_SOURCES:
+            self.drums_source_box.setCurrentText(saved_source)
+            self._engine.drum_source = saved_source
+        self.drums_source_box.currentTextChanged.connect(self._on_drum_source_changed)
         self._update_part_labels()
 
         # Lets the 1-7 number keys trigger chord previews (see key{Press,
@@ -1013,6 +1019,13 @@ class MainWindow(QWidget):
             "Roll casts a new one along with the acid line.")
         self.drums_button.toggled.connect(self._on_drums_toggled)
 
+        self.drums_source_box = QComboBox()
+        self.drums_source_box.addItems(DRUM_SOURCES)
+        self.drums_source_box.setToolTip(
+            "What the drums play on: the soundfont's kits on MIDI channel 4 (a new kit "
+            "each Roll), or one of three SunVox kits on channel 6 (on the m800Dr desktop, "
+            "sunvoxdrums.py): Machine (909-ish), Boom (808-ish), Crunch (lo-fi breaks).")
+
         self.drums_mutation_label = QLabel()
         self.drums_mutation_slider = QSlider(Qt.Horizontal)
         self.drums_mutation_slider.setRange(0, 100)
@@ -1145,7 +1158,7 @@ class MainWindow(QWidget):
             acid_row.addWidget(widget)
 
         drums_row = QHBoxLayout()
-        for widget in (self.drums_button, self.drums_mutation_label,
+        for widget in (self.drums_button, self.drums_source_box, self.drums_mutation_label,
                        self.drums_mutation_slider, self.drums_randomize_button):
             drums_row.addWidget(widget)
 
@@ -1433,6 +1446,12 @@ class MainWindow(QWidget):
     def _on_drums_toggled(self, checked: bool) -> None:
         self._engine.drums_enabled = checked
 
+    def _on_drum_source_changed(self, name: str) -> None:
+        self._engine.drum_source = name
+        QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(DRUM_SOURCE_SETTING, name)
+        self._update_part_labels()
+        self._update_drums_mutation_label(self.drums_mutation_slider.value())
+
     def _on_drums_randomize_clicked(self) -> None:
         self._engine.randomize_drum_pattern()
 
@@ -1442,7 +1461,9 @@ class MainWindow(QWidget):
 
     def _update_drums_mutation_label(self, percent: int) -> None:
         style = "House" if percent < 25 else "2-step" if percent < 75 else "Broken"
-        self.drums_mutation_label.setText(f"{style}: {percent}% · kit {self._engine.drum_kit}")
+        kit = self._engine.sunvox_drum_kit
+        kit_text = f"SunVox {kit}" if kit else f"kit {self._engine.drum_kit}"
+        self.drums_mutation_label.setText(f"{style}: {percent}% · {kit_text}")
 
     def _on_control_message(self, message: list[int], _delta_time: float) -> None:
         """Control input callback, on rtmidi's thread: hands drum mutation
