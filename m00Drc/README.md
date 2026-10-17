@@ -50,8 +50,8 @@ uv run python -m m00drc.build_drumkits   # writes ../synths/drumkit-*.sunvox and
 `m00drc/roller.py` draws one seeded stream of 7-bit random ints (0..127, a MIDI CC value), one per
 cycle of `--bars` bars at m00Dr's tempo. Lanes read the stream:
 
-- **m00Dr's controls**: Roll, scale, acid noise and wide deviation, acid randomize, stabs. (Not
-  the arp's pattern, rate or octave: those are left to the player.) The acid lanes change the
+- **m00Dr's controls**: Roll, scale, acid noise and wide deviation, acid randomize. (Not the
+  arp's pattern, rate or octave, or the stabs toggle: those are left to the player.) The acid lanes change the
   acid line's notes, so they fire together on the bar line every 4 bars, randomize included,
   rather than at their own points in the cycle. These are set over m00Dr's web remote (port 8766).
 - **Sound**: `acid.cutoff`, `acid.resonance`, `acid.decay`, `acid.accent`, `acid.glide` and
