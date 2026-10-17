@@ -36,10 +36,11 @@ from rv.modules.base.kicker import BaseKicker
 DEFAULT_OUT = Path(__file__).resolve().parent.parent.parent / "synths"
 KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
 LIB_OFFSET = 23  # MIDI note = library note + LIB_OFFSET
+KICK_CLICK_RELEASE, KICK_CLICK_VOLUME = 6, 70   # the Machine kick's attack transient
 # The Kicker sounds well below its note, so its notes are set by ear-proxy
-# (zero-crossing rate over the hit): 30 starts ~80 Hz and settles ~40 Hz,
-# 27 a little lower and longer for the 808.
-KICKER_NOTE_909, KICKER_NOTE_808 = 30, 27
+# (zero-crossing rate over the hit). The 909's is a punch: 36 starts ~125 Hz
+# and drops fast; the 808's, 27, is lower and long.
+KICKER_NOTE_909, KICKER_NOTE_808 = 36, 27
 
 
 def lib(midi_note: int) -> int:
@@ -60,8 +61,12 @@ def machine() -> tuple[Project, dict]:
     p.name = "m00Drc kit: Machine"
     out = p.output
     out.x, out.y = 900, 512
+    # A punch, not a woop: a fast pitch drop (high acceleration), a short body
+    # (90% of the energy gone by ~115 ms, was ~325) and a noise click on top.
     p.new_module(m.Kicker, name="Kick", x=300, y=200, waveform=BaseKicker.Waveform.sin,
-                 volume=140, release=140, boost=200, acceleration=160, no_click=True) >> out
+                 volume=140, release=55, boost=450, acceleration=600, no_click=False) >> out
+    noise_hit(p, "Kick click", KICK_CLICK_RELEASE, AG.Filter.hp_12db, 2500, 500, 200,
+              volume=KICK_CLICK_VOLUME) >> out
     p.new_module(m.Generator, name="Snare body", x=300, y=350, waveform=Gen.Waveform.triangle,
                  volume=60, attack=0, release=40, sustain=False, polyphony=1) >> out
     noise_hit(p, "Snare noise", 90, AG.Filter.hp_12db, 1500, 500, 350, volume=80) >> out
@@ -74,7 +79,7 @@ def machine() -> tuple[Project, dict]:
         p.new_module(m.Generator, name=name, x=x, y=500, waveform=Gen.Waveform.noise,
                      volume=volume, attack=0, release=release, sustain=False, polyphony=1) >> hats
     return p, {
-        KICK: [("Kick", KICKER_NOTE_909)],
+        KICK: [("Kick", KICKER_NOTE_909), ("Kick click", lib(60))],
         SNARE: [("Snare body", lib(52)), ("Snare noise", lib(60))],
         CLOSED_HAT: [("Hat", lib(60))],
         OPEN_HAT: [("Open hat", lib(60))],
