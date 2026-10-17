@@ -3,6 +3,8 @@ import random
 from moodr.midi_io import FULL_VELOCITY
 from moodr import theory
 from moodr.playback import (
+    SUNVOX_DRUM_CHANNEL,
+    SUNVOX_DRUM_KITS,
     ACID_CHANNEL,
     ACID_STEP_TICKS,
     ACID_STEPS,
@@ -14,6 +16,7 @@ from moodr.playback import (
     CLOSED_HAT,
     DRUM_CHANNEL,
     DRUM_KITS,
+    DRUM_SOURCES,
     DRUM_STEP_TICKS,
     DRUM_STEPS,
     KICK,
@@ -1161,6 +1164,56 @@ def test_start_resends_the_current_drum_kit():
     output.sent.clear()
     engine.start()
     assert _kit_changes(output) == [kit]
+
+
+def test_sunvox_drum_source_moves_the_drums_to_channel_6_and_picks_the_kit():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine._drum_pattern = [[(KICK, 120)] for _ in range(DRUM_STEPS)]
+    engine.start()
+    output.sent.clear()
+
+    engine.drum_source = "SunVox Boom"
+    assert engine.drum_channel == SUNVOX_DRUM_CHANNEL
+    assert engine.sunvox_drum_kit == "Boom"
+    # The hit sounding on ch4 is released there, then the kit is picked on ch6.
+    assert output.sent == [[0x80 | DRUM_CHANNEL, KICK, 0],
+                           [0xC0 | SUNVOX_DRUM_CHANNEL, SUNVOX_DRUM_KITS.index("Boom")]]
+    output.sent.clear()
+    clock.tick(DRUM_STEP_TICKS)
+    assert [0x90 | SUNVOX_DRUM_CHANNEL, KICK, 120] in output.sent
+    assert not _drums_on(output)
+
+
+def test_back_to_the_soundfont_restores_channel_4_and_its_kit():
+    output, clock, engine = make_engine()
+    engine.randomize_drum_kit()
+    kit = engine.drum_kit
+    engine.drum_source = "SunVox Crunch"
+    output.sent.clear()
+    engine.drum_source = DRUM_SOURCES[0]
+    assert engine.drum_channel == DRUM_CHANNEL
+    assert engine.sunvox_drum_kit is None
+    assert _kit_changes(output) == [kit]
+
+
+def test_roll_keeps_a_sunvox_kit():
+    output, clock, engine = make_engine()
+    engine.drum_source = "SunVox Machine"
+    output.sent.clear()
+    engine.randomize_drum_kit()
+    assert output.sent == [[0xC0 | SUNVOX_DRUM_CHANNEL, SUNVOX_DRUM_KITS.index("Machine")]]
+
+
+def test_unknown_drum_source_is_refused():
+    output, clock, engine = make_engine()
+    try:
+        engine.drum_source = "Tambourine"
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")
+    assert engine.drum_source == DRUM_SOURCES[0]
 
 
 def test_chord_sound_sends_bank_select_then_program_change():

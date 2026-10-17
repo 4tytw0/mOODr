@@ -163,7 +163,7 @@ class WebRemote(QObject):
             "circuit": w.circuit_channels_button, "sync": w.external_sync_checkbox,
             "arp": w.arp_button, "arpSound": w.arp_sound_box, "arpPattern": w.arp_pattern_box, "arpRate": w.arp_rate_box,
             "acid": w.acid_button, "acidNoise": w.acid_noise_slider,
-            "acidWide": w.acid_wide_checkbox, "drums": w.drums_button, "drumMutate": w.drums_mutation_slider, "bpm": w.bpm_edit,
+            "acidWide": w.acid_wide_checkbox, "drums": w.drums_button, "drumSource": w.drums_source_box, "drumMutate": w.drums_mutation_slider, "bpm": w.bpm_edit,
         }
         for i, box in enumerate(w.numeral_boxes):
             controls[f"slot{i}"] = box
