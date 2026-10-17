@@ -200,6 +200,15 @@ SOUNDS = [
 ]
 SOUND_NAMES = [name for name, _, _ in SOUNDS]
 
+# Chord sounds that aren't on the soundfont: m800Dr's sunvoxkeys.py plays them
+# on SUNVOX_CHORD_CHANNEL (a DX7-style FM electric piano voiced like a
+# Wurlitzer, built by m00Drc). Picking one moves the chords there, as a
+# SunVox drum kit moves the drums, so FluidSynth (ch1) and SunVox (ch7) never
+# both play them.
+SUNVOX_CHORD_CHANNEL = 6  # MIDI channel 7
+SUNVOX_CHORD_SOUNDS = ["SunVox Wurli"]
+CHORD_SOUND_NAMES = SOUND_NAMES + SUNVOX_CHORD_SOUNDS
+
 # The mutation knob (0.0-1.0) morphs between three grooves, each a chance
 # per step that a voice plays: house at 0.0, UK garage two-step at 0.5,
 # broken breakbeat at 1.0, linearly in between. A pattern's cast is one
@@ -333,8 +342,8 @@ def _arp_note_for_step(chord_notes: list[int], pattern: str, step_index: int,
     return sequence[step_index % len(sequence)]
 
 
-def _check_sound(name: str) -> str:
-    if name not in SOUND_NAMES:
+def _check_sound(name: str, names: list[str] = SOUND_NAMES) -> str:
+    if name not in names:
         raise ValueError(f"unknown sound {name!r}")
     return name
 
@@ -350,6 +359,7 @@ class PlaybackEngine:
         self._midi_output = midi_output
         self._clock = clock
         self._chord_channel = chord_channel
+        self._soundfont_chord_channel = chord_channel
         self._bass_channel = bass_channel
         self._arp_channel = arp_channel
         self._acid_channel = acid_channel
@@ -632,8 +642,23 @@ class PlaybackEngine:
 
     @chord_sound.setter
     def chord_sound(self, name: str) -> None:
-        self._chord_sound = _check_sound(name)
+        self._chord_sound = _check_sound(name, CHORD_SOUND_NAMES)
+        # The channel setter releases what's sounding on the old one first.
+        self.chord_channel = (SUNVOX_CHORD_CHANNEL if name in SUNVOX_CHORD_SOUNDS
+                              else self._soundfont_chord_channel)
         self._send_sound(self._chord_channel, name)
+
+    @property
+    def soundfont_chord_channel(self) -> int:
+        """Where the chords play on a soundfont sound (the Circuit toggle's
+        choice); a SunVox sound overrides it with SUNVOX_CHORD_CHANNEL."""
+        return self._soundfont_chord_channel
+
+    @soundfont_chord_channel.setter
+    def soundfont_chord_channel(self, value: int) -> None:
+        self._soundfont_chord_channel = value
+        if self._chord_sound not in SUNVOX_CHORD_SOUNDS:
+            self.chord_channel = value
 
     @property
     def arp_sound(self) -> str | None:
@@ -646,8 +671,8 @@ class PlaybackEngine:
         self._send_sound(self._arp_channel, name)
 
     def _send_sound(self, channel: int, name: str | None) -> None:
-        if name is None:
-            return
+        if name is None or name in SUNVOX_CHORD_SOUNDS:
+            return  # a SunVox sound is picked by its channel, not a program
         _, bank, program = SOUNDS[SOUND_NAMES.index(name)]
         self._midi_output.send([0xB0 | channel, 0, bank])
         self._midi_output.send([0xC0 | channel, program])
