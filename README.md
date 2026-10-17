@@ -6,13 +6,39 @@ balances and dirties the parts on a Launch Control XL, and an **audio server** s
 any browser on the LAN with a Lissajous scope and the mixer beside it.
 
 ```
-m00Dr ──MIDI──▶ FluidSynth   ch1 chords · ch3 arp · ch4 drums ─┐
-            ├─▶ reese.py     ch2 bass ─────────────────────────┤
-            └─▶ SunVox       ch5 acid (sunvox303.py) ──────────┤
-M8 USB audio ──────────────────────────────────────────────────┤
+m00Dr ──MIDI──▶ FluidSynth      ch1 chords · ch3 arp · ch4 drums ────┐
+            ├─▶ sunvoxbass.py   ch2 fuzz bass ───────────────────────┤
+            ├─▶ sunvox303.py    ch5 acid ────────────────────────────┤
+            ├─▶ sunvoxdrums.py  ch6 SunVox kits (drums strip) ───────┤
+            └─▶ sunvoxkeys.py   ch7 FM Wurli (chords strip) ─────────┤
+m00Drc roller ──▶ m00Dr's web remote · acid sound CCs ───────────────┤
+M8 USB audio ────────────────────────────────────────────────────────┤
 Launch Control XL ──▶ mixer.py: a strip per part, faders, ◀────┘
                       drive, sidechain ──▶ m800dr_mix ──▶ server.py :8808
 ```
+
+## Status
+
+As of 2026-10-17. Everything below is running on the desktop; nothing new has been **judged by ear**
+yet, only measured. The SunVox work is in open, stacked PRs (merge bottom-up: m800Dr #1 → #2 → #4 →
+#5, mOODr #2 → #3); the player change is m800Dr #3.
+
+| Part | Plays on | State |
+|---|---|---|
+| Chords | FluidSynth (ch1) or **SunVox Wurli** (ch7) | live, Wurli selected; tremolo synced to tempo (PR #4) |
+| Bass | **SunVox fuzz bass** (ch2) | live; replaced reese.py; swell once per beat (PR #5) |
+| Arp | FluidSynth (ch3) | live, unchanged |
+| Acid | **SunVox 303** (ch5) | live; saturation + 10-bit crush (PR #1, #4) |
+| Drums | FluidSynth kits (ch4) or **SunVox Machine/Boom/Crunch** (ch6) | live, Machine selected; punchy kick (PR #5); double-time hats (mOODr #3) |
+| Roller | m00Drc → m00Dr's web remote + acid CCs | live; Roll at most every 2-4 min, acid notes every 4 bars (PR #1, #2) |
+| Player | `/` on :8808 | AUTO buffer, ~23 ms instead of 60 (PR #3) |
+| LCXL knobs | roller CC 16/32/52/18 | wired; CC numbers assumed, unverified on the device |
+| Wi-Fi power save | desktop `wlan0` | **still on**; turning it off needs root (see HANDOFF) |
+| reese.py, Open303 | — | disabled; `synths/links.sh` says how to switch back |
+
+## Video
+
+[▶ The rig running](docs/video/m800dr-demo.mp4) <!-- TODO: placeholder path; no video is in the repo yet. Add the file at docs/video/m800dr-demo.mp4, or swap this link for a GitHub upload URL, which GitHub plays inline. -->
 
 ## Pages (audio server, port 8808)
 
@@ -56,7 +82,8 @@ SysEx and LED reference.
   multisamples; m00Dr's Chord sound menu picks one), drums use `gamedrums.sf2` (32 kits, a new one
   per Roll).
 - **`reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive. The saws' beat
-  follows the chords on ch1: consonant chords pulse slowly, dissonant ones beat faster.
+  follows the chords on ch1: consonant chords pulse slowly, dissonant ones beat faster. **Disabled**:
+  `sunvoxbass.py` plays the bass now.
 - **`sunvox303.py`** plays the acid on a headless SunVox library: `synths/acid303.sunvox`, a 303-shaped
   patch built by [m00Drc](m00Drc/) (Glide → mono saw → resonant low-pass kicked open per note,
   harder on accents → drive). 7-bit CCs on ch5 move its key controls (74 cutoff, 71 resonance,
@@ -77,6 +104,8 @@ SysEx and LED reference.
   (built by m00Drc), the reese's oscillators in SunVox (a saw with a detuned second oscillator, plus
   a sine sub at the same pitch) mixed into hard-clipping fuzz, then a low-pass. The saws' beat
   follows m00Dr's clock: their detune is set per note so the tone swells once per beat.
+- The Wurli's tremolo also follows m00Dr's clock (8th notes, phase reset each beat), and the Machine
+  kit's kick is short and punchy with a noise click.
 - **m00Drc's roller** (`m00Drc/`, user service `m00drc-roller`) rolls m00Dr's controls over its web
   remote and sends the sound CCs above, from one phase-shifted stream of 7-bit random ints. Roll
   fires at most once every 2-4 minutes. Its shift, bars, lanes and seed are on Launch Control XL

@@ -1,22 +1,26 @@
 # m800Dr / m00Dr on the desktop — handoff
 
-_Last updated 2026-10-11 (drum kits per Roll, drums on column 7, chord/arp sound menus, chord-following reese beat; committed and pushed)._ This is the M8 rig, which now runs entirely on the Linux desktop
+_Last updated 2026-10-17 (SunVox synths for acid, drums, chords and bass; m00Drc's roller; player latency; all in open PRs, see "Done 2026-10-16/17")._ This is the M8 rig, which now runs entirely on the Linux desktop
 (`Desktop`, 192.168.1.17, CachyOS, KDE Wayland) instead of the MacBook. The Dirtywave M8
 (Teensy / M8 Headless) is plugged in here over USB.
 
-**In progress:** m00Dr's parts play on desktop synths (FluidSynth chords/arp/drums, reese.py bass,
-Open303 acid), all through `mixer.py`, a per-part mixer on the **Launch Control XL**'s faders.
-Everything added since 2026-10-10 night is built and live but **not yet judged by ear** (kits,
-chord sounds, reese beat range, levels).
-**The controller is plugged into the Mac; move it to the desktop** (links.sh then wires it up). See
-"Resume here" at the bottom. Full plan: `~/.claude/plans/m00dr-still-plays-when-dreamy-flurry.md`.
+**In progress:** m00Dr's parts now mostly play on headless **SunVox** players: acid (ch5), bass
+(ch2, replacing reese.py), drums when a SunVox kit is picked (ch6) and chords when "SunVox Wurli" is
+picked (ch7). FluidSynth still plays the arp (ch3) and the soundfont chord/drum choices. m00Drc's
+roller rolls m00Dr's controls and the acid's sound. Everything is live on the desktop and measured,
+but **not yet judged by ear**.
+**Nothing from 2026-10-16/17 is merged:** it's in stacked PRs (m800Dr #1-#5, mOODr #2-#3), and the
+desktop runs it from **uncommitted copies** (see "Code / files"). See "Resume here" at the bottom.
 
 ```
- m00Dr GUI ──MIDI port "m00Dr" (ch1 chords, ch2 bass, ch3 arp, ch4 drums, ch5 acid)
-   │ ├─(pw-link, m00dr-synth-links)──▶ FluidSynth [ch1, ch3, ch4 drums; JACK out per channel] ─┐
-   │ ├─(pw-link)──▶ reese.py (ch2) ──────────────────────────────────────────────────────────┤
-   │ ├─(pw-link)──▶ Carla "m00Dr-Open303": MIDI Channel Filter(ch5) ─▶ JC303 ────────────────┤
-   │ │ web remote :8765/:8766 (iPad: play/stop works)                                         │
+ m00Dr GUI ──MIDI port "m00Dr" (notes + MIDI Beat Clock)
+   │ ├─(pw-link, m00dr-synth-links)──▶ FluidSynth [ch1 chords, ch3 arp, ch4 drums] ──────────┤
+   │ ├─▶ sunvoxbass.py  (ch2 bass: detuned saws + sub → fuzz; beat swells with the clock) ───┤
+   │ ├─▶ sunvox303.py   (ch5 acid: Glide → saw → kicked filter → saturation + 10-bit crush) ──┤
+   │ ├─▶ sunvoxdrums.py (ch6: Machine / Boom / Crunch kits, program 0-2) ─▶ drums strip ─────┤
+   │ ├─▶ sunvoxkeys.py  (ch7: FM Wurli, tremolo synced to the clock) ─▶ chords strip ─────────┤
+   │ │ web remote :8765/:8766 (iPad) ◀── m00Drc roller (lanes; sound CCs → sunvox303) ◀── LCXL knobs
+   │ │ (reese.py and Open303 are disabled; links.sh says how to switch back)                   │
  M8 USB audio ──(pw-loopback, m800dr-mix-m8)─────────────────────────────────────────────────┤
  Launch Control XL ──(on the Mac: tools/midi_bridge.py → POST :8808/mixer/control;
                       on the desktop: any USB MIDI, links.sh)──▶ m800Dr-Mixer                         │
@@ -37,8 +41,13 @@ chord sounds, reese beat range, levels).
 | Audio server | user service `m800dr-audio` → `~/code/m800Dr/server.py` (`/` player, `/mixer` fader page polling `/mixer/state`), `SOURCE = "m800dr_mix.monitor"` | yes (enabled) |
 | Mixer | user service `m800dr-mixer` → `mixer.py` (JACK client `m800Dr-Mixer`). Strips (MIDI ch / fader): chords 1/1, bass 2/2, arp 3/3, acid 5/5, drums 4/7, m8 8/8. Moves on CC 7 on the strip's channel or Launch Control XL CC 77-84 (any channel). Unity at 80% of travel (`KNEE`); above it, asymmetric tanh fuzz. Positions saved in `~/.local/state/m800dr/mixer.json`; live state in `$XDG_RUNTIME_DIR/m800dr-mixer.json` | yes (enabled) |
 | FluidSynth (ch1 chords, ch3 arp, ch4 drums) | user service `m00dr-fluidsynth` (unit copy in `systemd/`). Config is `synths/fluidsynth.cfg` (router passes ch1/ch3/ch4 only); fonts are `synths/GeneralUser-GS.sf2`, `synths/gamebreaks.sf2` (font 2, bank offset 1), `synths/chords.sf2` (font 3, bank offset 2) and `synths/gamedrums.sf2` (font 4, bank 128, 32 kits). Startup: chords preset 10 `phase_sine`, arp preset 1 `toa_f`, drums kit 0; m00Dr then sets chords/arp from its sound menus and the kit per Roll. JACK, 4 output groups (chords l/r_00, arp _02, drums _03; 2 fx pairs per group), gain 1.5. TCP shell on :9800 (no `nc`; use python sockets) | yes (enabled) |
-| Reese bass (ch2) | user service `m00dr-reese` → `~/code/m800Dr/reese.py` (numpy synth: ALSA seq client `m00Dr-Reese` in, `pw-cat --target=0` out, linked to the mixer; also reads ch1 chords to set the saws' beat). Unit copy in `systemd/` | yes (enabled) |
-| Open303 acid (ch5) | user service `m00dr-open303` → `carla-rack --no-gui synths/open303.carxp` (rack: internal MIDI Channel Filter passing ch5 only → JC303 LV2). JACK client `m00Dr-Open303` via `CARLA_CLIENT_NAME`; `PIPEWIRE_QUANTUM=256/48000` (Carla asserts if the buffer size changes). Regenerate the project with `python3 tools/build_open303.py [--dump]` (uses Carla's backend; sets the starting patch in `PATCH`, strips `<ExternalPatchbay>`). Unit copy in `systemd/` | yes (enabled) |
+| SunVox bass (ch2) | user service `m00dr-sunvoxbass` → `sunvoxbass.py` (`synths/fuzzbass.sunvox`; ALSA client `m00Dr-SunVoxBass`, `pw-cat` → bass strip). Mono, last-note priority; per-note osc2 detune from m00Dr's clock = one fuzz swell per beat | yes (enabled) |
+| SunVox acid (ch5) | user service `m00dr-sunvox303` → `sunvox303.py` (`synths/acid303.sunvox`; client `m00Dr-SunVox303` → acid strip). CCs 74/71/75/76/5/77 on ch5 = cutoff/resonance/decay/accent/glide/drive, eased over 0.5 s | yes (enabled) |
+| SunVox drums (ch6) | user service `m00dr-sunvoxdrums` → `sunvoxdrums.py` (`synths/drumkit-*.sunvox` + `drumkits.json`, one SunVox slot per kit; program change 0-2 picks; client `m00Dr-SunVoxDrums` → drums strip) | yes (enabled) |
+| SunVox keys (ch7) | user service `m00dr-sunvoxkeys` → `sunvoxkeys.py` (`synths/wurli.sunvox`; client `m00Dr-SunVoxKeys` → chords strip). Tremolo = 8th notes at the clock's tempo, phase reset each beat | yes (enabled) |
+| m00Drc roller | user service `m00drc-roller` → `m00Drc/` (`uv run python -u -m m00drc.roller --wait-for-play`). Web remote :8766 for m00Dr's controls; ALSA client `m00Drc-Roller` (`knobs in` ← mixer controls, `sound out` → sunvox303) | with m00dr (`WantedBy=m00dr.service`) |
+| Reese bass (ch2) | `m00dr-reese` → `reese.py`. **Disabled 2026-10-16** (sunvoxbass replaces it) | no |
+| Open303 acid (ch5) | **Disabled 2026-10-16** (sunvox303 replaces it). Was: user service `m00dr-open303` → `carla-rack --no-gui synths/open303.carxp` (rack: internal MIDI Channel Filter passing ch5 only → JC303 LV2). JACK client `m00Dr-Open303` via `CARLA_CLIENT_NAME`; `PIPEWIRE_QUANTUM=256/48000` (Carla asserts if the buffer size changes). Regenerate the project with `python3 tools/build_open303.py [--dump]` (uses Carla's backend; sets the starting patch in `PATCH`, strips `<ExternalPatchbay>`). Unit copy in `systemd/` | yes (enabled) |
 | Graph links | user service `m00dr-synth-links` → `synths/links.sh` (re-runs `pw-link` for the pairs in `LINKS` every 2 s: m00Dr → synths, synths and M8 → mixer strips, mixer → `m800dr_mix`; plus every USB MIDI device except Midi Through/M8 → `m800Dr-Mixer:faders`) | yes (enabled) |
 | m00Dr → M8 notes | user service `m00dr-m8-midi` → `~/code/mOODr/m8_midi_route.sh` (aconnect) | **disabled** 2026-10-10: the user wants FluidSynth only |
 | Audio → HDMI | user service `m8-loopback` | enabled, but HDMI isn't a PipeWire sink right now, so it has nowhere to play |
@@ -56,9 +65,17 @@ the aconnect/pw-link keepers). Transport is fine: the user starts m00Dr from the
   if a cached old page shows), `reese.py`, `synths/` (`fluidsynth.cfg`, `links.sh`; `*.sf2`/`*.wav` are
   git-ignored), `tools/` (soundfont recipe: `build_gamebreaks.sh` rebuilds `gamebreaks.sf2` on the Mac,
   where the samples live), `systemd/` (unit copies).
-- **`~/code/mOODr/`**: the user's repo `4tytw0/mOODr`, branch `linux-alsa-ports` (pushed;
-  no PR yet). `m8_midi_route.sh` is **untracked**. m00Dr part channels are in `moodr/playback.py`
-  (`CHORD/BASS/ARP/DRUM/ACID_CHANNEL` = 0/1/2/3/4).
+- **`~/code/mOODr/`**: the user's repo `4tytw0/mOODr`, checked out on **`sunvox-wurli`** (mOODr PR #3,
+  stacked on #2 `sunvox-drum-kits` → `linux-alsa-ports`). `m8_midi_route.sh` is **untracked**.
+  Channels in `moodr/playback.py`: CHORD/BASS/ARP/DRUM/ACID = 0/1/2/3/4, plus
+  `SUNVOX_DRUM_CHANNEL` 5 (ch6) and `SUNVOX_CHORD_CHANNEL` 6 (ch7).
+- **`~/code/m800Dr/` on the desktop is on `master` with ~22 uncommitted files**: copies of everything in
+  m800Dr PRs #1-#5 (and #3's `index.html`). Before pulling a merged branch there, stash or remove them
+  (`git stash -u`), or git will refuse to overwrite untracked files.
+- **`m00Drc/`** (in m800Dr since PR #1): builders for every SunVox patch (`build_project.py` acid +
+  4-voice project, `build_drumkits.py`, `build_keys.py`, `build_bass.py`) and the roller. Its own uv
+  project (`cd m00Drc && uv sync`). `sunvoxlib.py` (repo root) loads the library and has
+  `ClockFollower`; the SunVox library itself (`synths/sunvox_lib/sunvox.so`) is git-ignored.
 - Python tooling: **uv only** (user preference).
 
 ## Verified tonight
@@ -172,6 +189,56 @@ the aconnect/pw-link keepers). Transport is fine: the user starts m00Dr from the
   pulse slowly (0.3 Hz), low or diminished ones faster (~3 Hz), clusters up to 6 Hz; 0.25 s glide.
   `DETUNE` is gone; tune `BEAT_MIN/MAX`, `ROUGH_LO/HI`. Logs `chord [...]: beat x Hz` per chord.
 
+## Done 2026-10-16/17: SunVox synths, roller, latency
+
+All in open PRs, stacked: **m800Dr** #1 `sunvox-303-acid` → master, #2 `sunvox-drum-kits` → #1,
+#4 `sunvox-wurli` → #2, #5 `sunvox-bass` → #4; #3 `stream-latency` → master on its own.
+**mOODr** #2 `sunvox-drum-kits` → `linux-alsa-ports`, #3 `sunvox-wurli` → #2. mOODr #1 (double-time
+drums) was **closed**: the user asked for normal speed back. Merge bottom-up.
+
+- **SunVox app on the Mac:** 2.1.4d in /Applications (1.9.6c kept as `SunVox-1.9.6c.app`). The
+  Homebrew cask is disabled (Gatekeeper); it came from warmplace.ru. The app ignores files opened
+  from Finder: use File → Open. `m00Drc.sunvox` has the 4 voices on ch1/2/3/5 for the app.
+- **Acid (ch5):** Glide → saw → Filter whose `impulse` is written by a Velocity2Ctl on every note
+  (the AnalogGenerator's filter envelope closes to 0 Hz, a 303's doesn't) → saturation 140 into
+  10-bit/22 kHz (energy >3 kHz 2.3% → 14%).
+- **Drums:** three generated kits; m00Dr's **Drums source** menu (Soundfont / SunVox Machine / Boom /
+  Crunch) moves the drums to ch6 for SunVox. Machine's kick was made punchy on request (90% energy by
+  115 ms, was 325; noise click on top). **Hats are double time** (32nds, twice per bar; mOODr #3);
+  kick/snare stay on 16ths.
+- **Chords:** "SunVox Wurli" in the chord sound menu moves chords to ch7: two FM layers (1:1 reed,
+  1:2 bark set per note from velocity), tremolo synced to m00Dr's clock (8th notes), saturation,
+  low-pass, room.
+- **Bass:** sunvoxbass replaced reese: detuned saw pair + same-pitch sine sub into hard-clip fuzz;
+  the detune is set per note so the swell is once per beat (half a beat cycle per beat, since a
+  cycle swells twice through the fuzz). The reese's chord-following beat is gone with it.
+- **Roller** (`m00Drc/m00drc/roller.py`): one seeded stream of 7-bit ints read by lanes shifted in lag
+  and phase. Lanes now: roll, scale, acid noise/wide/randomize, and the six acid sound CCs. **Not**
+  rolled, at the user's request: arp pattern, arp rate, octave, stabs. Roll fires at most every 2-4
+  min; acid-note lanes fire together every 4 bars on the bar line. Knobs: LCXL column 4 CC 16/32/52
+  (shift/bars/lanes) and column 6 CC 18 (seed), **assumed** factory CCs, unverified on the device.
+- **Player latency** (m800Dr #3, deployed): the desktop path is 3-8 ms note → `/stream`; Wi-Fi
+  jitter was ≤16 ms; the fixed 60 ms buffer was most of the delay. AUTO buffer (20 ms floor, ±0.4%
+  rate trim) replays a real trace at ~23 ms with no dropouts. **Wi-Fi power save is still on** on
+  `wlan0`: run `sudo nmcli connection modify q-5G-2 802-11-wireless.powersave 2 && sudo iw dev wlan0
+  set power_save off` (needs the password).
+- **SunVox library gotchas** (all measured; they cost time):
+  - Without `sv_set_event_t(slot, 1, 0)` events are timestamped into the future and never play.
+  - Events only work on **tracks 0-31**; a note on track 32 is silent. Players split 32 tracks
+    across their input modules.
+  - `sv_init` once per process.
+  - Pattern controller values (`sv_send_event` ctl) are 0..0x8000 across the range; use
+    `sv_set_module_ctl_value(..., scaled=0)` for real values.
+  - Pitch offsets differ by module: through Glide (acid) MIDI n = library n + 23; AnalogGenerator,
+    Generator and FM played directly: n − 11 (Generator/AG) and n + 1 (FM, Wurli). The Kicker sounds
+    well below its note; set it by measurement.
+  - LFO Hz/64 rate caps at 256 (4 Hz): use the ms unit. A Velocity2Ctl's change lands after the
+    note it came from has started, so set per-note levels from the player instead.
+  - AnalogGenerator `osc2` is 1/64 semitones, stored 1000 + value (rv takes the signed value).
+- **Don't restart m00Dr while it plays** without saying so: two deploy restarts on 2026-10-16
+  looked like a crash to the user (transport stops, window reopens, tempo resets to 120). Restarting
+  the SunVox players only cuts their part for ~1 s.
+
 ## Launch Control XL notes (mk2: USB 1235:0061)
 
 From Novation's programmer's reference (launch-control-xl-programmers-reference-guide.pdf):
@@ -194,19 +261,26 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
 
 1. Log in to Plasma on the desktop (the box was at the **lightdm** greeter after the reboot, not
    SDDM as noted earlier; autologin isn't working). `m00dr` starts with the session.
-2. Check: `systemctl --user is-active m00dr m00dr-fluidsynth m00dr-reese m00dr-open303 m00dr-synth-links m800dr-mixer m800dr-mix-m8 m800dr-audio`
+2. Check: `systemctl --user is-active m00dr m00dr-fluidsynth m00dr-sunvoxbass m00dr-sunvox303 m00dr-sunvoxdrums m00dr-sunvoxkeys m00drc-roller m00dr-synth-links m800dr-mixer m800dr-audio`
    and `pw-link -l | grep -A2 '^m800Dr-Mixer'`.
-3. Move the Launch Control XL to the desktop; check its faders move the strips on
+3. **Listen** to the SunVox parts (none judged by ear yet): Wurli tremolo depth, fuzz-bass level vs
+   the kick, the punchier Machine kick, Boom/Crunch, the acid's crush. Faders 3 (arp) and 5 (acid)
+   were at 0 on 2026-10-16. Patch settings are at the top of each `m00Drc/m00drc/build_*.py`.
+4. Turn Wi-Fi power save off (command in "Done 2026-10-16/17"), then reload the player.
+5. Review and merge the stacked PRs bottom-up, then put the desktop checkouts back on clean branches.
+6. Move the Launch Control XL to the desktop; check its faders move the strips on
    `http://192.168.1.17:8808/mixer` (factory template; if a fader shows as "last unmapped CC",
    adjust `FADER_CCS` in `mixer.py`).
-4. Listen to the new acid and the drum kits; tune `PATCH` and balance levels. M8 (fader 8) is
-   unplugged right now, so `m800dr-mix-m8` restart-loops harmlessly. Acid fader 5 was left at 0.
-5. Listen to the 32 kits (Roll, or `select 3 4 128 <kit>` on the :9800 shell); reseed the mixes
+7. Balance levels across the strips. M8 (fader 8) is unplugged right now, so `m800dr-mix-m8`
+   restart-loops harmlessly.
+8. Listen to the 32 kits (Roll, or `select 3 4 128 <kit>` on the :9800 shell); reseed the mixes
    (`build_drumkit.py --seed`) if they repeat too much.
-6. Try the chord/arp sound menus; balance the new `chords.sf2` patches against Phase sine.
-7. Judge the reese beat (the journal logs `chord [...]: beat x Hz`); tune `BEAT_*`/`ROUGH_*` in reese.py.
-8. Check the column-7 knobs really send CC 19 / CC 35 once the controller is on the desktop.
-9. Open a PR for mOODr `linux-alsa-ports` when happy.
+9. Try the chord/arp sound menus; balance the new `chords.sf2` patches against Phase sine.
+10. (reese.py is disabled; only if switching back: judge its beat, tune `BEAT_*`/`ROUGH_*`.)
+11. Check the knobs really send their assumed CCs once the controller is on the desktop: column 7
+    (19 drum mutation, 35 sidechain) and the roller's column 4/6 (16, 32, 52, 18). The roller's
+    journal (`journalctl --user -fu m00drc-roller`) prints a `knob:` line per CC it takes.
+12. mOODr PRs #2/#3 target `linux-alsa-ports`; that branch itself still has no PR into `main`.
 
 ## Done 2026-10-10: Open303
 
@@ -230,6 +304,16 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
 - Now that Carla is installed, a plugin synth through Carla could replace `reese.py` if wanted.
 
 ## Open issues
+
+- **Desktop runs uncommitted copies** of m800Dr PRs #1-#5; `~/code/mOODr` is on the PR branch
+  `sunvox-wurli`. Tidy both once merged.
+- **LCXL knob CCs are assumed** (roller 16/32/52/18, drum mutation 19, sidechain 35); the
+  controller hasn't been on the desktop to check.
+- **Restart loops:** `m800dr-mix-m8` (M8 unplugged, >100k restarts) and `aseqnet-anbernic`
+  (handheld offline). Disable until the devices are back?
+- The roller times its cycles from m00Dr's BPM, not its MIDI clock, so it drifts slowly against the
+  bar; and in external-sync mode m00Dr doesn't forward clock, so the Wurli tremolo and bass swell
+  hold the last tempo.
 
 - **HDMI sink missing** from PipeWire, so `m8-loopback` can't play anywhere. Nobody has looked into
   it; the TV is fed by the browser stream instead.
