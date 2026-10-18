@@ -785,6 +785,12 @@ class MainWindow(QWidget):
         # over are still waiting for the boundary. Deferring keeps a Roll
         # landing all at once, the way _on_roll_clicked already promises.
         self._pending_acid_cast = False
+        # The last Roll's six lines (0-3, bottom first), for the web remote's
+        # "cast", which m00Drc's roller rolls its arc of controls from. Queued
+        # like the acid cast so it lands with the rolled progression; None
+        # until the first Roll.
+        self._pending_reading_lines: list[int] | None = None
+        self.reading_lines: list[int] | None = None
         # Which progression slot is sounding, or -1 while stopped. Tracked
         # only so the acid lane knows which bar's root to resolve its steps
         # against; the chord pads read it straight off the signal.
@@ -1243,6 +1249,7 @@ class MainWindow(QWidget):
         # step (see playback._generate_acid_pattern). Queued, not applied:
         # see _pending_acid_cast.
         self._pending_acid_cast = True
+        self._pending_reading_lines = cast.lines
         self.key_box.setCurrentText(cast.key)
         self.mode_box.setCurrentText(cast.mode)
         for box, degree in zip(self.numeral_boxes, cast.slots):
@@ -1497,6 +1504,10 @@ class MainWindow(QWidget):
         """Spends a Roll's queued acid cast, if there is one. Called at the
         loop boundary while playing and at Play while stopped, matching how
         a rolled key/scale/progression reaches the engine."""
+        # Before the acid check: Randomize can cancel a Roll's acid cast,
+        # but the reading still belongs to the progression that's landing.
+        if self._pending_reading_lines is not None:
+            self.reading_lines, self._pending_reading_lines = self._pending_reading_lines, None
         if not self._pending_acid_cast:
             return
         self._pending_acid_cast = False

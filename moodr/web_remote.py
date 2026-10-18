@@ -255,6 +255,9 @@ class WebRemote(QObject):
             "controls": controls,
             "playing": bool(w.play_button.property("playing")),
             "reading": w.reading_label.text(),
+            # The landed Roll's six lines (0-3, bottom first; see oracle), or
+            # null before a Roll. m00Drc's roller rolls its arc from them.
+            "cast": w.reading_lines,
             "noiseLabel": w.acid_noise_label.text(),
             "drumLabel": w.drums_mutation_label.text(),
             "pads": [{"numeral": p.numeral_label.text(), "name": p.name_label.text(),
