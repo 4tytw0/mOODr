@@ -250,9 +250,22 @@ _SWING = (0, 2, 1)
 _SNARE_MAIN = (4, 12)
 _HAT_MAIN = (2, 6, 10, 14)
 
+# A groove's main hits, the steps it gives at least this chance, always play
+# while the knob is nearest that groove (the ranges the GUI label names:
+# house under 0.25, two-step under 0.75, breaks above), so a Roll changes
+# only the extras around them. Blending alone let them drop out: at 0.2 the
+# house kick on beat 2 is only a 54% chance.
+_MAIN_CHANCE = 0.85
+
+
+def _nearest_groove(mutation: float) -> dict[str, list[float]]:
+    return _HOUSE if mutation < 0.25 else _TWO_STEP if mutation < 0.75 else _BREAK
+
 
 def _blend(voice: str, step: int, mutation: float) -> float:
     """A voice's chance at a step, between the three grooves."""
+    if _nearest_groove(mutation)[voice][step] >= _MAIN_CHANCE:
+        return 1.0
     house, two, brk = _HOUSE[voice][step], _TWO_STEP[voice][step], _BREAK[voice][step]
     if mutation <= 0.5:
         return house + (two - house) * mutation * 2

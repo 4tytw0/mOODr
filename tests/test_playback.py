@@ -1321,3 +1321,21 @@ def test_arp_sound_goes_to_the_arp_channel_and_is_resent_on_start():
     engine.start()
     assert [0xC0 | ARP_CHANNEL, program] in output.sent
     assert not [m for m in output.sent if m[0] == 0xC0 | CHORD_CHANNEL]
+
+
+def test_main_hits_always_play_near_their_groove():
+    # Between grooves the blend used to let them drop: at 0.2, house's kick
+    # on beat 2 was a 54% chance.
+    for seed in range(200):
+        for mutation in (0.0, 0.2):
+            notes = _notes(_generate_drum_pattern(random.Random(seed), mutation))
+            assert all(KICK in notes[step] for step in (0, 4, 8, 12))
+            assert SNARE in notes[4] and SNARE in notes[12]
+            for step in (2, 6, 10, 14):
+                assert notes[step] & {CLOSED_HAT, OPEN_HAT}
+        for mutation in (0.3, 0.5, 0.7):
+            notes = _notes(_generate_drum_pattern(random.Random(seed), mutation))
+            assert KICK in notes[0] and KICK in notes[10]
+            assert SNARE in notes[4] and SNARE in notes[12]
+        notes = _notes(_generate_drum_pattern(random.Random(seed), 0.9))
+        assert KICK in notes[0] and KICK in notes[10]
