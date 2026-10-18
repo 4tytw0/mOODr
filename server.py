@@ -7,6 +7,10 @@ GET /mixer        -> the mixer page (mixer.html): fader positions, drive, meters
 GET /mixer/state  -> mixer.py's live state as JSON (503 if it isn't running)
 POST /mixer/control -> a JSON fader move, forwarded to mixer.py's UDP control
                        input ({"strip": name, "fader": 0..1} or {"cc": [status, cc, value]})
+GET /acid         -> the 303 page (acid.html): the acid patch's sound controls
+GET /acid/state   -> sunvox303.py's live state as JSON (503 if it isn't running)
+POST /acid/control -> a JSON knob move, forwarded to sunvox303.py's UDP control
+                      input ({"cc": n, "value": 0..127} holds it, {"cc": n, "hold": false} lets go)
 
 Each listener gets its own `parec` capture of the mix, so a listener
 dropping off never stalls the others. Standard library only.
@@ -23,9 +27,16 @@ SOURCE = "m800dr_mix.monitor"
 RATE, CHANNELS = 48000, 2
 CHUNK = RATE * CHANNELS * 2 // 100  # 10 ms of audio per write
 PAGE = pathlib.Path(__file__).with_name("index.html")
-MIXER_PAGE = pathlib.Path(__file__).with_name("mixer.html")
-MIXER_CONTROL = ("127.0.0.1", 9810)
-MIXER_STATE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m800dr-mixer.json"
+RUNTIME = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+# Panel pages: /name, /name/state and /name/control, each backed by a process
+# that takes UDP control datagrams and writes its live state to a JSON file.
+# name -> (page, UDP control address, state file, what the 503 says).
+PANELS = {
+    "mixer": (pathlib.Path(__file__).with_name("mixer.html"), ("127.0.0.1", 9810),
+              RUNTIME / "m800dr-mixer.json", "mixer not running"),
+    "acid": (pathlib.Path(__file__).with_name("acid.html"), ("127.0.0.1", 9811),
+             RUNTIME / "m800dr-acid.json", "sunvox303 not running"),
+}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -33,20 +44,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.path = self.path.split("?", 1)[0]   # /mixer?embed is the same page
         if self.path in ("/", "/index.html"):
             self.send_body(PAGE.read_bytes(), "text/html; charset=utf-8")
-        elif self.path == "/mixer":
-            self.send_body(MIXER_PAGE.read_bytes(), "text/html; charset=utf-8")
-        elif self.path == "/mixer/state":
+        elif self.path.strip("/") in PANELS:
+            self.send_body(PANELS[self.path.strip("/")][0].read_bytes(), "text/html; charset=utf-8")
+        elif self.path.endswith("/state") and self.path[1:-6] in PANELS:
+            _, _, state, missing = PANELS[self.path[1:-6]]
             try:
-                self.send_body(MIXER_STATE.read_bytes(), "application/json")
+                self.send_body(state.read_bytes(), "application/json")
             except OSError:
-                self.send_error(503, "mixer not running")
+                self.send_error(503, missing)
         elif self.path == "/stream":
             self.stream()
         else:
             self.send_error(404)
 
     def do_POST(self):
-        if self.path != "/mixer/control":
+        panel = self.path[1:-8] if self.path.endswith("/control") else None
+        if panel not in PANELS:
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length", 0))
@@ -55,7 +68,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         body = self.rfile.read(length)
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.sendto(body, MIXER_CONTROL)
+            sock.sendto(body, PANELS[panel][1])
         self.send_response(204)
         self.end_headers()
 
@@ -68,7 +81,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_request(self, code="-", size="-"):
-        if self.path not in ("/mixer/state", "/mixer/control"):   # high-rate, not worth a log line
+        if not self.path.endswith(("/state", "/control")):   # high-rate, not worth a log line
             super().log_request(code, size)
 
     def stream(self):

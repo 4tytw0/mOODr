@@ -15,6 +15,11 @@ Sound CCs: 7-bit CCs on ACID_CHANNEL move the patch's key controls
 (SOUND_CCS), each eased toward its new value over SOUND_GLIDE so a jump in
 the knob or in m00Drc's roller (which sends these) sweeps rather than steps.
 
+The 303 page (/acid on server.py) sets the same controls over UDP (CONTROL):
+{"cc": 74, "value": 0..127} sets one and holds it, so MIDI CCs for it
+(the roller's) are ignored until {"cc": 74, "hold": false} hands it back,
+at the last value MIDI sent. The live state is written to LIVE every 100 ms.
+
 m00Dr slides by sending the next note-on before the previous note-off. Each
 held note gets its own SunVox track, so a slide reaches the Glide module as two
 overlapping notes, which it turns into a pitch sweep instead of a retrigger.
@@ -24,7 +29,7 @@ The SunVox library is loaded by sunvoxlib.py (see there for where it lives).
     uv run sunvox303.py                # run (the m00dr-sunvox303 user service does this)
     uv run sunvox303.py --demo x.wav   # render a short riff offline, for checking levels
 """
-import fcntl, subprocess, sys, threading
+import fcntl, json, os, pathlib, socket, subprocess, sys, threading, time
 import numpy as np
 from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, find_module, load, open_lib
 
@@ -53,6 +58,11 @@ SOUND_CCS = {
     77: ("Acid drive", "Power", 60, 220),               # saturation into the 10-bit crush
 }
 SOUND_GLIDE = 0.5                         # s, time constant for easing to a new CC value
+# What the 303 page calls each one.
+SOUND_LABELS = {74: "Cutoff", 71: "Resonance", 75: "Decay", 76: "Accent", 5: "Glide", 77: "Drive"}
+
+CONTROL = ("127.0.0.1", 9811)             # the 303 page, via server.py (mixer.py has 9810)
+LIVE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m800dr-acid.json"
 
 
 class SunVox303:
@@ -61,7 +71,8 @@ class SunVox303:
         load(sv, 0, PROJECT)
         self.modules = [find_module(sv, 0, name, PROJECT) for name in INPUT_MODULES]
         sv.sv_volume(0, VOLUME)
-        self.sound = {}               # CC -> [module, ctl, lo, hi, current, target]
+        # CC -> [module, ctl, lo, hi, current, target, 7-bit value, held, last MIDI value]
+        self.sound = {}
         for cc, (name, ctl_name, lo, hi) in SOUND_CCS.items():
             mod = sv.sv_find_module(0, name.encode())
             ctls = [sv.sv_get_module_ctl_name(0, mod, c).decode()
@@ -70,7 +81,8 @@ class SunVox303:
                 raise RuntimeError(f"no controller {name!r}/{ctl_name!r} in {PROJECT}")
             ctl = ctls.index(ctl_name)
             now = float(sv.sv_get_module_ctl_value(0, mod, ctl, 0))
-            self.sound[cc] = [mod, ctl, lo, hi, now, now]
+            value = min(max(round((now - lo) / (hi - lo) * 127), 0), 127)
+            self.sound[cc] = [mod, ctl, lo, hi, now, now, value, False, value]
         self.ease = 1 - np.exp(-BLOCK / (SOUND_GLIDE * SR))
         self.lock = threading.Lock()  # ONE_THREAD: events and rendering must not overlap
         self.tracks = {}              # held MIDI note -> SunVox track
@@ -103,18 +115,41 @@ class SunVox303:
             self.tracks.clear()
             self.sv.sv_send_event(0, 0, NOTECMD_ALL_NOTES_OFF, 0, 0, 0, 0)
 
+    def _set(self, entry, value):
+        entry[6] = value
+        entry[5] = entry[2] + (entry[3] - entry[2]) * value / 127
+
     def control(self, cc, value):
-        """A 7-bit CC: set that controller's target; render() eases toward it."""
+        """A 7-bit CC from MIDI: set that controller's target, unless the 303
+        page holds it; render() eases toward it."""
         with self.lock:
             entry = self.sound.get(cc)
             if entry is not None:
-                lo, hi = entry[2], entry[3]
-                entry[5] = lo + (hi - lo) * value / 127
+                entry[8] = value
+                if not entry[7]:
+                    self._set(entry, value)
+
+    def hold(self, cc, value=None):
+        """From the 303 page: set a controller and hold it against MIDI
+        (value 0..127), or with no value hand it back to MIDI's last value."""
+        with self.lock:
+            entry = self.sound.get(cc)
+            if entry is None:
+                return
+            entry[7] = value is not None
+            self._set(entry, entry[8] if value is None else min(max(int(value), 0), 127))
+
+    def state(self):
+        with self.lock:
+            return {"time": time.time(), "controls": [
+                {"cc": cc, "label": SOUND_LABELS[cc], "value": e[6], "held": e[7],
+                 "real": round(e[4]), "lo": e[2], "hi": e[3]}
+                for cc, e in self.sound.items()]}
 
     def render(self):
         with self.lock:
             for entry in self.sound.values():
-                mod, ctl, _, _, now, target = entry
+                mod, ctl, _, _, now, target = entry[:6]
                 if round(now) != round(target):
                     now += (target - now) * self.ease
                     if abs(target - now) < 0.5: now = target
@@ -146,6 +181,28 @@ def midi_loop(client, synth):
             elif ev.param in SOUND_CCS: synth.control(ev.param, ev.value)
 
 
+def control_loop(synth):
+    """The 303 page's knobs, as JSON datagrams on CONTROL (see the docstring)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(CONTROL)
+    while True:
+        try:
+            msg = json.loads(sock.recv(4096))
+            cc = int(msg["cc"])
+            synth.hold(cc, None if msg.get("hold") is False else msg["value"])
+        except (ValueError, TypeError, KeyError):
+            pass
+
+
+def state_loop(synth):
+    LIVE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = LIVE.with_suffix(".tmp")
+    while True:
+        tmp.write_text(json.dumps(synth.state()))
+        tmp.replace(LIVE)
+        time.sleep(0.1)
+
+
 def demo(path):
     """A 303-ish riff: (note, 16ths, slide into the next, accent)."""
     import wave
@@ -175,6 +232,8 @@ def demo(path):
 def main():
     synth = SunVox303()
     threading.Thread(target=midi_loop, args=(open_midi(), synth), daemon=True).start()
+    threading.Thread(target=control_loop, args=(synth,), daemon=True).start()
+    threading.Thread(target=state_loop, args=(synth,), daemon=True).start()
     # --target 0: left unlinked; synths/links.sh wires it into the mixer's acid strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",

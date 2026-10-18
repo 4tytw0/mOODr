@@ -20,8 +20,11 @@
   h1 span { color:var(--accent); }
   h1 .nav { float:right; font-size:13px; color:var(--dim); text-decoration:none; letter-spacing:.12em;
             padding:4px 0 0; border:0; background:none; font-family:inherit; cursor:pointer; }
-  #mixer { width:100%; height:0; border:0; display:block; align-self:start; }
-  #mixer[hidden] { display:none; }
+  h1 .tabs { float:right; display:flex; gap:16px; }
+  h1 .tabs .nav { float:none; }
+  h1 .tabs .nav.sel { color:var(--fg); }
+  .panel { width:100%; height:0; border:0; display:block; align-self:start; }
+  .panel[hidden] { display:none; }
   h1 .nav:hover { color:var(--fg); }
   button { font:inherit; font-size:16px; padding:14px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
            border-radius:6px; cursor:pointer; }
@@ -54,7 +57,9 @@
 </head>
 <body>
 <main>
-  <h1>AUDIO <span>●</span> SERVER <button class="nav" id="mixbtn" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER ▸</button></h1>
+  <h1>AUDIO <span>●</span> SERVER <span class="tabs">
+    <button class="nav" id="tab-acid" title="Show or hide the 303's sound controls beside the scope (the audio keeps playing)">303</button>
+    <button class="nav" id="tab-mixer" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER</button></span></h1>
   <section id="player">
   <div id="scope">
     <canvas id="grid"></canvas>
@@ -74,7 +79,8 @@
   <label>Buffer <button class="chip sel" id="bufauto" title="Auto: keep the buffer just above what the network needs, growing after a dropout and shrinking while it's calm">AUTO</button> <b id="bufv">60 ms</b><input id="buf" type="range" min="10" max="300" step="5" value="60"></label>
   <div id="status">Stopped</div>
   </section>
-  <iframe id="mixer" title="Mixer" hidden></iframe>
+  <iframe class="panel" id="mixer" title="Mixer" hidden></iframe>
+  <iframe class="panel" id="acid" title="303" hidden></iframe>
 </main>
 <script>
 const RATE = 48000, CH = 2, BYTES_PER_FRAME = CH * 2, MIN_FRAMES = 480; // schedule >=10 ms at a time
@@ -104,23 +110,28 @@ $('bufauto').onclick = () => setAuto(!auto);
 $('vol').oninput = e => { $('volv').textContent = e.target.value + '%'; if (gain) gain.gain.value = e.target.value / 100; };
 $('buf').oninput = e => { setAuto(false); target = e.target.value / 1000; showTarget(); };
 $('go').onclick = () => running ? stop() : start();
-// The mixer is a panel beside the scope (an iframe of /mixer?embed), so the
-// audio keeps playing. Open unless last closed; it reports its height so the
-// panel fits it.
-function showMixer(open) {
-  const f = $('mixer');
-  if (open && !f.src) f.src = '/mixer?embed';
-  f.hidden = !open;
-  document.querySelector('main').classList.toggle('with-mixer', open);
-  $('mixbtn').textContent = open ? 'MIXER ◂' : 'MIXER ▸';
-  try { localStorage.setItem('mixer', open ? 'open' : 'closed'); } catch {}
+// The mixer and the 303 are tabs of a panel beside the scope (iframes of
+// /mixer?embed and /acid?embed), so the audio keeps playing. Clicking the open
+// tab closes the panel. The mixer is open unless last closed; each page
+// reports its height so the panel fits it.
+const PANELS = ['mixer', 'acid'];
+function showPanel(name) {
+  for (const p of PANELS) {
+    const f = $(p);
+    if (p === name && !f.src) f.src = `/${p}?embed`;
+    f.hidden = p !== name;
+    $('tab-' + p).classList.toggle('sel', p === name);
+  }
+  document.querySelector('main').classList.toggle('with-mixer', !!name);
+  try { localStorage.setItem('panel', name || 'closed'); } catch {}
 }
-$('mixbtn').onclick = () => showMixer($('mixer').hidden);
-let mixerPref = 'open';
-try { mixerPref = localStorage.getItem('mixer') || 'open'; } catch {}
-showMixer(mixerPref === 'open');
+for (const p of PANELS) $('tab-' + p).onclick = () => showPanel($(p).hidden ? p : null);
+let panelPref = 'mixer';
+try { panelPref = localStorage.getItem('panel') || (localStorage.getItem('mixer') === 'closed' ? 'closed' : 'mixer'); } catch {}
+showPanel(PANELS.includes(panelPref) ? panelPref : null);
 addEventListener('message', e => {
-  if (e.source === $('mixer').contentWindow && e.data?.mixerHeight) $('mixer').style.height = e.data.mixerHeight + 'px';
+  for (const p of PANELS)
+    if (e.source === $(p).contentWindow && e.data?.[p + 'Height']) $(p).style.height = e.data[p + 'Height'] + 'px';
 });
 
 function stop() {

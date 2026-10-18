@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Server 303</title>
+<style>
+  :root { --bg:#f4f4f2; --fg:#1b1b1b; --dim:#6b6b6b; --line:#d4d4d0; --accent:#e8501e; --ok:#2f9e5a; --track:#e6e6e2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#ececec; --dim:#8a8a8a; --line:#2c2c2c; --ok:#4cc27a; --track:#1c1c1c; } }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg);
+         font:15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; padding:16px; }
+  main { width:100%; max-width:640px; display:grid; gap:18px; }
+  h1 { margin:0; font-size:20px; letter-spacing:.08em; }
+  h1 span { color:var(--accent); }
+  h1 .nav { float:right; font-size:13px; color:var(--dim); text-decoration:none; letter-spacing:.12em; padding-top:4px; }
+  h1 .nav:hover { color:var(--fg); }
+  #bar { display:flex; gap:10px; align-items:center; color:var(--dim); font-size:13px; }
+  #bar .grow { flex:1; }
+  .chip { font:inherit; font-size:11px; letter-spacing:.12em; padding:5px 9px; border:1px solid var(--line);
+          border-radius:4px; background:transparent; color:var(--dim); cursor:pointer; }
+  .chip.held { color:var(--accent); border-color:var(--accent); }
+  .chip:disabled { cursor:default; opacity:.5; }
+  #knobs { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; }   /* filter row, then accent/glide/drive */
+  .knob { display:grid; gap:6px; justify-items:center; padding:12px 6px; border:1px solid var(--line); border-radius:8px; }
+  .knob.held { border-color:var(--accent); }
+  .name { font-size:13px; letter-spacing:.12em; text-transform:uppercase; }
+  .ch { font-size:11px; color:var(--dim); }
+  /* Drag up/down (or scroll) to turn; the arc is the value, the dot where the sound is right now. */
+  .dial { width:76px; height:76px; cursor:ns-resize; touch-action:none; user-select:none; -webkit-user-select:none; }
+  .dial.grab { outline:2px solid var(--accent); outline-offset:2px; border-radius:50%; }
+  .dial .track { fill:none; stroke:var(--track); stroke-width:7; stroke-linecap:round; }
+  .dial .arc { fill:none; stroke:var(--fg); stroke-width:7; stroke-linecap:round; opacity:.85; }
+  .knob.held .dial .arc { stroke:var(--accent); opacity:1; }
+  .dial .now { fill:var(--ok); }
+  .val { font-size:12px; min-height:1.4em; }
+  #status { color:var(--dim); font-size:13px; min-height:1.4em; }
+  /* Embedded in the audio server page: no title, no centring, no gutter. */
+  .embed body { display:block; min-height:0; padding:0; }
+  .embed h1 { display:none; }
+  .embed main { max-width:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>303 <span>●</span> ACID <a class="nav" href="/">← AUDIO SERVER</a></h1>
+  <div id="bar">The roller moves these every cycle. Turning a knob holds it.
+    <span class="grow"></span><button class="chip" id="all">ALL TO ROLLER</button></div>
+  <div id="knobs"></div>
+  <div id="status">Connecting…</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+if (location.search.includes('embed')) {
+  document.documentElement.classList.add('embed');
+  new ResizeObserver(() => parent.postMessage({ acidHeight: document.querySelector('main').scrollHeight + 4 }, '*'))
+    .observe(document.querySelector('main'));
+}
+const knobs = {};   // cc -> {el, dial, arc, now, val, chip, value, held, grab}
+const SWEEP = 270, R = 30, C = 38;   // degrees of travel, arc radius, centre
+
+// A point on the dial at fraction f of the sweep, starting bottom-left.
+function at(f) {
+  const a = (135 + f * SWEEP) * Math.PI / 180;
+  return [C + R * Math.cos(a), C + R * Math.sin(a)];
+}
+function arc(f) {
+  const [x0, y0] = at(0), [x1, y1] = at(Math.max(f, 0.001));
+  return `M${x0},${y0} A${R},${R} 0 ${f * SWEEP > 180 ? 1 : 0} 1 ${x1},${y1}`;
+}
+
+function post(msg) { fetch('/acid/control', { method: 'POST', body: JSON.stringify(msg) }); }
+
+function build(c) {
+  const el = document.createElement('div');
+  el.className = 'knob';
+  el.innerHTML = `<div class="name">${c.label}</div><div class="ch">CH 5 · CC ${c.cc}</div>
+    <svg class="dial" viewBox="0 0 76 76"><path class="track" d="${arc(1)}"/><path class="arc"/>
+      <circle class="now" r="4"/></svg>
+    <div class="val"></div><button class="chip" title="Held: the roller's CCs are ignored. Click to hand it back.">ROLLER</button>`;
+  $('knobs').append(el);
+  const k = knobs[c.cc] = { el, dial: el.querySelector('.dial'), arc: el.querySelector('.arc'),
+                            now: el.querySelector('.now'), val: el.querySelector('.val'),
+                            chip: el.querySelector('.chip'), value: c.value, held: false, grab: false };
+  turnable(c.cc, k);
+  k.chip.onclick = () => { if (k.held) post({ cc: c.cc, hold: false }); };
+  return k;
+}
+
+// Dragging (mouse or touch) or scrolling turns the knob: 200 px is the full
+// sweep. Posts at most every 30 ms; while grabbed, polled state doesn't fight it.
+function turnable(cc, k) {
+  let last = 0, timer = null, y0 = 0, v0 = 0;
+  const send = () => { timer = null; last = Date.now(); post({ cc, value: Math.round(k.value) }); };
+  const set = v => {
+    k.value = Math.min(127, Math.max(0, v));
+    k.held = true; draw(k);
+    if (!timer) timer = setTimeout(send, Math.max(0, 30 - (Date.now() - last)));
+  };
+  k.dial.addEventListener('pointerdown', e => {
+    k.grab = true; k.dial.classList.add('grab'); k.dial.setPointerCapture(e.pointerId);
+    y0 = e.clientY; v0 = k.value;
+  });
+  k.dial.addEventListener('pointermove', e => { if (k.grab) set(v0 + (y0 - e.clientY) * 127 / 200); });
+  const release = () => { k.grab = false; k.dial.classList.remove('grab'); };
+  k.dial.addEventListener('pointerup', release);
+  k.dial.addEventListener('pointercancel', release);
+  k.dial.addEventListener('wheel', e => { e.preventDefault(); set(k.value - Math.sign(e.deltaY) * 4); }, { passive: false });
+  // Double-click/tap: back to the roller.
+  k.dial.addEventListener('dblclick', () => post({ cc, hold: false }));
+}
+
+function draw(k) {
+  const f = k.value / 127;
+  k.arc.setAttribute('d', arc(f));
+  k.el.classList.toggle('held', k.held);
+  k.chip.classList.toggle('held', k.held);
+  k.chip.textContent = k.held ? 'HELD ✕' : 'ROLLER';
+  k.chip.disabled = !k.held;
+  k.val.textContent = Math.round(f * 100) + '%' + (k.suffix || '');
+}
+
+function render(state) {
+  for (const c of state.controls) {
+    const k = knobs[c.cc] || build(c);
+    // Where the eased sound is now, as a dot on the dial.
+    const [x, y] = at(Math.min(1, Math.max(0, (c.real - c.lo) / (c.hi - c.lo))));
+    k.now.setAttribute('cx', x); k.now.setAttribute('cy', y);
+    k.suffix = c.label === 'Cutoff' ? ` · ${c.real} Hz` : '';
+    if (k.grab) continue;
+    k.value = c.value; k.held = c.held;
+    draw(k);
+  }
+  $('all').disabled = !state.controls.some(c => c.held);
+  const age = Date.now() / 1000 - state.time;
+  $('status').textContent = age > 2 ? 'SunVox 303 not running'
+    : 'Drag a knob up/down or scroll · double-click = back to the roller · the green dot is where the sound is now';
+}
+
+$('all').onclick = () => { for (const cc in knobs) if (knobs[cc].held) post({ cc: +cc, hold: false }); };
+
+async function poll() {
+  try {
+    const r = await fetch('/acid/state', { cache: 'no-store' });
+    if (r.ok) render(await r.json());
+    else $('status').textContent = 'SunVox 303 not running';
+  } catch { $('status').textContent = 'Audio server unreachable'; }
+  setTimeout(poll, 100);
+}
+poll();
+</script>
+</body>
+</html>
