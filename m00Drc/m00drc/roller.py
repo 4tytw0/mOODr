@@ -19,6 +19,18 @@ same stream shifted in two ways:
 `--shift` rotates every phase by the same amount. That moves the whole
 pattern relative to the bar without changing it.
 
+I Ching: once m00Dr has been rolled, the stream follows the reading instead
+of the dice. m00Dr's web remote sends the last Roll's "unfolding": one
+hexagram per chord of the progression, starting with the cast hexagram and
+turning its changing lines one by one until the last chord reaches the
+hexagram it transforms into. Each chord is then a cycle: when m00Dr moves to
+a chord, that chord's hexagram number (1..64, scaled to 0..127) is the new
+int at the head of the stream, and the lanes fire across the bar. So the
+controls move with the progression, the same way each time round the loop,
+until the next Roll brings a new reading. A reading with no changing lines
+stands still. Before the first Roll (or with --no-iching), the stream is the
+seeded dice, one draw per `--bars` cycle.
+
 The acid line's notes change only every ACID_EVERY bars, all at once on the
 bar line: the lanes that reshape it (ACID_NOTE_LANES: noise, wide deviation
 and a fresh randomize) fire together then, instead of at their own phases,
@@ -65,6 +77,9 @@ import websockets
 # Draws are 7-bit, 0..INT_MAX: the range of a MIDI CC, so a sound lane sends
 # its int as is. m00Dr's controls fold it into their own range with modulo.
 INT_MAX = 127
+
+# King Wen numbers run 1..HEXAGRAMS; hexagram_int() spreads them over 0..INT_MAX.
+HEXAGRAMS = 64
 
 # Seconds between rolls: ROLL_GAP[0] at int 0 up to ROLL_GAP[1] at INT_MAX.
 ROLL_GAP = (120.0, 240.0)
@@ -120,11 +135,22 @@ class PhaseShiftedInts:
         # Keeps the history, so values already drawn carry on down the lanes.
         self._rng.seed(seed)
 
-    def advance(self) -> None:
-        self._history.appendleft(self._rng.randint(0, INT_MAX))
+    def advance(self, value: int | None = None) -> None:
+        """Pushes `value` onto the head of the stream, or a random draw."""
+        self._history.appendleft(self._rng.randint(0, INT_MAX) if value is None else value)
 
     def read(self, lag: int) -> int | None:
         return self._history[lag] if lag < len(self._history) else None
+
+
+def hexagram_int(number: int) -> int:
+    """A King Wen number (1..64) as a stream int (0..127)."""
+    return (number - 1) * INT_MAX // (HEXAGRAMS - 1)
+
+
+def playing_chord(state: dict) -> int | None:
+    """Which of m00Dr's chord pads is sounding, or None."""
+    return next((i for i, pad in enumerate(state.get("pads") or []) if pad.get("playing")), None)
 
 
 def make_lanes(names: list[str], shift: float) -> list[Lane]:
@@ -179,6 +205,9 @@ class Roller:
         self.closed = False
         self.next_roll = time.monotonic() + ROLL_GAP[0]
         self.midi = self.sound_out = None
+        # Set by _read when m00Dr moves to another chord, so _loop can start
+        # that chord's cycle right away rather than at its next 16th.
+        self.chord_changed = asyncio.Event()
 
     def on_cc(self, cc: int, value: int) -> None:
         """A knob turned (0..127). Called on the event loop."""
@@ -229,6 +258,15 @@ class Roller:
         except (KeyError, TypeError, ValueError):
             return 120.0
 
+    def reading(self) -> tuple[int, int] | None:
+        """The chord m00Dr is on and the hexagram the last Roll's reading has
+        reached there, or None before a Roll, while stopped or with
+        --no-iching."""
+        unfolding, chord = self.state.get("unfolding"), playing_chord(self.state)
+        if not self.args.iching or not unfolding or chord is None or chord >= len(unfolding):
+            return None
+        return chord, unfolding[chord]
+
     async def run(self) -> None:
         uri = f"ws://{self.args.host}:{self.args.port}"
         async with websockets.connect(uri) as ws:
@@ -249,6 +287,9 @@ class Roller:
             async for text in ws:
                 data = json.loads(text)
                 if "controls" in data:
+                    chord = playing_chord(data)
+                    if chord is not None and chord != playing_chord(self.state):
+                        self.chord_changed.set()
                     self.state = data
         finally:
             self.closed = True
@@ -256,12 +297,13 @@ class Roller:
     async def _loop(self, ws) -> None:
         loop = asyncio.get_running_loop()
         # Schedule by step number from a fixed start time, so rounding errors
-        # don't add up over a long run.
-        start, step, cycle = loop.time(), 0, 0
+        # don't add up over a long run. `step` counts 16ths from that start,
+        # which a new chord moves (I Ching); `total` counts them from Play,
+        # for the lanes on a fixed grid (Lane.every). `cycle` counts advances.
+        start, step, total, cycle = loop.time(), 0, 0, -1
         sixteenth = 60.0 / self.bpm() / 4
         was_playing = False
         while self.args.cycles is None or cycle < self.args.cycles:
-            steps_per_cycle = 16 * self.bars  # the bars knob can change it mid-run
             if self.closed:
                 raise ConnectionError("m00Dr closed the connection")
             playing = bool(self.state.get("playing"))
@@ -270,22 +312,37 @@ class Roller:
                 await asyncio.sleep(0.05)
                 continue
             if playing and not was_playing:
-                start, step = loop.time(), 0  # restart the cycle on Play
+                start, step, total = loop.time(), 0, 0  # restart the cycle on Play
             was_playing = playing
 
-            if step % steps_per_cycle == 0:
-                self.stream.advance()
-                cycle = step // steps_per_cycle
-                if self.args.cycles is not None and cycle >= self.args.cycles:
-                    break
-            position = (step % steps_per_cycle) / steps_per_cycle
+            reading = self.reading()
+            if reading is not None:
+                # A cycle is one chord (a bar), from when m00Dr moves to it.
+                steps_per_cycle = 16
+                if self.chord_changed.is_set():
+                    self.chord_changed.clear()
+                    start, step = loop.time(), 0
+                    chord, number = reading
+                    self.stream.advance(hexagram_int(number))
+                    cycle += 1
+                    print(f"c{cycle:<3} chord {chord + 1}: hexagram {number}", flush=True)
+                position = step
+            else:
+                steps_per_cycle = 16 * self.bars  # the bars knob can change it mid-run
+                position = step % steps_per_cycle
+                if position == 0:
+                    self.stream.advance()
+                    cycle += 1
+            if self.args.cycles is not None and cycle >= self.args.cycles:
+                break
             for lane in self.lanes:
-                due = (step % lane.every == 0 if lane.every
-                       else int(lane.phase * steps_per_cycle) == step % steps_per_cycle)
+                due = (total % lane.every == 0 if lane.every
+                       else int(lane.phase * steps_per_cycle) == position)
                 if due:
-                    await self._fire(ws, lane, cycle, position)
+                    await self._fire(ws, lane, cycle, position / steps_per_cycle)
 
             step += 1
+            total += 1
             # On a tempo change, move the start so this step keeps the time the
             # old tempo gave it. Otherwise the new tempo re-times every step
             # since Play: faster fires the overdue steps in a burst, slower
@@ -294,7 +351,14 @@ class Roller:
             if new_sixteenth != sixteenth:
                 start += step * (sixteenth - new_sixteenth)
                 sixteenth = new_sixteenth
-            await asyncio.sleep(max(0.0, start + step * sixteenth - loop.time()))
+            delay = max(0.0, start + step * sixteenth - loop.time())
+            if reading is None:
+                await asyncio.sleep(delay)
+            else:
+                try:   # wake early for the next chord
+                    await asyncio.wait_for(self.chord_changed.wait(), delay)
+                except TimeoutError:
+                    pass
 
     async def _fire(self, ws, lane: Lane, cycle: int, position: float) -> None:
         value = self.stream.read(lane.lag)
@@ -337,6 +401,8 @@ def parse_args(argv=None):
     p.add_argument("--cycles", type=int, default=None, help="stop after N cycles")
     p.add_argument("--wait-for-play", action="store_true",
                    help="only roll while m00Dr's transport is playing")
+    p.add_argument("--no-iching", dest="iching", action="store_false",
+                   help="roll from the dice only, ignoring m00Dr's reading")
     p.add_argument("--dry-run", action="store_true", help="print, don't send")
     p.add_argument("--no-midi", action="store_true",
                    help="no ALSA MIDI (knobs in, sound CCs out); it is Linux only")
