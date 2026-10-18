@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy", "scipy", "JACK-Client"]
 # ///
-"""m800Dr Mixer: a stereo strip per m00Dr part (and the M8), on MIDI faders.
+"""m800Dr Mixer: a stereo strip per m00Dr part (and the breaks), on MIDI faders.
 
 A JACK client (PipeWire's libjack) "m800Dr-Mixer" with inputs <strip>_L/_R,
 a MIDI input "faders", a MIDI output "controls" and outputs out_L/_R.
@@ -14,7 +14,7 @@ on "controls" -- e.g. the knob that morphs m00Dr's drum pattern.
 Each strip has a MIDI channel (its m00Dr part's: chords 1, bass 2, arp 3,
 drums 4, acid 5) and a fader number, the same as the channel except for the
 drums, which sit on fader 7 (column 7 of the controller, knobs included), and
-the M8, with no channel of its own, on fader 8. A strip moves on CC FADER_CC on its channel,
+breaks.py's breaks on channel and fader 8. A strip moves on CC FADER_CC on its channel,
 or on CC FADER_CCS[fader-1] on any channel: the Novation Launch Control XL's
 factory templates send faders 1-8 as CC 77-84.
 
@@ -29,7 +29,7 @@ Sidechain: the drums strip's low end (mostly the kick), after its fader,
 ducks the tonal strips (SIDECHAIN_DUCKED) -- instant attack, SIDECHAIN_RELEASE
 recovery, down by up to SIDECHAIN amount (0-1 of their level) on a full-level
 kick. The amount moves on CC SIDECHAIN_CC, the /mixer page's slider, or
-{"sidechain": 0..1} on CONTROL. The M8 isn't ducked: it brings its own drums.
+{"sidechain": 0..1} on CONTROL. The breaks aren't ducked: they're drums too.
 
 Fader positions and the sidechain amount survive restarts (SAVED); the live
 state, with meters, is in LIVE for server.py's /mixer page.
@@ -42,7 +42,7 @@ import numpy as np
 from scipy.signal import butter, lfilter
 
 STRIPS = [  # (name, MIDI channel, fader)
-    ("chords", 1, 1), ("bass", 2, 2), ("arp", 3, 3), ("acid", 5, 5), ("drums", 4, 7), ("m8", 8, 8)]
+    ("chords", 1, 1), ("bass", 2, 2), ("arp", 3, 3), ("acid", 5, 5), ("drums", 4, 7), ("breaks", 8, 8)]
 FADER_CC = 7          # CC 7 = channel volume
 FADER_CCS = list(range(77, 85))   # Launch Control XL faders 1-8, on its template's channel
 KNEE = 0.8            # fader position of unity gain; above it the strip distorts

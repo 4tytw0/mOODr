@@ -10,9 +10,9 @@ m00Dr ──MIDI──▶ FluidSynth      ch1 chords · ch3 arp · ch4 drums ─
             ├─▶ sunvoxbass.py   ch2 fuzz bass ───────────────────────┤
             ├─▶ sunvox303.py    ch5 acid ────────────────────────────┤
             ├─▶ sunvoxdrums.py  ch6 SunVox kits (drums strip) ───────┤
-            └─▶ sunvoxkeys.py   ch7 FM Wurli (chords strip) ─────────┤
-m00Drc roller ──▶ m00Dr's web remote · acid sound CCs ───────────────┤
-M8 USB audio ────────────────────────────────────────────────────────┤
+            ├─▶ sunvoxkeys.py   ch7 FM Wurli (chords strip) ─────────┤
+            └─▶ breaks.py       ch8 chopped breaks, on the clock ────┤
+m00Drc roller ──▶ m00Dr's web remote · acid sound CCs · breaks ──────┤
 Launch Control XL ──▶ mixer.py: a strip per part, faders, ◀────┘
                       drive, sidechain ──▶ m800dr_mix ──▶ server.py :8808
 ```
@@ -48,6 +48,14 @@ yet, only measured. The SunVox work is in open, stacked PRs (merge bottom-up: m8
   is a panel to its right (**MIXER** toggles it), so opening it never stops the audio.
 - **`/mixer`** is the mixer on its own, e.g. on a tablet while a TV shows the scope.
 
+## Breaks (`breaks.py`, fader 8)
+
+64 GAMEBREAKS breaks (`tools/build_breaks.py` picks the best-gridded, one per hexagram; the audio is
+git-ignored, so build it on the Mac and copy `synths/breaks/` over) played on m00Dr's MIDI clock as 16
+slices per bar. Each landed Roll picks the break (the roller sends the cast's hexagram as a program
+change on ch8); every chord change re-chops the bar from six freshly cast lines (CC 20/21): changing
+lines stutter, swap or echo a pair of 16ths, static lines leave it.
+
 ## Mixer (`mixer.py`)
 
 One stereo strip per part. Fader N drives the part on MIDI channel N, except the drums (MIDI ch 4),
@@ -55,7 +63,7 @@ which sit in column 7 of the Launch Control XL:
 
 | Fader | 1 | 2 | 3 | 5 | 7 | 8 |
 |---|---|---|---|---|---|---|
-| Strip | chords | bass | arp | acid | drums | M8 |
+| Strip | chords | bass | arp | acid | drums | breaks |
 
 - **Volume, then drive:** up to 80% of the throw is volume (unity at 80%). Above that, the strip blends
   into an asymmetric fuzz that gets harder toward the top.
@@ -135,8 +143,8 @@ Every piece is a systemd user service. Unit copies are in `systemd/`; install th
 
 ```sh
 systemctl --user enable --now m00dr-fluidsynth m00dr-sunvoxbass m00dr-sunvox303 m00dr-sunvoxdrums \
-    m00dr-sunvoxkeys m00drc-roller \
-    m800dr-mixer m00dr-synth-links m800dr-mix-m8 m800dr-audio
+    m00dr-sunvoxkeys m00dr-breaks m00drc-roller \
+    m800dr-mixer m00dr-synth-links m800dr-audio
 ```
 
 Python tooling is run with [uv](https://docs.astral.sh/uv/). The scripts declare their dependencies

@@ -6,3 +6,6 @@ synths/sunvox_lib/
 # m00Drc build output and environment
 m00Drc/*.sunvox
 m00Drc/.venv/
+
+# Breaks audio (tools/build_breaks.py): the GAMEBREAKS pack has no license
+synths/breaks/

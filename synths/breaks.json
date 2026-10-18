@@ -1,0 +1,452 @@
+{
+  "breaks": [
+    {
+      "file": "00.wav",
+      "name": "kdc_course6",
+      "bars": 2,
+      "bpm": 120.77,
+      "grid": 0.999
+    },
+    {
+      "file": "01.wav",
+      "name": "kdc_course2",
+      "bars": 1,
+      "bpm": 135.48,
+      "grid": 0.996
+    },
+    {
+      "file": "02.wav",
+      "name": "mm5_star",
+      "bars": 2,
+      "bpm": 150.23,
+      "grid": 0.99
+    },
+    {
+      "file": "03.wav",
+      "name": "gyro_b",
+      "bars": 4,
+      "bpm": 150.12,
+      "grid": 0.989
+    },
+    {
+      "file": "04.wav",
+      "name": "wrecking_gold",
+      "bars": 4,
+      "bpm": 150.08,
+      "grid": 0.989
+    },
+    {
+      "file": "05.wav",
+      "name": "superbomber5_titlea",
+      "bars": 1,
+      "bpm": 168.91,
+      "grid": 0.976
+    },
+    {
+      "file": "06.wav",
+      "name": "mrnutz_ice",
+      "bars": 1,
+      "bpm": 107.09,
+      "grid": 0.97
+    },
+    {
+      "file": "07.wav",
+      "name": "sdsnatch_factory",
+      "bars": 2,
+      "bpm": 101.71,
+      "grid": 0.959
+    },
+    {
+      "file": "08.wav",
+      "name": "jackbros_nightmare",
+      "bars": 1,
+      "bpm": 107.68,
+      "grid": 0.958
+    },
+    {
+      "file": "09.wav",
+      "name": "sdsnatch_difficult",
+      "bars": 2,
+      "bpm": 131.82,
+      "grid": 0.958
+    },
+    {
+      "file": "10.wav",
+      "name": "dkc2_bayou",
+      "bars": 1,
+      "bpm": 94.32,
+      "grid": 0.957
+    },
+    {
+      "file": "11.wav",
+      "name": "dracx_op13a",
+      "bars": 1,
+      "bpm": 122.32,
+      "grid": 0.954
+    },
+    {
+      "file": "12.wav",
+      "name": "mm2_quick",
+      "bars": 4,
+      "bpm": 150.24,
+      "grid": 0.954
+    },
+    {
+      "file": "13.wav",
+      "name": "rockman&forte_coldman",
+      "bars": 4,
+      "bpm": 144.59,
+      "grid": 0.951
+    },
+    {
+      "file": "14.wav",
+      "name": "twinbee3_poko",
+      "bars": 2,
+      "bpm": 128.64,
+      "grid": 0.95
+    },
+    {
+      "file": "15.wav",
+      "name": "scat_st3",
+      "bars": 1,
+      "bpm": 128.79,
+      "grid": 0.944
+    },
+    {
+      "file": "16.wav",
+      "name": "kdl3_ripple3",
+      "bars": 4,
+      "bpm": 108.03,
+      "grid": 0.941
+    },
+    {
+      "file": "17.wav",
+      "name": "lagrange_fighter",
+      "bars": 1,
+      "bpm": 93.65,
+      "grid": 0.935
+    },
+    {
+      "file": "18.wav",
+      "name": "ristar_ring",
+      "bars": 2,
+      "bpm": 109.5,
+      "grid": 0.924
+    },
+    {
+      "file": "19.wav",
+      "name": "smb3_w3",
+      "bars": 2,
+      "bpm": 150.25,
+      "grid": 0.922
+    },
+    {
+      "file": "20.wav",
+      "name": "headdy_hero",
+      "bars": 1,
+      "bpm": 100.02,
+      "grid": 0.915
+    },
+    {
+      "file": "21.wav",
+      "name": "kdl3_hyper",
+      "bars": 4,
+      "bpm": 172.52,
+      "grid": 0.911
+    },
+    {
+      "file": "22.wav",
+      "name": "wagyan_18",
+      "bars": 2,
+      "bpm": 89.74,
+      "grid": 0.91
+    },
+    {
+      "file": "23.wav",
+      "name": "midnight_forest",
+      "bars": 2,
+      "bpm": 138.49,
+      "grid": 0.906
+    },
+    {
+      "file": "24.wav",
+      "name": "eve_office",
+      "bars": 4,
+      "bpm": 157.83,
+      "grid": 0.9
+    },
+    {
+      "file": "25.wav",
+      "name": "snoopy_schroeder11",
+      "bars": 2,
+      "bpm": 102.73,
+      "grid": 0.888
+    },
+    {
+      "file": "26.wav",
+      "name": "kss_6",
+      "bars": 1,
+      "bpm": 103.27,
+      "grid": 0.885
+    },
+    {
+      "file": "27.wav",
+      "name": "shock_jungle",
+      "bars": 2,
+      "bpm": 170.19,
+      "grid": 0.885
+    },
+    {
+      "file": "28.wav",
+      "name": "smw2_yoshi",
+      "bars": 1,
+      "bpm": 98.1,
+      "grid": 0.883
+    },
+    {
+      "file": "29.wav",
+      "name": "ristar_flare",
+      "bars": 1,
+      "bpm": 151.51,
+      "grid": 0.882
+    },
+    {
+      "file": "30.wav",
+      "name": "exhaust2_title",
+      "bars": 2,
+      "bpm": 139.84,
+      "grid": 0.88
+    },
+    {
+      "file": "31.wav",
+      "name": "mm5_gravity",
+      "bars": 2,
+      "bpm": 138.01,
+      "grid": 0.875
+    },
+    {
+      "file": "32.wav",
+      "name": "gsmikami_rep5",
+      "bars": 1,
+      "bpm": 137.38,
+      "grid": 0.874
+    },
+    {
+      "file": "33.wav",
+      "name": "ristar_clear",
+      "bars": 2,
+      "bpm": 122.06,
+      "grid": 0.872
+    },
+    {
+      "file": "34.wav",
+      "name": "kdl3_grass4a",
+      "bars": 4,
+      "bpm": 168.41,
+      "grid": 0.869
+    },
+    {
+      "file": "35.wav",
+      "name": "gimmick_weather",
+      "bars": 1,
+      "bpm": 106.05,
+      "grid": 0.868
+    },
+    {
+      "file": "36.wav",
+      "name": "mcd_moon",
+      "bars": 4,
+      "bpm": 112.46,
+      "grid": 0.868
+    },
+    {
+      "file": "37.wav",
+      "name": "kdl3_desert",
+      "bars": 2,
+      "bpm": 152.97,
+      "grid": 0.866
+    },
+    {
+      "file": "38.wav",
+      "name": "kdl3_grass4b",
+      "bars": 4,
+      "bpm": 168.6,
+      "grid": 0.862
+    },
+    {
+      "file": "39.wav",
+      "name": "mm3_wily",
+      "bars": 1,
+      "bpm": 144.25,
+      "grid": 0.861
+    },
+    {
+      "file": "40.wav",
+      "name": "dkc2_disco",
+      "bars": 2,
+      "bpm": 137.48,
+      "grid": 0.846
+    },
+    {
+      "file": "41.wav",
+      "name": "mm5_gyro",
+      "bars": 2,
+      "bpm": 128.88,
+      "grid": 0.843
+    },
+    {
+      "file": "42.wav",
+      "name": "chrono_crisis",
+      "bars": 2,
+      "bpm": 155.87,
+      "grid": 0.836
+    },
+    {
+      "file": "43.wav",
+      "name": "ottifants_building",
+      "bars": 1,
+      "bpm": 124.94,
+      "grid": 0.829
+    },
+    {
+      "file": "44.wav",
+      "name": "knightarms_bad",
+      "bars": 4,
+      "bpm": 150.26,
+      "grid": 0.829
+    },
+    {
+      "file": "45.wav",
+      "name": "vsav_warb",
+      "bars": 4,
+      "bpm": 170.47,
+      "grid": 0.828
+    },
+    {
+      "file": "46.wav",
+      "name": "vsav_wara",
+      "bars": 2,
+      "bpm": 169.52,
+      "grid": 0.824
+    },
+    {
+      "file": "47.wav",
+      "name": "akumajou_vampire",
+      "bars": 1,
+      "bpm": 123.08,
+      "grid": 0.824
+    },
+    {
+      "file": "48.wav",
+      "name": "alisia_st4b",
+      "bars": 1,
+      "bpm": 123.58,
+      "grid": 0.822
+    },
+    {
+      "file": "49.wav",
+      "name": "vsav_select",
+      "bars": 2,
+      "bpm": 125.04,
+      "grid": 0.822
+    },
+    {
+      "file": "50.wav",
+      "name": "gunstar_dice",
+      "bars": 4,
+      "bpm": 131.45,
+      "grid": 0.82
+    },
+    {
+      "file": "51.wav",
+      "name": "superbomber5_titleb",
+      "bars": 4,
+      "bpm": 168.86,
+      "grid": 0.815
+    },
+    {
+      "file": "52.wav",
+      "name": "smb3_k",
+      "bars": 1,
+      "bpm": 128.8,
+      "grid": 0.815
+    },
+    {
+      "file": "53.wav",
+      "name": "wakuwaku_mauru",
+      "bars": 4,
+      "bpm": 166.92,
+      "grid": 0.812
+    },
+    {
+      "file": "54.wav",
+      "name": "chrono_factory",
+      "bars": 2,
+      "bpm": 101.48,
+      "grid": 0.81
+    },
+    {
+      "file": "55.wav",
+      "name": "alienstorm_noise",
+      "bars": 4,
+      "bpm": 116.46,
+      "grid": 0.809
+    },
+    {
+      "file": "56.wav",
+      "name": "exhaust2_garage",
+      "bars": 2,
+      "bpm": 144.4,
+      "grid": 0.806
+    },
+    {
+      "file": "57.wav",
+      "name": "gimmick_birthday",
+      "bars": 2,
+      "bpm": 164.01,
+      "grid": 0.801
+    },
+    {
+      "file": "58.wav",
+      "name": "sion2_asteroids",
+      "bars": 4,
+      "bpm": 108.55,
+      "grid": 0.801
+    },
+    {
+      "file": "59.wav",
+      "name": "suzuka_next",
+      "bars": 2,
+      "bpm": 126.89,
+      "grid": 0.8
+    },
+    {
+      "file": "60.wav",
+      "name": "smb2_under",
+      "bars": 1,
+      "bpm": 128.82,
+      "grid": 0.796
+    },
+    {
+      "file": "61.wav",
+      "name": "wagyan_sea",
+      "bars": 2,
+      "bpm": 89.73,
+      "grid": 0.793
+    },
+    {
+      "file": "62.wav",
+      "name": "doremi_7",
+      "bars": 1,
+      "bpm": 136.89,
+      "grid": 0.789
+    },
+    {
+      "file": "63.wav",
+      "name": "eve_craze",
+      "bars": 2,
+      "bpm": 142.31,
+      "grid": 0.787
+    }
+  ]
+}

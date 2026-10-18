@@ -1,5 +1,5 @@
 #!/bin/sh
-# Keeps m00Dr wired to its synths, the synths and the M8 to the m800Dr Mixer
+# Keeps m00Dr wired to its synths, the synths and the breaks to the m800Dr Mixer
 # and the mixer to the m800dr_mix sink, re-creating any link that goes missing
 # (something restarted) every INTERVAL seconds. Ports are matched by substring
 # because PipeWire's Midi-Bridge names embed ALSA client names. Each line of
@@ -22,6 +22,8 @@ LINKS="RtMidiOut Client:m00Dr (capture)|Synth input port (m00Dr-FluidSynth:0) (p
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxBass:bass in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVox303:acid in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-SunVox303:acid in (playback)
+RtMidiOut Client:m00Dr (capture)|m00Dr-Breaks:breaks in (playback)
+m00Drc-Roller:sound out (capture)|m00Dr-Breaks:breaks in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxDrums:drums in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxKeys:keys in (playback)
 m00Dr-FluidSynth:l_00|$MIXER:chords_L
@@ -50,8 +52,8 @@ m00Dr-FluidSynth:fx_l_05|$MIXER:arp_L
 m00Dr-FluidSynth:fx_r_05|$MIXER:arp_R
 m00Dr-SunVox303:output_FL|$MIXER:acid_L
 m00Dr-SunVox303:output_FR|$MIXER:acid_R
-m800dr_mix_m8_out:output_FL|$MIXER:m8_L
-m800dr_mix_m8_out:output_FR|$MIXER:m8_R
+m00Dr-Breaks:output_FL|$MIXER:breaks_L
+m00Dr-Breaks:output_FR|$MIXER:breaks_R
 $MIXER:controls|RtMidiIn Client:m00Dr Control (playback)
 $MIXER:controls|m00Drc-Roller:knobs in (playback)
 $MIXER:out_L|m800dr_mix:playback_FL

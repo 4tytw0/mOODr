@@ -34,6 +34,12 @@ section a lane at a time and land on the last one as the next Roll comes.
 A lane doesn't send the value it last sent again. Before the first Roll (or
 with --no-iching), the stream is the seeded dice, one draw per `--bars` cycle.
 
+Breaks (m800Dr's breaks.py, fader 8): the roller also drives them over
+"sound out" on BREAKS_CHANNEL. Each landed Roll sends a program change, the
+cast's hexagram as binary (0..63), which picks that Roll's break; every chord
+change in an arc casts six fresh lines and sends them as two CCs (yang bits,
+changing bits) that re-chop the next bar.
+
 The acid line's notes change only every ACID_EVERY bars, all at once on the
 bar line: the lanes that reshape it (ACID_NOTE_LANES: noise, wide deviation
 and a fresh randomize) fire together then, instead of at their own phases,
@@ -83,6 +89,10 @@ INT_MAX = 127
 
 # A Roll's arc: this many sections, evenly over the time to the next Roll.
 SECTIONS = 8
+
+# m800Dr's breaks.py: its MIDI channel (1-based) and the CCs that carry a
+# chop's six lines (see breaks.chop).
+BREAKS_CHANNEL, CHOP_LINES_CC, CHOP_CHANGING_CC = 8, 20, 21
 
 # Seconds between rolls: ROLL_GAP[0] at int 0 up to ROLL_GAP[1] at INT_MAX.
 ROLL_GAP = (120.0, 240.0)
@@ -245,6 +255,8 @@ class Roller:
         self.chord_changed = asyncio.Event()
         self.arc: Arc | None = None
         self.arc_cast: list[int] | None = None   # the cast self.arc was rolled from
+        self.breaks_program = 0             # the break for the current Roll (see _send_breaks)
+        self.breaks_sent: int | None = None
         # Lane -> the last value it sent. A lane doesn't send the same value
         # twice in a row, so a section's int isn't re-sent every bar, and a
         # control changed by hand keeps that until the stream moves on.
@@ -287,6 +299,22 @@ class Roller:
             if isinstance(ev, ControlChangeEvent):
                 self.on_cc(ev.param, ev.value)
 
+    async def _send_breaks(self) -> None:
+        """On a chord change: the Roll's break (if it changed) and a fresh chop."""
+        lines = [toss(self.stream.rng) for _ in range(6)]
+        yang = sum(1 << i for i, v in enumerate(lines) if v >= 2)
+        changing = sum(1 << i for i, v in enumerate(lines) if v in (0, 3))
+        print(f"     breaks: break {self.breaks_program}, chop {yang:06b}/{changing:06b}", flush=True)
+        if self.args.dry_run or self.sound_out is None:
+            return
+        from alsa_midi import ProgramChangeEvent
+        if self.breaks_program != self.breaks_sent:
+            await self.midi.event_output(ProgramChangeEvent(channel=BREAKS_CHANNEL - 1, value=self.breaks_program),
+                                         port=self.sound_out)
+            self.breaks_sent = self.breaks_program
+        await self._send_cc(BREAKS_CHANNEL, CHOP_LINES_CC, yang)
+        await self._send_cc(BREAKS_CHANNEL, CHOP_CHANGING_CC, changing)
+
     async def _send_cc(self, channel: int, cc: int, value: int) -> None:
         from alsa_midi import ControlChangeEvent
         await self.midi.event_output(
@@ -310,6 +338,7 @@ class Roller:
         # close: still give the arc a full minimum gap.
         end = self.next_roll if self.next_roll - now >= ROLL_GAP[0] / 2 else now + ROLL_GAP[0]
         self.arc, self.arc_cast = Arc(now, end, roll_arc(cast, self.stream.rng)), cast
+        self.breaks_program = sum(1 << i for i, value in enumerate(cast) if value >= 2)
         span = (end - now) / SECTIONS
         print(f"arc: {SECTIONS} sections of {span:.0f}s: " + " ".join(
             f"{hexagram_text(lines)}={hexagram_int(lines)}" for lines in self.arc.sections), flush=True)
@@ -382,6 +411,7 @@ class Roller:
                     self.stream.advance(value)
                     cycle += 1
                     print(f"c{cycle:<3} section {section + 1}/{SECTIONS}: int {value}", flush=True)
+                    await self._send_breaks()
                 position = step
             else:
                 steps_per_cycle = 16 * self.bars  # the bars knob can change it mid-run
