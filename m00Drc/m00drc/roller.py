@@ -19,17 +19,20 @@ same stream shifted in two ways:
 `--shift` rotates every phase by the same amount. That moves the whole
 pattern relative to the bar without changing it.
 
-I Ching: once m00Dr has been rolled, the stream follows the reading instead
-of the dice. m00Dr's web remote sends the last Roll's "unfolding": one
-hexagram per chord of the progression, starting with the cast hexagram and
-turning its changing lines one by one until the last chord reaches the
-hexagram it transforms into. Each chord is then a cycle: when m00Dr moves to
-a chord, that chord's hexagram number (1..64, scaled to 0..127) is the new
-int at the head of the stream, and the lanes fire across the bar. So the
-controls move with the progression, the same way each time round the loop,
-until the next Roll brings a new reading. A reading with no changing lines
-stands still. Before the first Roll (or with --no-iching), the stream is the
-seeded dice, one draw per `--bars` cycle.
+I Ching: each Roll rolls an arc for everything else, spanning the time until
+the next Roll (2 to 4 minutes). When a Roll lands, m00Dr's web remote sends
+its six lines ("cast"), and the roller splits the time from then to the next
+Roll into SECTIONS equal sections. The first is the Roll's own hexagram; each
+one after it casts six lines with three coins, as m00Dr's oracle does, and
+turns the lines that come up changing (each 1 in 4), so the arc usually
+moves a line or two, now and then holds, and now and then leaps. A hexagram
+is an int by reading its lines as binary, bottom line lowest, so a low line
+turning is a nudge and a high line a leap. Each chord is then a cycle: when
+m00Dr moves to a chord, the current section's int goes onto the head of the
+stream and the lanes fire across that bar, so the controls settle onto each
+section a lane at a time and land on the last one as the next Roll comes.
+A lane doesn't send the value it last sent again. Before the first Roll (or
+with --no-iching), the stream is the seeded dice, one draw per `--bars` cycle.
 
 The acid line's notes change only every ACID_EVERY bars, all at once on the
 bar line: the lanes that reshape it (ACID_NOTE_LANES: noise, wide deviation
@@ -78,8 +81,8 @@ import websockets
 # its int as is. m00Dr's controls fold it into their own range with modulo.
 INT_MAX = 127
 
-# King Wen numbers run 1..HEXAGRAMS; hexagram_int() spreads them over 0..INT_MAX.
-HEXAGRAMS = 64
+# A Roll's arc: this many sections, evenly over the time to the next Roll.
+SECTIONS = 8
 
 # Seconds between rolls: ROLL_GAP[0] at int 0 up to ROLL_GAP[1] at INT_MAX.
 ROLL_GAP = (120.0, 240.0)
@@ -128,24 +131,56 @@ class PhaseShiftedInts:
     """A seeded random-int stream that lanes read at a lag."""
 
     def __init__(self, seed: int | None, depth: int):
-        self._rng = random.Random(seed)
+        self.rng = random.Random(seed)   # also rolls the I Ching arcs
         self._history = deque(maxlen=depth + 1)
 
     def reseed(self, seed: int) -> None:
         # Keeps the history, so values already drawn carry on down the lanes.
-        self._rng.seed(seed)
+        self.rng.seed(seed)
 
     def advance(self, value: int | None = None) -> None:
         """Pushes `value` onto the head of the stream, or a random draw."""
-        self._history.appendleft(self._rng.randint(0, INT_MAX) if value is None else value)
+        self._history.appendleft(self.rng.randint(0, INT_MAX) if value is None else value)
 
     def read(self, lag: int) -> int | None:
         return self._history[lag] if lag < len(self._history) else None
 
 
-def hexagram_int(number: int) -> int:
-    """A King Wen number (1..64) as a stream int (0..127)."""
-    return (number - 1) * INT_MAX // (HEXAGRAMS - 1)
+def toss(rng: random.Random) -> int:
+    """One line: three coins summed, 0..3. 0 and 3 are the changing lines."""
+    return sum(rng.getrandbits(1) for _ in range(3))
+
+
+def hexagram_int(lines: list[bool]) -> int:
+    """Six lines (yang True, bottom first) as binary, spread over 0..INT_MAX."""
+    return sum(1 << i for i, yang in enumerate(lines) if yang) * INT_MAX // 63
+
+
+def hexagram_text(lines: list[bool]) -> str:
+    """Six lines bottom first, drawn top line first, the way it's read."""
+    return "".join("⚊" if yang else "⚋" for yang in reversed(lines))
+
+
+def roll_arc(cast: list[int], rng: random.Random) -> list[list[bool]]:
+    """SECTIONS hexagrams: the cast's own (lines 0..3, yang = 2 or 3), then
+    each one turning the lines a fresh cast comes up changing on."""
+    lines = [value >= 2 for value in cast]
+    arc = [lines]
+    for _ in range(SECTIONS - 1):
+        lines = [not yang if toss(rng) in (0, 3) else yang for yang in lines]
+        arc.append(lines)
+    return arc
+
+
+@dataclass
+class Arc:
+    start: float               # time.monotonic()
+    end: float                 # the next Roll
+    sections: list[list[bool]]
+
+    def section(self, now: float) -> int:
+        span = (self.end - self.start) / len(self.sections)
+        return min(int((now - self.start) / span), len(self.sections) - 1)
 
 
 def playing_chord(state: dict) -> int | None:
@@ -208,6 +243,12 @@ class Roller:
         # Set by _read when m00Dr moves to another chord, so _loop can start
         # that chord's cycle right away rather than at its next 16th.
         self.chord_changed = asyncio.Event()
+        self.arc: Arc | None = None
+        self.arc_cast: list[int] | None = None   # the cast self.arc was rolled from
+        # Lane -> the last value it sent. A lane doesn't send the same value
+        # twice in a row, so a section's int isn't re-sent every bar, and a
+        # control changed by hand keeps that until the stream moves on.
+        self.sent: dict[str, object] = {}
 
     def on_cc(self, cc: int, value: int) -> None:
         """A knob turned (0..127). Called on the event loop."""
@@ -258,14 +299,28 @@ class Roller:
         except (KeyError, TypeError, ValueError):
             return 120.0
 
-    def reading(self) -> tuple[int, int] | None:
-        """The chord m00Dr is on and the hexagram the last Roll's reading has
-        reached there, or None before a Roll, while stopped or with
-        --no-iching."""
-        unfolding, chord = self.state.get("unfolding"), playing_chord(self.state)
-        if not self.args.iching or not unfolding or chord is None or chord >= len(unfolding):
+    def follow_cast(self) -> None:
+        """Rolls a new arc when a new Roll has landed (or on the first one
+        seen), from now until the next Roll the roll lane will allow."""
+        cast = self.state.get("cast")
+        if not self.args.iching or not cast or (self.arc and cast == self.arc_cast):
+            return
+        now = time.monotonic()
+        # A Roll clicked by hand, or the one the roller is waiting on being
+        # close: still give the arc a full minimum gap.
+        end = self.next_roll if self.next_roll - now >= ROLL_GAP[0] / 2 else now + ROLL_GAP[0]
+        self.arc, self.arc_cast = Arc(now, end, roll_arc(cast, self.stream.rng)), cast
+        span = (end - now) / SECTIONS
+        print(f"arc: {SECTIONS} sections of {span:.0f}s: " + " ".join(
+            f"{hexagram_text(lines)}={hexagram_int(lines)}" for lines in self.arc.sections), flush=True)
+
+    def section_int(self) -> tuple[int, int] | None:
+        """The arc's current section and its int, or None before a Roll,
+        while no chord is playing or with --no-iching."""
+        if self.arc is None or playing_chord(self.state) is None:
             return None
-        return chord, unfolding[chord]
+        k = self.arc.section(time.monotonic())
+        return k, hexagram_int(self.arc.sections[k])
 
     async def run(self) -> None:
         uri = f"ws://{self.args.host}:{self.args.port}"
@@ -315,17 +370,18 @@ class Roller:
                 start, step, total = loop.time(), 0, 0  # restart the cycle on Play
             was_playing = playing
 
-            reading = self.reading()
+            self.follow_cast()
+            reading = self.section_int()
             if reading is not None:
                 # A cycle is one chord (a bar), from when m00Dr moves to it.
                 steps_per_cycle = 16
                 if self.chord_changed.is_set():
                     self.chord_changed.clear()
                     start, step = loop.time(), 0
-                    chord, number = reading
-                    self.stream.advance(hexagram_int(number))
+                    section, value = reading
+                    self.stream.advance(value)
                     cycle += 1
-                    print(f"c{cycle:<3} chord {chord + 1}: hexagram {number}", flush=True)
+                    print(f"c{cycle:<3} section {section + 1}/{SECTIONS}: int {value}", flush=True)
                 position = step
             else:
                 steps_per_cycle = 16 * self.bars  # the bars knob can change it mid-run
@@ -377,6 +433,10 @@ class Roller:
         if message is None:
             print(f"{tag} -")
             return
+        if "value" in message:
+            if self.sent.get(lane.control) == message["value"]:
+                return
+            self.sent[lane.control] = message["value"]
         if "cc" in message:
             channel, cc = message["cc"]
             print(f"{tag} -> ch{channel} CC{cc}={value}")
@@ -402,7 +462,7 @@ def parse_args(argv=None):
     p.add_argument("--wait-for-play", action="store_true",
                    help="only roll while m00Dr's transport is playing")
     p.add_argument("--no-iching", dest="iching", action="store_false",
-                   help="roll from the dice only, ignoring m00Dr's reading")
+                   help="roll from the dice only, without the I Ching arcs")
     p.add_argument("--dry-run", action="store_true", help="print, don't send")
     p.add_argument("--no-midi", action="store_true",
                    help="no ALSA MIDI (knobs in, sound CCs out); it is Linux only")
