@@ -493,3 +493,22 @@ def roll(key: str, mode: str, slot_indices: list[int],
         taken.add(slots[i])
     return Cast(key=new_key, mode=new_mode, slots=slots, lines=lines,
                 continued=tuple(continued))
+
+
+def unfolding(lines: list[int], steps: int) -> list[Hexagram]:
+    """The reading played out over `steps` (a progression's chords): the
+    cast hexagram first, then its changing lines turning one by one, bottom
+    line first, so the last step is the hexagram it transforms into. With
+    more changing lines than steps, several turn at once; with none, the
+    reading stands as cast on every step. m00Drc's roller reads this (via
+    the web remote) to move its controls with the progression."""
+    changing = [i for i, value in enumerate(lines) if is_changing(value)]
+    polarities = [is_yang(value) for value in lines]
+    hexagrams = []
+    for step in range(steps):
+        turned = round(step * len(changing) / (steps - 1)) if steps > 1 else 0
+        now = list(polarities)
+        for i in changing[:turned]:
+            now[i] = transformed_polarity(lines[i])
+        hexagrams.append(hexagram_for(now))
+    return hexagrams
