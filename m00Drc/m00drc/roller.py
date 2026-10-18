@@ -258,6 +258,7 @@ class Roller:
         # Schedule by step number from a fixed start time, so rounding errors
         # don't add up over a long run.
         start, step, cycle = loop.time(), 0, 0
+        sixteenth = 60.0 / self.bpm() / 4
         was_playing = False
         while self.args.cycles is None or cycle < self.args.cycles:
             steps_per_cycle = 16 * self.bars  # the bars knob can change it mid-run
@@ -285,7 +286,14 @@ class Roller:
                     await self._fire(ws, lane, cycle, position)
 
             step += 1
-            sixteenth = 60.0 / self.bpm() / 4
+            # On a tempo change, move the start so this step keeps the time the
+            # old tempo gave it. Otherwise the new tempo re-times every step
+            # since Play: faster fires the overdue steps in a burst, slower
+            # stalls until the schedule catches up.
+            new_sixteenth = 60.0 / self.bpm() / 4
+            if new_sixteenth != sixteenth:
+                start += step * (sixteenth - new_sixteenth)
+                sixteenth = new_sixteenth
             await asyncio.sleep(max(0.0, start + step * sixteenth - loop.time()))
 
     async def _fire(self, ws, lane: Lane, cycle: int, position: float) -> None:
