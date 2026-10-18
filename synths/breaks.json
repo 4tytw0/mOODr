@@ -2,451 +2,515 @@
   "breaks": [
     {
       "file": "00.wav",
-      "name": "kdc_course6",
-      "bars": 2,
-      "bpm": 120.77,
-      "grid": 0.999
+      "name": "040C",
+      "pack": "Classic Jungle 1",
+      "bars": 1,
+      "bpm": 80.0,
+      "grid": 0.963
     },
     {
       "file": "01.wav",
-      "name": "kdc_course2",
-      "bars": 1,
-      "bpm": 135.48,
-      "grid": 0.996
-    },
-    {
-      "file": "02.wav",
-      "name": "mm5_star",
+      "name": "0044A",
+      "pack": "Classic Jungle 2",
       "bars": 2,
-      "bpm": 150.23,
-      "grid": 0.99
-    },
-    {
-      "file": "03.wav",
-      "name": "gyro_b",
-      "bars": 4,
-      "bpm": 150.12,
-      "grid": 0.989
-    },
-    {
-      "file": "04.wav",
-      "name": "wrecking_gold",
-      "bars": 4,
-      "bpm": 150.08,
-      "grid": 0.989
-    },
-    {
-      "file": "05.wav",
-      "name": "superbomber5_titlea",
-      "bars": 1,
-      "bpm": 168.91,
-      "grid": 0.976
-    },
-    {
-      "file": "06.wav",
-      "name": "mrnutz_ice",
-      "bars": 1,
-      "bpm": 107.09,
-      "grid": 0.97
-    },
-    {
-      "file": "07.wav",
-      "name": "sdsnatch_factory",
-      "bars": 2,
-      "bpm": 101.71,
-      "grid": 0.959
-    },
-    {
-      "file": "08.wav",
-      "name": "jackbros_nightmare",
-      "bars": 1,
-      "bpm": 107.68,
-      "grid": 0.958
-    },
-    {
-      "file": "09.wav",
-      "name": "sdsnatch_difficult",
-      "bars": 2,
-      "bpm": 131.82,
-      "grid": 0.958
-    },
-    {
-      "file": "10.wav",
-      "name": "dkc2_bayou",
-      "bars": 1,
-      "bpm": 94.32,
-      "grid": 0.957
-    },
-    {
-      "file": "11.wav",
-      "name": "dracx_op13a",
-      "bars": 1,
-      "bpm": 122.32,
-      "grid": 0.954
-    },
-    {
-      "file": "12.wav",
-      "name": "mm2_quick",
-      "bars": 4,
-      "bpm": 150.24,
-      "grid": 0.954
-    },
-    {
-      "file": "13.wav",
-      "name": "rockman&forte_coldman",
-      "bars": 4,
-      "bpm": 144.59,
-      "grid": 0.951
-    },
-    {
-      "file": "14.wav",
-      "name": "twinbee3_poko",
-      "bars": 2,
-      "bpm": 128.64,
-      "grid": 0.95
-    },
-    {
-      "file": "15.wav",
-      "name": "scat_st3",
-      "bars": 1,
-      "bpm": 128.79,
-      "grid": 0.944
-    },
-    {
-      "file": "16.wav",
-      "name": "kdl3_ripple3",
-      "bars": 4,
-      "bpm": 108.03,
+      "bpm": 80.0,
       "grid": 0.941
     },
     {
-      "file": "17.wav",
-      "name": "lagrange_fighter",
+      "file": "02.wav",
+      "name": "Ohio Players - Funky Worm",
+      "pack": "Classic Breaks",
+      "bars": 2,
+      "bpm": 82.5,
+      "grid": 0.769
+    },
+    {
+      "file": "03.wav",
+      "name": "Bernard Purdie - Funky Donkey (part1)",
+      "pack": "Classic Breaks",
+      "bars": 2,
+      "bpm": 85.0,
+      "grid": 0.62
+    },
+    {
+      "file": "04.wav",
+      "name": "vb6_drm172_addiction",
+      "pack": "Vintage Breaks 6",
+      "bars": 2,
+      "bpm": 86.0,
+      "grid": 0.942
+    },
+    {
+      "file": "05.wav",
+      "name": "0T",
+      "pack": "Tape Breaks",
+      "bars": 2,
+      "bpm": 87.25,
+      "grid": 0.519
+    },
+    {
+      "file": "06.wav",
+      "name": "Led Zeppelin - When The Levee Breaks",
+      "pack": "Classic Breaks",
       "bars": 1,
-      "bpm": 93.65,
-      "grid": 0.935
+      "bpm": 92.25,
+      "grid": 0.53
     },
     {
-      "file": "18.wav",
-      "name": "ristar_ring",
+      "file": "07.wav",
+      "name": "Bacao Rhythm & Steel Band - Dog Was A Doughnut",
+      "pack": "Classic Breaks",
       "bars": 2,
-      "bpm": 109.5,
-      "grid": 0.924
+      "bpm": 92.25,
+      "grid": 0.788
     },
     {
-      "file": "19.wav",
-      "name": "smb3_w3",
-      "bars": 2,
-      "bpm": 150.25,
-      "grid": 0.922
-    },
-    {
-      "file": "20.wav",
-      "name": "headdy_hero",
+      "file": "08.wav",
+      "name": "Cat Stevens - The Foreigner Suite",
+      "pack": "Classic Breaks",
       "bars": 1,
-      "bpm": 100.02,
-      "grid": 0.915
+      "bpm": 96.25,
+      "grid": 0.814
     },
     {
-      "file": "21.wav",
-      "name": "kdl3_hyper",
+      "file": "09.wav",
+      "name": "The Spinners - All That Glitters Aint Gold",
+      "pack": "Classic Breaks",
+      "bars": 1,
+      "bpm": 96.25,
+      "grid": 0.721
+    },
+    {
+      "file": "10.wav",
+      "name": "Steve Miller Band - Take The Money And Run (part1)",
+      "pack": "Classic Breaks",
       "bars": 4,
-      "bpm": 172.52,
-      "grid": 0.911
+      "bpm": 98.25,
+      "grid": 0.596
     },
     {
-      "file": "22.wav",
-      "name": "wagyan_18",
+      "file": "11.wav",
+      "name": "Drum_Break21(99BPM)",
+      "pack": "Varispeed Breaks",
       "bars": 2,
-      "bpm": 89.74,
-      "grid": 0.91
+      "bpm": 98.5,
+      "grid": 0.834
     },
     {
-      "file": "23.wav",
-      "name": "midnight_forest",
-      "bars": 2,
-      "bpm": 138.49,
-      "grid": 0.906
-    },
-    {
-      "file": "24.wav",
-      "name": "eve_office",
-      "bars": 4,
-      "bpm": 157.83,
-      "grid": 0.9
-    },
-    {
-      "file": "25.wav",
-      "name": "snoopy_schroeder11",
-      "bars": 2,
-      "bpm": 102.73,
+      "file": "12.wav",
+      "name": "Drum_Break41(99BPM)",
+      "pack": "Varispeed Breaks",
+      "bars": 1,
+      "bpm": 100.0,
       "grid": 0.888
     },
     {
-      "file": "26.wav",
-      "name": "kss_6",
-      "bars": 1,
-      "bpm": 103.27,
-      "grid": 0.885
-    },
-    {
-      "file": "27.wav",
-      "name": "shock_jungle",
+      "file": "13.wav",
+      "name": "Bacao Rhythm & Steel Band - Jungle Fever",
+      "pack": "Classic Breaks",
       "bars": 2,
-      "bpm": 170.19,
-      "grid": 0.885
+      "bpm": 100.0,
+      "grid": 0.753
     },
     {
-      "file": "28.wav",
-      "name": "smw2_yoshi",
-      "bars": 1,
-      "bpm": 98.1,
-      "grid": 0.883
-    },
-    {
-      "file": "29.wav",
-      "name": "ristar_flare",
-      "bars": 1,
-      "bpm": 151.51,
-      "grid": 0.882
-    },
-    {
-      "file": "30.wav",
-      "name": "exhaust2_title",
+      "file": "14.wav",
+      "name": "James Brown - Funky President ",
+      "pack": "Classic Breaks",
       "bars": 2,
-      "bpm": 139.84,
+      "bpm": 102.75,
+      "grid": 0.521
+    },
+    {
+      "file": "15.wav",
+      "name": "105_Crsh",
+      "pack": "MPC Breaks",
+      "bars": 2,
+      "bpm": 105.0,
+      "grid": 0.93
+    },
+    {
+      "file": "16.wav",
+      "name": "105_Shema",
+      "pack": "MPC Breaks",
+      "bars": 2,
+      "bpm": 105.0,
       "grid": 0.88
     },
     {
-      "file": "31.wav",
-      "name": "mm5_gravity",
+      "file": "17.wav",
+      "name": "105_NoGroov",
+      "pack": "MPC Breaks",
       "bars": 2,
-      "bpm": 138.01,
-      "grid": 0.875
+      "bpm": 105.25,
+      "grid": 0.974
+    },
+    {
+      "file": "18.wav",
+      "name": "Drum_Break74(105BPM)",
+      "pack": "Varispeed Breaks",
+      "bars": 1,
+      "bpm": 105.75,
+      "grid": 0.868
+    },
+    {
+      "file": "19.wav",
+      "name": "Drum_Break59(107BPM)",
+      "pack": "Varispeed Breaks",
+      "bars": 2,
+      "bpm": 106.5,
+      "grid": 0.838
+    },
+    {
+      "file": "20.wav",
+      "name": "Black Motion Picture Experience - Theme From 2001",
+      "pack": "Classic Breaks",
+      "bars": 2,
+      "bpm": 108.25,
+      "grid": 0.791
+    },
+    {
+      "file": "21.wav",
+      "name": "110_BangBand4",
+      "pack": "MPC Breaks",
+      "bars": 1,
+      "bpm": 110.0,
+      "grid": 0.92
+    },
+    {
+      "file": "22.wav",
+      "name": "vb6_drm112_superstitioninthe80s",
+      "pack": "Vintage Breaks 6",
+      "bars": 2,
+      "bpm": 112.25,
+      "grid": 0.971
+    },
+    {
+      "file": "23.wav",
+      "name": "0K",
+      "pack": "Tape Breaks",
+      "bars": 2,
+      "bpm": 112.25,
+      "grid": 0.59
+    },
+    {
+      "file": "24.wav",
+      "name": "Lyn Collins - Think (part1)",
+      "pack": "Classic Breaks",
+      "bars": 4,
+      "bpm": 113.75,
+      "grid": 0.547
+    },
+    {
+      "file": "25.wav",
+      "name": "Bobby Byrd - I Know You Got Soul",
+      "pack": "Classic Breaks",
+      "bars": 2,
+      "bpm": 113.75,
+      "grid": 0.706
+    },
+    {
+      "file": "26.wav",
+      "name": "115_ReadyGo1",
+      "pack": "MPC Breaks",
+      "bars": 1,
+      "bpm": 114.75,
+      "grid": 0.951
+    },
+    {
+      "file": "27.wav",
+      "name": "115_ReadyGo2",
+      "pack": "MPC Breaks",
+      "bars": 1,
+      "bpm": 115.0,
+      "grid": 0.903
+    },
+    {
+      "file": "28.wav",
+      "name": "Kool & The Gang - Fresh",
+      "pack": "Classic Breaks",
+      "bars": 4,
+      "bpm": 117.75,
+      "grid": 0.842
+    },
+    {
+      "file": "29.wav",
+      "name": "Vibrettes - Humpty Dump",
+      "pack": "Classic Breaks",
+      "bars": 2,
+      "bpm": 118.25,
+      "grid": 0.431
+    },
+    {
+      "file": "30.wav",
+      "name": "rb_drum_loop_break_levin_123",
+      "pack": "Reworked Breaks",
+      "bars": 2,
+      "bpm": 123.0,
+      "grid": 0.936
+    },
+    {
+      "file": "31.wav",
+      "name": "Soul Tornados - Crazy Legs",
+      "pack": "Classic Breaks",
+      "bars": 4,
+      "bpm": 124.0,
+      "grid": 0.664
     },
     {
       "file": "32.wav",
-      "name": "gsmikami_rep5",
-      "bars": 1,
-      "bpm": 137.38,
-      "grid": 0.874
+      "name": "vb6_drm125_callinglyn",
+      "pack": "Vintage Breaks 6",
+      "bars": 2,
+      "bpm": 125.0,
+      "grid": 0.938
     },
     {
       "file": "33.wav",
-      "name": "ristar_clear",
-      "bars": 2,
-      "bpm": 122.06,
-      "grid": 0.872
+      "name": "20th Century - Hot Pants",
+      "pack": "Classic Breaks",
+      "bars": 1,
+      "bpm": 126.25,
+      "grid": 0.579
     },
     {
       "file": "34.wav",
-      "name": "kdl3_grass4a",
-      "bars": 4,
-      "bpm": 168.41,
-      "grid": 0.869
+      "name": "vb6_drm127_shufflesmacktop",
+      "pack": "Vintage Breaks 6",
+      "bars": 2,
+      "bpm": 127.0,
+      "grid": 0.96
     },
     {
       "file": "35.wav",
-      "name": "gimmick_weather",
-      "bars": 1,
-      "bpm": 106.05,
-      "grid": 0.868
+      "name": "vb6_drm127_toytops",
+      "pack": "Vintage Breaks 6",
+      "bars": 4,
+      "bpm": 127.0,
+      "grid": 0.948
     },
     {
       "file": "36.wav",
-      "name": "mcd_moon",
-      "bars": 4,
-      "bpm": 112.46,
-      "grid": 0.868
+      "name": "2B",
+      "pack": "Tape Breaks",
+      "bars": 2,
+      "bpm": 128.25,
+      "grid": 0.762
     },
     {
       "file": "37.wav",
-      "name": "kdl3_desert",
+      "name": "rb_drum_loop_break_ageis_131",
+      "pack": "Reworked Breaks",
       "bars": 2,
-      "bpm": 152.97,
-      "grid": 0.866
+      "bpm": 130.75,
+      "grid": 0.897
     },
     {
       "file": "38.wav",
-      "name": "kdl3_grass4b",
-      "bars": 4,
-      "bpm": 168.6,
-      "grid": 0.862
+      "name": "Drum_Break91(130BPM)",
+      "pack": "Varispeed Breaks",
+      "bars": 1,
+      "bpm": 133.25,
+      "grid": 0.88
     },
     {
       "file": "39.wav",
-      "name": "mm3_wily",
-      "bars": 1,
-      "bpm": 144.25,
-      "grid": 0.861
+      "name": "rb_drum_loop_break_otbj_right_136",
+      "pack": "Reworked Breaks",
+      "bars": 2,
+      "bpm": 136.0,
+      "grid": 0.897
     },
     {
       "file": "40.wav",
-      "name": "dkc2_disco",
-      "bars": 2,
-      "bpm": 137.48,
-      "grid": 0.846
+      "name": "Winstons - Amen, Brother (ver.1)",
+      "pack": "Classic Breaks",
+      "bars": 4,
+      "bpm": 136.75,
+      "grid": 0.594
     },
     {
       "file": "41.wav",
-      "name": "mm5_gyro",
+      "name": "Funk Inc. - Kool Is Back",
+      "pack": "Classic Breaks",
       "bars": 2,
-      "bpm": 128.88,
-      "grid": 0.843
+      "bpm": 136.75,
+      "grid": 0.444
     },
     {
       "file": "42.wav",
-      "name": "chrono_crisis",
-      "bars": 2,
-      "bpm": 155.87,
-      "grid": 0.836
+      "name": "0Q",
+      "pack": "Tape Breaks",
+      "bars": 1,
+      "bpm": 150.0,
+      "grid": 0.551
     },
     {
       "file": "43.wav",
-      "name": "ottifants_building",
-      "bars": 1,
-      "bpm": 124.94,
-      "grid": 0.829
+      "name": "Ultrafunk - Use Me",
+      "pack": "Classic Breaks",
+      "bars": 4,
+      "bpm": 153.75,
+      "grid": 0.724
     },
     {
       "file": "44.wav",
-      "name": "knightarms_bad",
-      "bars": 4,
-      "bpm": 150.26,
-      "grid": 0.829
+      "name": "rb_drum_loop_break_comb_153",
+      "pack": "Reworked Breaks",
+      "bars": 2,
+      "bpm": 154.25,
+      "grid": 0.912
     },
     {
       "file": "45.wav",
-      "name": "vsav_warb",
-      "bars": 4,
-      "bpm": 170.47,
-      "grid": 0.828
+      "name": "042A",
+      "pack": "Classic Jungle 1",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.977
     },
     {
       "file": "46.wav",
-      "name": "vsav_wara",
+      "name": "0056B",
+      "pack": "Classic Jungle 2",
       "bars": 2,
-      "bpm": 169.52,
-      "grid": 0.824
+      "bpm": 160.0,
+      "grid": 0.949
     },
     {
       "file": "47.wav",
-      "name": "akumajou_vampire",
-      "bars": 1,
-      "bpm": 123.08,
-      "grid": 0.824
+      "name": "026C",
+      "pack": "Classic Jungle 1",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.971
     },
     {
       "file": "48.wav",
-      "name": "alisia_st4b",
-      "bars": 1,
-      "bpm": 123.58,
-      "grid": 0.822
+      "name": "0031B",
+      "pack": "Classic Jungle 2",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.946
     },
     {
       "file": "49.wav",
-      "name": "vsav_select",
+      "name": "rb_drum_loop_break_four_160",
+      "pack": "Reworked Breaks",
       "bars": 2,
-      "bpm": 125.04,
-      "grid": 0.822
+      "bpm": 160.0,
+      "grid": 0.93
     },
     {
       "file": "50.wav",
-      "name": "gunstar_dice",
-      "bars": 4,
-      "bpm": 131.45,
-      "grid": 0.82
+      "name": "026A",
+      "pack": "Classic Jungle 1",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.967
     },
     {
       "file": "51.wav",
-      "name": "superbomber5_titleb",
-      "bars": 4,
-      "bpm": 168.86,
-      "grid": 0.815
+      "name": "0031C",
+      "pack": "Classic Jungle 2",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.944
     },
     {
       "file": "52.wav",
-      "name": "smb3_k",
-      "bars": 1,
-      "bpm": 128.8,
-      "grid": 0.815
+      "name": "0031A",
+      "pack": "Classic Jungle 2",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.943
     },
     {
       "file": "53.wav",
-      "name": "wakuwaku_mauru",
-      "bars": 4,
-      "bpm": 166.92,
-      "grid": 0.812
+      "name": "037A",
+      "pack": "Classic Jungle 1",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.959
     },
     {
       "file": "54.wav",
-      "name": "chrono_factory",
+      "name": "043A",
+      "pack": "Classic Jungle 1",
       "bars": 2,
-      "bpm": 101.48,
-      "grid": 0.81
+      "bpm": 160.0,
+      "grid": 0.955
     },
     {
       "file": "55.wav",
-      "name": "alienstorm_noise",
-      "bars": 4,
-      "bpm": 116.46,
-      "grid": 0.809
+      "name": "vb6_drm160_andand",
+      "pack": "Vintage Breaks 6",
+      "bars": 2,
+      "bpm": 160.0,
+      "grid": 0.937
     },
     {
       "file": "56.wav",
-      "name": "exhaust2_garage",
+      "name": "0030B",
+      "pack": "Classic Jungle 2",
       "bars": 2,
-      "bpm": 144.4,
-      "grid": 0.806
+      "bpm": 160.0,
+      "grid": 0.932
     },
     {
       "file": "57.wav",
-      "name": "gimmick_birthday",
-      "bars": 2,
-      "bpm": 164.01,
-      "grid": 0.801
+      "name": "1C",
+      "pack": "Tape Breaks",
+      "bars": 1,
+      "bpm": 173.25,
+      "grid": 0.521
     },
     {
       "file": "58.wav",
-      "name": "sion2_asteroids",
-      "bars": 4,
-      "bpm": 108.55,
-      "grid": 0.801
+      "name": "DNB_BREAK_128",
+      "pack": "DnB Breaks",
+      "bars": 2,
+      "bpm": 174.0,
+      "grid": 0.993
     },
     {
       "file": "59.wav",
-      "name": "suzuka_next",
+      "name": "DNB_BREAK_116",
+      "pack": "DnB Breaks",
       "bars": 2,
-      "bpm": 126.89,
-      "grid": 0.8
+      "bpm": 174.0,
+      "grid": 0.988
     },
     {
       "file": "60.wav",
-      "name": "smb2_under",
-      "bars": 1,
-      "bpm": 128.82,
-      "grid": 0.796
+      "name": "DNB_BREAK_127",
+      "pack": "DnB Breaks",
+      "bars": 2,
+      "bpm": 174.0,
+      "grid": 0.985
     },
     {
       "file": "61.wav",
-      "name": "wagyan_sea",
+      "name": "DNB_BREAK_196",
+      "pack": "DnB Breaks",
       "bars": 2,
-      "bpm": 89.73,
-      "grid": 0.793
+      "bpm": 174.0,
+      "grid": 0.983
     },
     {
       "file": "62.wav",
-      "name": "doremi_7",
-      "bars": 1,
-      "bpm": 136.89,
-      "grid": 0.789
+      "name": "DNB_BREAK_195",
+      "pack": "DnB Breaks",
+      "bars": 2,
+      "bpm": 174.0,
+      "grid": 0.983
     },
     {
       "file": "63.wav",
-      "name": "eve_craze",
+      "name": "DNB_BREAK_157",
+      "pack": "DnB Breaks",
       "bars": 2,
-      "bpm": 142.31,
-      "grid": 0.787
+      "bpm": 174.0,
+      "grid": 0.98
     }
   ]
 }
