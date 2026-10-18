@@ -786,9 +786,9 @@ class MainWindow(QWidget):
         # landing all at once, the way _on_roll_clicked already promises.
         self._pending_acid_cast = False
         # The last Roll's six lines (0-3, bottom first), for the web remote's
-        # "unfolding" (see oracle.unfolding), which m00Drc's roller moves its
-        # controls by. Queued like the acid cast so it lands with the rolled
-        # progression; None until the first Roll.
+        # "cast", which m00Drc's roller rolls its arc of controls from. Queued
+        # like the acid cast so it lands with the rolled progression; None
+        # until the first Roll.
         self._pending_reading_lines: list[int] | None = None
         self.reading_lines: list[int] | None = None
         # Which progression slot is sounding, or -1 while stopped. Tracked

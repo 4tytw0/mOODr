@@ -22,8 +22,6 @@ from PySide6.QtNetwork import QAbstractSocket, QHostAddress, QNetworkInterface, 
 from PySide6.QtWebSockets import QWebSocketServer
 from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox
 
-from . import oracle
-
 HTTP_PORT = 8765
 WS_PORT = 8766
 # Fast enough that the acid playhead (a 16th note is 125ms at 120bpm) reads
@@ -257,10 +255,9 @@ class WebRemote(QObject):
             "controls": controls,
             "playing": bool(w.play_button.property("playing")),
             "reading": w.reading_label.text(),
-            # The last Roll played out over the loop's chords: one King Wen
-            # number per pad (see oracle.unfolding), or null before a Roll.
-            "unfolding": (None if w.reading_lines is None else
-                          [h.number for h in oracle.unfolding(w.reading_lines, loop_length)]),
+            # The landed Roll's six lines (0-3, bottom first; see oracle), or
+            # null before a Roll. m00Drc's roller rolls its arc from them.
+            "cast": w.reading_lines,
             "noiseLabel": w.acid_noise_label.text(),
             "drumLabel": w.drums_mutation_label.text(),
             "pads": [{"numeral": p.numeral_label.text(), "name": p.name_label.text(),

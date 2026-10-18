@@ -440,33 +440,3 @@ def test_describe_says_when_a_slot_carried_on():
             assert "carried on past a degree already in use" in cast.describe()
             return
     raise AssertionError("no carried slot in 200 rolls -- expected some")
-
-
-def test_unfolding_runs_from_the_cast_to_its_transformation():
-    lines = [1, 0, 2, 2, 3, 1]                     # lines 2 and 5 changing
-    cast = oracle.Cast(key="C", mode="Major", slots=[0, 1, 2, 3], lines=lines)
-    steps = oracle.unfolding(lines, 4)
-    assert steps[0] == cast.hexagram
-    assert steps[-1] == cast.transformation
-    # In between, the bottom changing line turns first.
-    middle = [oracle.is_yang(v) for v in lines]
-    middle[1] = oracle.transformed_polarity(lines[1])
-    assert oracle.hexagram_for(middle) in steps[1:3]
-
-
-def test_unfolding_without_changing_lines_stands_as_cast():
-    lines = [1, 2, 2, 1, 1, 2]
-    assert len(set(oracle.unfolding(lines, 4))) == 1
-
-
-def test_unfolding_turns_every_line_by_the_last_step_whatever_the_length():
-    rng = random.Random(0)
-    for _ in range(200):
-        lines = oracle.cast_lines(rng)
-        cast = oracle.Cast(key="C", mode="Major", slots=[0, 1, 2, 3], lines=lines)
-        for steps in (1, 2, 3, 4, 8):
-            hexagrams = oracle.unfolding(lines, steps)
-            assert len(hexagrams) == steps
-            assert hexagrams[0] == cast.hexagram
-            if steps > 1:
-                assert hexagrams[-1] == (cast.transformation or cast.hexagram)
