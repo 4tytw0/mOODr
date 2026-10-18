@@ -12,6 +12,11 @@ SunVox library note. m800Dr's sunvoxdrums.py loads the kits and plays them.
     Crunch   SunVox's DrumSynth through a bitcrusher and a low-pass:
              lo-fi breaks.
 
+Every kit plays through a compressor on its way out (drum_bus), about 2:1
+above -10 dB with a 3 ms attack: it pulls the kick and snare bodies down
+towards the rest, so the kit sits tighter, and an amplifier after it makes
+the level back up.
+
 Library notes: the SunVox library plays note n at the pitch of MIDI note
 n + 23 (measured on the acid patch: library note 37 is middle C), so a tuned
 voice that should sound at MIDI m is listed at m - 23. DrumSynth repeats its
@@ -37,10 +42,33 @@ DEFAULT_OUT = Path(__file__).resolve().parent.parent.parent / "synths"
 KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
 LIB_OFFSET = 23  # MIDI note = library note + LIB_OFFSET
 KICK_CLICK_RELEASE, KICK_CLICK_VOLUME = 6, 70   # the Machine kick's attack transient
+# The Machine closed hat's release: short enough that a hat is gone before the
+# next 16th (125 ms at 120 bpm). At 50 it rang ~190 ms and the hats ran into
+# one hiss.
+MACHINE_HAT_RELEASE = 18   # ~70 ms
 # The Kicker sounds well below its note, so its notes are set by ear-proxy
 # (zero-crossing rate over the hit). The 909's is a punch: 36 starts ~125 Hz
 # and drops fast; the 808's, 27, is lower and long.
 KICKER_NOTE_909, KICKER_NOTE_808 = 36, 27
+
+
+# The kit's bus compressor, in SunVox Compressor units: threshold as an
+# amplitude of 256 (256 = 0 dBFS, 80 = -10 dB), slope % (50 = 2:1, 100 =
+# limiting), attack/release ms. The Compressor's own volume is an input gain
+# (more of it only compresses harder), so the make-up gain is an Amplifier
+# after it, of 256 (322 = +2 dB, what the compression takes off the groove).
+BUS_THRESHOLD, BUS_SLOPE, BUS_ATTACK, BUS_RELEASE = 80, 50, 3, 80
+BUS_MAKEUP = 322
+
+
+def drum_bus(project):
+    """The compressor every voice of a kit goes through to the output."""
+    bus = project.new_module(m.Compressor, name="Drum bus", x=1100, y=512,
+                             threshold=BUS_THRESHOLD, slope=BUS_SLOPE, attack=BUS_ATTACK,
+                             release=BUS_RELEASE)
+    bus >> project.new_module(m.Amplifier, name="Drum bus gain", x=1300, y=512,
+                              volume=BUS_MAKEUP) >> project.output
+    return bus
 
 
 def lib(midi_note: int) -> int:
@@ -59,8 +87,8 @@ def noise_hit(project, name, release, filter_type, freq, x, y, waveform=AG.Wavef
 def machine() -> tuple[Project, dict]:
     p = Project()
     p.name = "m00Drc kit: Machine"
-    out = p.output
-    out.x, out.y = 900, 512
+    p.output.x, p.output.y = 1500, 512
+    out = drum_bus(p)
     # A punch, not a woop: a fast pitch drop (high acceleration), a short body
     # (90% of the energy gone by ~115 ms, was ~325) and a noise click on top.
     p.new_module(m.Kicker, name="Kick", x=300, y=200, waveform=BaseKicker.Waveform.sin,
@@ -75,7 +103,7 @@ def machine() -> tuple[Project, dict]:
     hats = p.new_module(m.Filter, name="Hat filter", x=700, y=500,
                         type=BaseFilter.Type.hp, freq=7000, roll_off=BaseFilter.RollOff._24db)
     hats >> out
-    for name, release, volume, x in (("Hat", 50, 70, 300), ("Open hat", 260, 55, 500)):
+    for name, release, volume, x in (("Hat", MACHINE_HAT_RELEASE, 70, 300), ("Open hat", 260, 55, 500)):
         p.new_module(m.Generator, name=name, x=x, y=500, waveform=Gen.Waveform.noise,
                      volume=volume, attack=0, release=release, sustain=False, polyphony=1) >> hats
     return p, {
@@ -89,8 +117,8 @@ def machine() -> tuple[Project, dict]:
 def boom() -> tuple[Project, dict]:
     p = Project()
     p.name = "m00Drc kit: Boom"
-    out = p.output
-    out.x, out.y = 900, 512
+    p.output.x, p.output.y = 1500, 512
+    out = drum_bus(p)
     p.new_module(m.Kicker, name="Kick", x=300, y=200, waveform=BaseKicker.Waveform.sin,
                  volume=140, release=400, boost=0, acceleration=300, no_click=True) >> out
     room = p.new_module(m.Reverb, name="Snare room", x=700, y=350,
@@ -122,8 +150,8 @@ def boom() -> tuple[Project, dict]:
 def crunch() -> tuple[Project, dict]:
     p = Project()
     p.name = "m00Drc kit: Crunch"
-    out = p.output
-    out.x, out.y = 900, 512
+    p.output.x, p.output.y = 1500, 512
+    out = drum_bus(p)
     drums = p.new_module(m.DrumSynth, name="Drums", x=300, y=512, volume=110, polyphony=4,
                          bass_power=256, bass_length=170, snare_tone=160, hihat_length=64)
     crush = p.new_module(m.Distortion, name="Crush", x=500, y=512, volume=200, power=0,
