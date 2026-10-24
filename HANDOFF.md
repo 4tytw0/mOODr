@@ -1,6 +1,6 @@
 # m800Dr / m00Dr on the desktop — handoff
 
-_Last updated 2026-10-17 (SunVox synths for acid, drums, chords and bass; m00Drc's roller; player latency; all in open PRs, see "Done 2026-10-16/17")._ This is the M8 rig, which now runs entirely on the Linux desktop
+_Last updated 2026-10-24 (I Ching arcs, breaks on fader 8, controller transport, drums back on the grid, dropouts fixed, WebRTC stream; see "Done 2026-10-18/24"). **All m00Dr services were stopped on request at the end of 2026-10-24**; see "Resume here"._ This is the M8 rig, which now runs entirely on the Linux desktop
 (`Desktop`, 192.168.1.17, CachyOS, KDE Wayland) instead of the MacBook. The Dirtywave M8
 (Teensy / M8 Headless) is plugged in here over USB.
 
@@ -9,8 +9,11 @@ _Last updated 2026-10-17 (SunVox synths for acid, drums, chords and bass; m00Drc
 picked (ch7). FluidSynth still plays the arp (ch3) and the soundfont chord/drum choices. m00Drc's
 roller rolls m00Dr's controls and the acid's sound. Everything is live on the desktop and measured,
 but **not yet judged by ear**.
-**Nothing from 2026-10-16/17 is merged:** it's in stacked PRs (m800Dr #1-#5, mOODr #2-#3), and the
-desktop runs it from **uncommitted copies** (see "Code / files"). See "Resume here" at the bottom.
+**Nothing is merged into master/main yet.** Everything is on one linear branch per repo,
+**`rig-2026-10-17`** (m800Dr: 27 commits on `master`, this handoff update last; mOODr: 9 on `main`, ending
+`986d1d7`). It replaces the stacked PRs (m800Dr #1-#9, mOODr #2-#5), which are still open. The desktop
+runs it from **uncommitted copies** that match that branch file for file (see "Code / files"). See
+"Resume here" at the bottom.
 
 ```
  m00Dr GUI ──MIDI port "m00Dr" (notes + MIDI Beat Clock)
@@ -39,16 +42,20 @@ desktop runs it from **uncommitted copies** (see "Code / files"). See "Resume he
 | Mix bus `m800dr_mix` | `~/.config/pipewire/pipewire.conf.d/m800dr-mix.conf` (null sink, 48 kHz, low priority so the M8 stays the default sink) | yes |
 | M8 audio → mix | user service `m800dr-mix-m8` (`pw-loopback`, pinned targets). `Restart=always` since 2026-10-10: at boot it ran before the M8 node existed and exited 0. Unit copy in `systemd/` | yes (enabled) |
 | Audio server | user service `m800dr-audio` → `~/code/m800Dr/server.py` (`/` player, `/mixer` fader page polling `/mixer/state`), `SOURCE = "m800dr_mix.monitor"` | yes (enabled) |
-| Mixer | user service `m800dr-mixer` → `mixer.py` (JACK client `m800Dr-Mixer`). Strips (MIDI ch / fader): chords 1/1, bass 2/2, arp 3/3, acid 5/5, drums 4/7, m8 8/8. Moves on CC 7 on the strip's channel or Launch Control XL CC 77-84 (any channel). Unity at 80% of travel (`KNEE`); above it, asymmetric tanh fuzz. Positions saved in `~/.local/state/m800dr/mixer.json`; live state in `$XDG_RUNTIME_DIR/m800dr-mixer.json` | yes (enabled) |
+| Mixer | user service `m800dr-mixer` → `mixer.py` (JACK client `m800Dr-Mixer`). Strips (MIDI ch / fader): chords 1/1, bass 2/2, arp 3/3, acid 5/5, drums 4/7, breaks 8/8 (the M8 strip is gone). Moves on CC 7 on the strip's channel or Launch Control XL CC 77-84 (any channel). Unity at 80% of travel (`KNEE`); above it, asymmetric tanh fuzz. Positions saved in `~/.local/state/m800dr/mixer.json`; live state in `$XDG_RUNTIME_DIR/m800dr-mixer.json` | yes (enabled) |
 | FluidSynth (ch1 chords, ch3 arp, ch4 drums) | user service `m00dr-fluidsynth` (unit copy in `systemd/`). Config is `synths/fluidsynth.cfg` (router passes ch1/ch3/ch4 only); fonts are `synths/GeneralUser-GS.sf2`, `synths/gamebreaks.sf2` (font 2, bank offset 1), `synths/chords.sf2` (font 3, bank offset 2) and `synths/gamedrums.sf2` (font 4, bank 128, 32 kits). Startup: chords preset 10 `phase_sine`, arp preset 1 `toa_f`, drums kit 0; m00Dr then sets chords/arp from its sound menus and the kit per Roll. JACK, 4 output groups (chords l/r_00, arp _02, drums _03; 2 fx pairs per group), gain 1.5. TCP shell on :9800 (no `nc`; use python sockets) | yes (enabled) |
 | SunVox bass (ch2) | user service `m00dr-sunvoxbass` → `sunvoxbass.py` (`synths/fuzzbass.sunvox`; ALSA client `m00Dr-SunVoxBass`, `pw-cat` → bass strip). Mono, last-note priority; per-note osc2 detune from m00Dr's clock = one fuzz swell per beat | yes (enabled) |
 | SunVox acid (ch5) | user service `m00dr-sunvox303` → `sunvox303.py` (`synths/acid303.sunvox`; client `m00Dr-SunVox303` → acid strip). CCs 74/71/75/76/5/77 on ch5 = cutoff/resonance/decay/accent/glide/drive, eased over 0.5 s | yes (enabled) |
-| SunVox drums (ch6) | user service `m00dr-sunvoxdrums` → `sunvoxdrums.py` (`synths/drumkit-*.sunvox` + `drumkits.json`, one SunVox slot per kit; program change 0-2 picks; client `m00Dr-SunVoxDrums` → drums strip) | yes (enabled) |
+| SunVox drums (ch6) | user service `m00dr-sunvoxdrums` → `sunvoxdrums.py` (`synths/drumkit-*.sunvox` + `drumkits.json`, one SunVox slot per kit; program change 0-2 picks; client `m00Dr-SunVoxDrums` → drums strip). Every kit has a bus compressor + make-up Amplifier (`build_drumkits.py` `drum_bus()`) | yes (enabled) |
+| Breaks (ch8) | user service `m00dr-breaks` → `breaks.py`: 64 traditional breaks (`synths/breaks.json`; audio in `synths/breaks/`, git-ignored, built on the Mac by `tools/build_breaks.py` from `~/Documents/PRODUCTION`), 16 slices per bar on m00Dr's MIDI clock. The roller sends a program change (the cast's yang bits, 0-63) per landed Roll and chop CCs 20/21 per chord → breaks strip (fader 8) | yes (enabled) |
+| WebRTC stream | user service `m800dr-webrtc` → `webrtc.py` (uv script, aiortc): stereo Opus over UDP, signalling on localhost:8809, reached through server.py's `POST /webrtc/offer`. The player page's **WEBRTC** chip (default; **RAW** is the old `/stream`) | yes (enabled) |
+| Wi-Fi power save | user service `m00drc-powersave` → `m00drc.powersave`: power save off while m00Dr plays, on while stopped. **Not running:** needs `sudo install -m 440 -o root -g root ~/code/m800Dr/systemd/m800dr-powersave.sudoers /etc/sudoers.d/m800dr-powersave` first, then `systemctl --user enable --now m00drc-powersave` | not yet |
+| Controller transport (Mac) | `tools/midi_bridge.py` on the Mac: the LCXL's bottom-left and bottom-right buttons (notes 73/92) start/stop m00Dr; both LEDs green while playing, red while stopped | no: `nohup` from a terminal |
 | SunVox keys (ch7) | user service `m00dr-sunvoxkeys` → `sunvoxkeys.py` (`synths/wurli.sunvox`; client `m00Dr-SunVoxKeys` → chords strip). Tremolo = 8th notes at the clock's tempo, phase reset each beat | yes (enabled) |
 | m00Drc roller | user service `m00drc-roller` → `m00Drc/` (`uv run python -u -m m00drc.roller --wait-for-play`). Web remote :8766 for m00Dr's controls; ALSA client `m00Drc-Roller` (`knobs in` ← mixer controls, `sound out` → sunvox303) | with m00dr (`WantedBy=m00dr.service`) |
 | Reese bass (ch2) | `m00dr-reese` → `reese.py`. **Disabled 2026-10-16** (sunvoxbass replaces it) | no |
 | Open303 acid (ch5) | **Disabled 2026-10-16** (sunvox303 replaces it). Was: user service `m00dr-open303` → `carla-rack --no-gui synths/open303.carxp` (rack: internal MIDI Channel Filter passing ch5 only → JC303 LV2). JACK client `m00Dr-Open303` via `CARLA_CLIENT_NAME`; `PIPEWIRE_QUANTUM=256/48000` (Carla asserts if the buffer size changes). Regenerate the project with `python3 tools/build_open303.py [--dump]` (uses Carla's backend; sets the starting patch in `PATCH`, strips `<ExternalPatchbay>`). Unit copy in `systemd/` | yes (enabled) |
-| Graph links | user service `m00dr-synth-links` → `synths/links.sh` (re-runs `pw-link` for the pairs in `LINKS` every 2 s: m00Dr → synths, synths and M8 → mixer strips, mixer → `m800dr_mix`; plus every USB MIDI device except Midi Through/M8 → `m800Dr-Mixer:faders`) | yes (enabled) |
+| Graph links | user service `m00dr-synth-links` → `synths/links.sh`: every 2 s, reads `pw-link -o/-i/-l` once and links only the pairs in `LINKS` that are missing (m00Dr → synths, synths → mixer strips, mixer → `m800dr_mix`; plus every USB MIDI device except Midi Through/M8 → `m800Dr-Mixer:faders`). The ~120-clients-per-pass churn (issue #10) is fixed: 30 PipeWire client events per 10 s, was ~970 | **no: disabled** since 2026-10-22 (for #10); enable it now: `systemctl --user enable m00dr-synth-links` |
 | m00Dr → M8 notes | user service `m00dr-m8-midi` → `~/code/mOODr/m8_midi_route.sh` (aconnect) | **disabled** 2026-10-10: the user wants FluidSynth only |
 | Audio → HDMI | user service `m8-loopback` | enabled, but HDMI isn't a PipeWire sink right now, so it has nowhere to play |
 | Network MIDI | `rtpmidid` user service | yes |
@@ -239,6 +246,52 @@ drums) was **closed**: the user asked for normal speed back. Merge bottom-up.
   looked like a crash to the user (transport stops, window reopens, tempo resets to 120). Restarting
   the SunVox players only cuts their part for ~1 s.
 
+## Done 2026-10-18/24: arcs, breaks, transport, groove, dropouts, WebRTC
+
+On `rig-2026-10-17` in both repos (see the top). In order:
+
+- **Roller tempo fix:** a tempo change re-timed every step since Play (a burst or a stall); it now
+  re-anchors. The roll lane still ignores a control's `enabled` (noted only).
+- **Drum rolls keep the groove** (mOODr): a groove's main hits (chance ≥ `_MAIN_CHANCE` 0.85) always
+  play while the knob is nearest that groove.
+- **303 tab** beside the scope on :8808 (`acid.html`; sunvox303.py takes UDP 9811 and writes
+  `$XDG_RUNTIME_DIR/m800dr-acid.json`; a knob moved there holds against the roller).
+- **Drum bus:** shorter Machine hat (`MACHINE_HAT_RELEASE` 18) and a compressor on every kit
+  (`BUS_THRESHOLD/SLOPE/ATTACK/RELEASE` 80/50/3/80, make-up `BUS_MAKEUP` 322 through an Amplifier:
+  the SunVox Compressor's volume is an input gain, and its threshold is an amplitude out of 256).
+- **I Ching arcs** (`roller.py`): each landed Roll (every 120-240 s) rolls an arc of 8 sections up to
+  the next Roll. Three-coin tosses flip the changing lines; `hexagram_int` reads the six lines as binary,
+  × 127 // 63. m00Dr's web remote shares the landed Roll's lines (`cast` in the snapshot). `--no-iching`
+  rolls from the dice only.
+- **Breaks on fader 8** (see "What runs where"); the M8 strip and its links are gone. `chop()`: a
+  changing yin line stutters a pair of 16ths; a changing yang line swaps it with the pair half a bar on
+  (lower trigram) or echoes the beat before (upper). Humpty Dump's downbeat is probably wrong.
+- **Controller transport:** the LCXL's bottom-left button, and since 2026-10-24 the bottom-right too,
+  start/stop m00Dr (LED note-on on the template channel: 60 green, 15 red, 12 off).
+- **Rebased** every PR into one linear `rig-2026-10-17` per repo (mOODr's two "Web remote" commits
+  squashed).
+- **Drums back on the grid** (mOODr, 2026-10-24): the double-time hats played the hat pattern on
+  32nds, twice a bar, which moved the offbeat hats onto the "e" and "a" and left them unswung under
+  swung snares (flams). Hats now step with the kick/snare on the swung 16ths. Another groove's main
+  hits no longer bleed in at partial odds (at 0.25 the house kicks were each 45% over the two-step).
+  Timing was measured clean first: m00Dr's clock ±1 ms, PipeWire's MIDI bridge a fixed 10.8 ms.
+- **Dropouts** (2026-10-24): the Python mixer was missing deadlines. Two causes: the links.sh churn
+  (#10, fixed above: 20 xruns/30 s with the old keeper, 0 with the new) and the 256-frame quantum. The
+  quantum is now **forced to 512 at runtime** (`pw-metadata -n settings 0 clock.force-quantum 512`;
+  mixer CPU 34% → 5%). A PipeWire restart loses it; `force-quantum 0` reverts. Every graph change
+  (adding/removing a link) can blip the mixer, so don't probe the graph while someone listens; watch
+  the mixer's ERR column in `pw-top -b -n 2`.
+- **Wi-Fi:** with power save on, the stream to the Mac stalled ~100 ms at a time whenever the iPad
+  woke (measured: m00Dr's clock steady, the stream's arrival gappy). The Mac's AWDL (`awdl0`) adds
+  off-channel bursts too. Hence the power-save watcher (needs the sudoers step) and:
+- **WebRTC stream** (see "What runs where"): Opus in `OPUS_APPLICATION_AUDIO` (aiortc hardcodes VOIP;
+  `webrtc.py` swaps the constant), ~99 kbps stereo; the page munges `stereo=1` into its offer. Headless
+  Chromium on the Mac: 0 lost, 0% concealed, ~40 ms adaptive jitter buffer, 4 ms RTT. It preserves
+  the stream more than it lowers latency; Ethernet on the desktop would do most for both.
+- **Stuck bass** (2026-10-24): a steady 0.02 on the bass strip with m00Dr stopped, which CC 123/120
+  didn't clear; restarting `m00dr-sunvoxbass` did. Not a held note: all-notes-off silences the bass,
+  303 and keys within 0.5 s (measured offline). Next time, record the bass output before restarting.
+
 ## Launch Control XL notes (mk2: USB 1235:0061)
 
 From Novation's programmer's reference (launch-control-xl-programmers-reference-guide.pdf):
@@ -259,20 +312,27 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
 
 ## Resume here
 
-1. Log in to Plasma on the desktop (the box was at the **lightdm** greeter after the reboot, not
-   SDDM as noted earlier; autologin isn't working). `m00dr` starts with the session.
+1. **All m00Dr services were stopped on 2026-10-24** (on request; the m800Dr mixer, audio server and
+   WebRTC stream still run). Start them with
+   `systemctl --user start m00dr-synth-links m00dr-fluidsynth m00dr-sunvox303 m00dr-sunvoxbass m00dr-sunvoxdrums m00dr-sunvoxkeys m00dr-breaks m00dr`
+   (the roller follows m00dr). After a reboot: log in to Plasma (the box waits at the **lightdm**
+   greeter; autologin isn't working), and `m00dr` starts with the session. Re-force the 512 quantum
+   (see "Done 2026-10-18/24") and enable `m00dr-synth-links`, or nothing re-links after a restart.
 2. Check: `systemctl --user is-active m00dr m00dr-fluidsynth m00dr-sunvoxbass m00dr-sunvox303 m00dr-sunvoxdrums m00dr-sunvoxkeys m00drc-roller m00dr-synth-links m800dr-mixer m800dr-audio`
    and `pw-link -l | grep -A2 '^m800Dr-Mixer'`.
 3. **Listen** to the SunVox parts (none judged by ear yet): Wurli tremolo depth, fuzz-bass level vs
    the kick, the punchier Machine kick, Boom/Crunch, the acid's crush. Faders 3 (arp) and 5 (acid)
    were at 0 on 2026-10-16. Patch settings are at the top of each `m00Drc/m00drc/build_*.py`.
-4. Turn Wi-Fi power save off (command in "Done 2026-10-16/17"), then reload the player.
-5. Review and merge the stacked PRs bottom-up, then put the desktop checkouts back on clean branches.
+4. Install the power-save sudoers rule and enable `m00drc-powersave` (commands in "What runs where");
+   better still, put the desktop on Ethernet.
+5. Open one PR per repo from `rig-2026-10-17` (replacing the stacks, then close them), merge, and put
+   the desktop checkouts back on clean branches. That fixes issue #10 on master; branch
+   `handoff-links-note` only added the #10 note and is superseded.
 6. Move the Launch Control XL to the desktop; check its faders move the strips on
    `http://192.168.1.17:8808/mixer` (factory template; if a fader shows as "last unmapped CC",
    adjust `FADER_CCS` in `mixer.py`).
-7. Balance levels across the strips. M8 (fader 8) is unplugged right now, so `m800dr-mix-m8`
-   restart-loops harmlessly.
+7. Balance levels across the strips. Fader 8 is the breaks now (it sat at 0.87, in the fuzz zone).
+   The M8 is unplugged, so `m800dr-mix-m8` restart-loops harmlessly.
 8. Listen to the 32 kits (Roll, or `select 3 4 128 <kit>` on the :9800 shell); reseed the mixes
    (`build_drumkit.py --seed`) if they repeat too much.
 9. Try the chord/arp sound menus; balance the new `chords.sf2` patches against Phase sine.
@@ -280,7 +340,10 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
 11. Check the knobs really send their assumed CCs once the controller is on the desktop: column 7
     (19 drum mutation, 35 sidechain) and the roller's column 4/6 (16, 32, 52, 18). The roller's
     journal (`journalctl --user -fu m00drc-roller`) prints a `knob:` line per CC it takes.
-12. mOODr PRs #2/#3 target `linux-alsa-ports`; that branch itself still has no PR into `main`.
+12. Make the drums follow the Rolls (asked for 2026-10-24, not started): the I Ching arcs drive the
+    breaks but not m00Dr's own drum pattern.
+13. Idea the user raised: seed with the planets as hexagrams (Human Design's 64 gates of 5.625° on
+    the zodiac; Sun's gate for key/mode, Moon's pulling the changing lines), via PyEphem. Not started.
 
 ## Done 2026-10-10: Open303
 
@@ -305,8 +368,11 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
 
 ## Open issues
 
-- **Desktop runs uncommitted copies** of m800Dr PRs #1-#5; `~/code/mOODr` is on the PR branch
-  `sunvox-wurli`. Tidy both once merged.
+- **Desktop runs uncommitted copies** matching `rig-2026-10-17` in both repos (deploys are file
+  copies, compared with `cmp`). Tidy both once merged.
+- **The 512 quantum is a runtime setting**, and the mixer is Python: at 256 frames it xruns under
+  load. A native mixer (PipeWire filter-chain, or C/Rust) would allow 128-256 again.
+- **WebRTC is tested in Chromium only**; Safari should connect but ignores the buffer slider.
 - **LCXL knob CCs are assumed** (roller 16/32/52/18, drum mutation 19, sidechain 35); the
   controller hasn't been on the desktop to check.
 - **Restart loops:** `m800dr-mix-m8` (M8 unplugged, >100k restarts) and `aseqnet-anbernic`
