@@ -3,7 +3,6 @@ import random
 from moodr.midi_io import FULL_VELOCITY
 from moodr import theory
 from moodr.playback import (
-    HAT_STEP_TICKS,
     SUNVOX_CHORD_CHANNEL,
     SUNVOX_DRUM_CHANNEL,
     SUNVOX_DRUM_KITS,
@@ -26,7 +25,9 @@ from moodr.playback import (
     SNARE,
     _cast_drum_lines,
     _drum_pattern_for,
+    _blend,
     _generate_drum_pattern,
+    _nearest_groove,
     drum_swing_ticks,
     TICKS_PER_BAR,
     PlaybackEngine,
@@ -1119,34 +1120,38 @@ def test_swing_delays_odd_steps():
     assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, SNARE, 48]]
 
 
-def test_hats_play_their_pattern_double_time_on_32nds():
+def test_hats_step_with_the_kick_and_snare_on_16ths():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
     engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
     engine._drum_pattern[0] = [(KICK, 120), (CLOSED_HAT, 90)]
-    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine._drum_pattern[2] = [(CLOSED_HAT, 92)]
     engine.start()
     # Bar line: kick and hat together.
     assert sorted(m[1] for m in _drums_on(output)) == [KICK, CLOSED_HAT]
     output.sent.clear()
-    clock.tick(HAT_STEP_TICKS)                        # a 32nd later: the hat's step 1
-    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]
+    clock.tick(DRUM_STEP_TICKS)                       # the "e": step 1 is empty
+    assert not _drums_on(output)
+    clock.tick(DRUM_STEP_TICKS)                       # the "and": step 2's hat
+    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 92]]
     output.sent.clear()
-    clock.tick(DRUM_STEPS * HAT_STEP_TICKS - HAT_STEP_TICKS)   # half a bar: hats start over
-    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 90]]   # the kick doesn't
+    clock.tick(TICKS_PER_BAR - 2 * DRUM_STEP_TICKS)   # once per bar: back to step 0
+    assert sorted(m[1] for m in _drums_on(output)) == [KICK, CLOSED_HAT]
 
 
-def test_two_step_swing_pushes_odd_32nd_hats_by_half():
+def test_swing_pushes_odd_16th_hats_with_the_snare():
+    """Hats and snares on the same odd 16th land together, not a tick
+    apart (a flam)."""
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
-    engine.drum_mutation = 0.5                        # 2 ticks of swing, 1 for the hats
+    engine.drum_mutation = 0.5                        # 2 ticks of swing
     engine._drum_pattern = [[] for _ in range(DRUM_STEPS)]
-    engine._drum_pattern[1] = [(CLOSED_HAT, 58)]
+    engine._drum_pattern[1] = [(SNARE, 48), (CLOSED_HAT, 58)]
     engine.start()
-    clock.tick(HAT_STEP_TICKS)
+    clock.tick(DRUM_STEP_TICKS + 1)
     assert not _drums_on(output)
     clock.tick(1)
-    assert _drums_on(output) == [[0x90 | DRUM_CHANNEL, CLOSED_HAT, 58]]
+    assert sorted(m[1] for m in _drums_on(output)) == [SNARE, CLOSED_HAT]
 
 
 def test_muting_drums_releases_the_sounding_hit_and_silences_later_steps():
@@ -1339,3 +1344,13 @@ def test_main_hits_always_play_near_their_groove():
             assert SNARE in notes[4] and SNARE in notes[12]
         notes = _notes(_generate_drum_pattern(random.Random(seed), 0.9))
         assert KICK in notes[0] and KICK in notes[10]
+
+
+def test_another_grooves_main_hits_dont_bleed_in():
+    # At 0.25, the start of two-step, house's beat 2-4 kicks were each a 45%
+    # chance; at 0.2, house, two-step's kick on step 10 was 36%.
+    for mutation, steps in ((0.25, (4, 8, 12)), (0.3, (4, 8, 12)), (0.2, (10,))):
+        for step in steps:
+            assert _blend("kick", step, mutation) == _nearest_groove(mutation)["kick"][step]
+
+

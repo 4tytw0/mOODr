@@ -154,10 +154,11 @@ def _generate_acid_pattern(noise: float, wide_deviation: bool,
 DRUM_STEPS = 16
 DRUM_STEP_TICKS = PPQN // 4
 KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
-# The hats run double time: their 16 steps of the pattern play on the 32nd
-# grid, twice per bar, while the kick and snare stay on 16ths.
+# The hats step on the same swung 16ths as the kick and snare. (They used
+# to play their 16 steps on 32nds, twice per bar, which moved the offbeat
+# hats onto the "e" and "a" of every beat, unswung against the swung
+# snares: the groove fell between the grids.)
 HATS = (CLOSED_HAT, OPEN_HAT)
-HAT_STEP_TICKS = DRUM_STEP_TICKS // 2
 
 DRUM_KICK_VELOCITY = 120
 DRUM_SNARE_VELOCITY = 112
@@ -264,8 +265,15 @@ def _nearest_groove(mutation: float) -> dict[str, list[float]]:
 
 def _blend(voice: str, step: int, mutation: float) -> float:
     """A voice's chance at a step, between the three grooves."""
-    if _nearest_groove(mutation)[voice][step] >= _MAIN_CHANCE:
+    nearest = _nearest_groove(mutation)
+    if nearest[voice][step] >= _MAIN_CHANCE:
         return 1.0
+    # Another groove's main hit doesn't bleed in at half strength: at 0.25 the
+    # house kicks on beats 2-4 were each a 45% chance over the two-step kick,
+    # random fragments of four-on-the-floor. Those steps keep the nearest
+    # groove's own chance.
+    if any(g[voice][step] >= _MAIN_CHANCE for g in (_HOUSE, _TWO_STEP, _BREAK)):
+        return nearest[voice][step]
     house, two, brk = _HOUSE[voice][step], _TWO_STEP[voice][step], _BREAK[voice][step]
     if mutation <= 0.5:
         return house + (two - house) * mutation * 2
@@ -1057,15 +1065,12 @@ class PlaybackEngine:
         self._acid_slide_pending = False
 
     def _drum_tick(self, tick_in_bar: int) -> None:
-        """Fires the drum steps that land on this tick of the bar. Kick and
-        snare: even 16ths on the grid, odd ones pushed late by the current
-        swing. Hats: the same on the 32nd grid, with half the swing."""
+        """Fires the drum step that lands on this tick of the bar: even 16ths
+        on the grid, odd ones pushed late by the current swing."""
         step, offset = divmod(tick_in_bar, DRUM_STEP_TICKS)
         if offset == (self._drum_swing if step % 2 else 0):
             self._advance_drum_step(step, hats=False)
-        hat_step, offset = divmod(tick_in_bar, HAT_STEP_TICKS)
-        if offset == (self._drum_swing // 2 if hat_step % 2 else 0):
-            self._advance_drum_step(hat_step, hats=True)
+            self._advance_drum_step(step, hats=True)
 
     def _advance_drum_step(self, index: int, hats: bool) -> None:
         """Plays step `index` of the pattern's hats, or of everything else."""
