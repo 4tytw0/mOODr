@@ -76,6 +76,7 @@
   <button id="go">Listen</button>
   <div class="meter"><div class="bar"><i id="l"></i></div><div class="bar"><i id="r"></i></div></div>
   <label>Volume <b id="volv">100%</b><input id="vol" type="range" min="0" max="150" value="100"></label>
+  <label>Stream <span><button class="chip sel" id="via-webrtc" title="Opus over UDP: a lost packet is concealed instead of stalling the stream, and the browser's jitter buffer adapts to the network">WEBRTC</button> <button class="chip" id="via-raw" title="Raw PCM over HTTP: no codec, but a lost packet stalls the stream until it's resent">RAW</button></span></label>
   <label>Buffer <button class="chip sel" id="bufauto" title="Auto: keep the buffer just above what the network needs, growing after a dropout and shrinking while it's calm">AUTO</button> <b id="bufv">60 ms</b><input id="buf" type="range" min="10" max="300" step="5" value="60"></label>
   <div id="status">Stopped</div>
   </section>
@@ -97,18 +98,35 @@ const AUTO_MIN = 0.02, AUTO_MAX = 0.3, AUTO_START = 0.03, AUTO_GROW = 0.015, AUT
 const AUTO_WINDOW = 4, AUTO_HEADROOM = 0.012, RATE_GAIN = 0.05, RATE_TRIM = 0.004;
 let auto = true, minLead = Infinity, windowStart = 0, rate = 1;
 try { auto = localStorage.getItem('bufauto') !== 'off'; } catch {}
+// WEBRTC or RAW (see the Stream chips). Over WebRTC the browser does the
+// buffering: AUTO leaves its jitter buffer adaptive, the slider sets its
+// target delay (jitterBufferTarget, where the browser has it).
+let via = 'webrtc', pc = null, rx = null, mirror = null, stats = null;
+try { via = localStorage.getItem('via') === 'raw' ? 'raw' : 'webrtc'; } catch {}
 function showTarget() { const ms = Math.round(target * 1000); $('bufv').textContent = ms + ' ms'; $('buf').value = ms; }
 function setAuto(on) {
   auto = on; $('bufauto').classList.toggle('sel', on);
   if (on) target = AUTO_START;
-  showTarget();
+  showTarget(); jitterTarget();
   try { localStorage.setItem('bufauto', on ? 'on' : 'off'); } catch {}
 }
 setAuto(auto);
 $('bufauto').onclick = () => setAuto(!auto);
 
 $('vol').oninput = e => { $('volv').textContent = e.target.value + '%'; if (gain) gain.gain.value = e.target.value / 100; };
-$('buf').oninput = e => { setAuto(false); target = e.target.value / 1000; showTarget(); };
+$('buf').oninput = e => { setAuto(false); target = e.target.value / 1000; showTarget(); jitterTarget(); };
+function setVia(v) {
+  via = v; $('via-webrtc').classList.toggle('sel', v === 'webrtc'); $('via-raw').classList.toggle('sel', v === 'raw');
+  try { localStorage.setItem('via', v); } catch {}
+}
+setVia(via);
+for (const v of ['webrtc', 'raw']) $('via-' + v).onclick = () => { if (v === via) return; const was = running; if (was) stop(); setVia(v); if (was) start(); };
+function jitterTarget() {
+  if (!rx) return;
+  const ms = auto ? null : Math.round(target * 1000);
+  if ('jitterBufferTarget' in rx) rx.jitterBufferTarget = ms;
+  if ('playoutDelayHint' in rx) rx.playoutDelayHint = ms === null ? null : ms / 1000;
+}
 $('go').onclick = () => running ? stop() : start();
 // The mixer and the 303 are tabs of a panel beside the scope (iframes of
 // /mixer?embed and /acid?embed), so the audio keeps playing. Clicking the open
@@ -136,6 +154,7 @@ addEventListener('message', e => {
 
 function stop() {
   running = false; abort?.abort();
+  pc?.close(); pc = rx = stats = null; playAt = 0; if (mirror) mirror.srcObject = null;
   ctx?.close(); ctx = anL = anR = null;
   $('go').textContent = 'Listen'; $('go').classList.remove('on'); $('status').textContent = 'Stopped';
   $('idle').hidden = false;
@@ -155,10 +174,54 @@ async function start() {
   anL.connect(sink); anR.connect(sink); sink.connect(ctx.destination);
   running = true; $('go').textContent = 'Stop'; $('go').classList.add('on'); $('idle').hidden = true;
   while (running) {
-    try { await pump(); } catch (e) { if (!running) break; $('status').textContent = 'Reconnecting… (' + e.message + ')'; }
+    try { await (via === 'webrtc' ? rtc() : pump()); } catch (e) { if (!running) break; $('status').textContent = 'Reconnecting… (' + e.message + ')'; }
     if (running) await new Promise(r => setTimeout(r, 1000));
   }
 }
+
+async function rtc() {
+  pc = new RTCPeerConnection();
+  const transceiver = pc.addTransceiver('audio', { direction: 'recvonly' });
+  const track = new Promise(r => { pc.ontrack = e => r(e.streams[0] || new MediaStream([e.track])); });
+  const offer = await pc.createOffer();
+  // Browsers decode Opus to mono unless the receiving side's SDP asks for stereo.
+  offer.sdp = offer.sdp.replace(/useinbandfec=1/g, 'useinbandfec=1;stereo=1;sprop-stereo=1');
+  await pc.setLocalDescription(offer);
+  await new Promise(r => {   // LAN host candidates: gathering takes milliseconds
+    if (pc.iceGatheringState === 'complete') return r();
+    pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r();
+    setTimeout(r, 2000);
+  });
+  const res = await fetch('webrtc/offer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(pc.localDescription) });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  await pc.setRemoteDescription(await res.json());
+  const stream = await track;
+  rx = transceiver.receiver; jitterTarget();
+  // Chrome only feeds a remote stream into Web Audio while a media element is playing it.
+  mirror = mirror || new Audio(); mirror.muted = true; mirror.srcObject = stream; mirror.play().catch(() => {});
+  ctx.createMediaStreamSource(stream).connect(tap);
+  $('status').textContent = 'Connected';
+  stats = { jb: 0, emitted: 0, concealed: 0, received: 0 };
+  await new Promise((_, reject) => {
+    pc.onconnectionstatechange = () => ['failed', 'closed'].includes(pc?.connectionState) && reject(new Error(pc.connectionState));
+  });
+}
+
+// Over WebRTC: the jitter buffer's delay and how much audio was concealed,
+// both over the last second, from the receiver's stats.
+async function rtcStatus() {
+  const out = Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000);
+  for (const r of (await pc.getStats()).values()) {
+    if (r.type !== 'inbound-rtp' || r.kind !== 'audio') continue;
+    const emitted = r.jitterBufferEmittedCount - stats.emitted, received = r.totalSamplesReceived - stats.received;
+    const jb = emitted > 0 ? Math.round((r.jitterBufferDelay - stats.jb) / emitted * 1000) : 0;
+    const hid = received > 0 ? (r.concealedSamples - stats.concealed) / received * 100 : 0;
+    stats = { jb: r.jitterBufferDelay, emitted: r.jitterBufferEmittedCount, concealed: r.concealedSamples, received: r.totalSamplesReceived };
+    $('status').textContent = `WebRTC · ${jb} ms jitter buffer + ${out} ms output · ${hid.toFixed(1)}% concealed · ${r.packetsLost} lost`;
+  }
+}
+setInterval(() => { if (running && pc && stats) rtcStatus().catch(() => {}); }, 1000);
 
 async function pump() {
   abort = new AbortController();
@@ -334,7 +397,14 @@ let calm;
 function wake() { scope.classList.remove('calm'); clearTimeout(calm); calm = setTimeout(() => isFull() && scope.classList.add('calm'), 2000); }
 scope.addEventListener('pointermove', wake); document.addEventListener('fullscreenchange', wake);
 
+const meterBuf = new Float32Array(2048);
 (function meters() {
+  if (via === 'webrtc' && anL && anR)
+    [anL, anR].forEach((an, c) => {
+      an.getFloatTimeDomainData(meterBuf);
+      let peak = 0; for (const v of meterBuf) peak = Math.max(peak, Math.abs(v));
+      peaks[c] = Math.max(peak, peaks[c] * 0.85);
+    });
   $('l').style.width = Math.min(100, peaks[0] * 100) + '%';
   $('r').style.width = Math.min(100, peaks[1] * 100) + '%';
   if (running && ctx && playAt) {

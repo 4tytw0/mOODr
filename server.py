@@ -3,6 +3,9 @@
 
 GET /             -> the player page (index.html)
 GET /stream       -> endless raw PCM: signed 16-bit little-endian, 48 kHz, stereo
+POST /webrtc/offer -> a WebRTC offer (JSON {sdp, type}), forwarded to webrtc.py
+                      (localhost WEBRTC); its answer comes back. The page's
+                      WEBRTC mode streams the mix as Opus over UDP that way.
 GET /mixer        -> the mixer page (mixer.html): fader positions, drive, meters
 GET /mixer/state  -> mixer.py's live state as JSON (503 if it isn't running)
 POST /mixer/control -> a JSON fader move, forwarded to mixer.py's UDP control
@@ -13,7 +16,8 @@ POST /acid/control -> a JSON knob move, forwarded to sunvox303.py's UDP control
                       input ({"cc": n, "value": 0..127} holds it, {"cc": n, "hold": false} lets go)
 
 Each listener gets its own `parec` capture of the mix, so a listener
-dropping off never stalls the others. Standard library only.
+dropping off never stalls the others. Standard library only (WebRTC itself
+is webrtc.py, a separate service).
 """
 import argparse
 import http.server
@@ -21,12 +25,15 @@ import os
 import pathlib
 import socket
 import subprocess
+import urllib.error
+import urllib.request
 
 # The m800Dr Mix bus (PipeWire null sink), fed by mixer.py: M8 + m00Dr's synths.
 SOURCE = "m800dr_mix.monitor"
 RATE, CHANNELS = 48000, 2
 CHUNK = RATE * CHANNELS * 2 // 100  # 10 ms of audio per write
 PAGE = pathlib.Path(__file__).with_name("index.html")
+WEBRTC = "http://127.0.0.1:8809/offer"   # webrtc.py's signalling
 RUNTIME = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
 # Panel pages: /name, /name/state and /name/control, each backed by a process
 # that takes UDP control datagrams and writes its live state to a JSON file.
@@ -58,6 +65,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        if self.path == "/webrtc/offer":
+            self.webrtc_offer()
+            return
         panel = self.path[1:-8] if self.path.endswith("/control") else None
         if panel not in PANELS:
             self.send_error(404)
@@ -71,6 +81,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             sock.sendto(body, PANELS[panel][1])
         self.send_response(204)
         self.end_headers()
+
+    def webrtc_offer(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if not 0 < length <= 65536:
+            self.send_error(400)
+            return
+        request = urllib.request.Request(
+            WEBRTC, self.rfile.read(length), method="POST",
+            headers={"Content-Type": "application/json", "X-Forwarded-For": self.client_address[0]})
+        try:
+            with urllib.request.urlopen(request, timeout=10) as res:
+                self.send_body(res.read(), "application/json")
+        except (urllib.error.URLError, OSError):
+            self.send_error(503, "webrtc.py not running")
 
     def send_body(self, body, content_type):
         self.send_response(200)
