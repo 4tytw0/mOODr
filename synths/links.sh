@@ -59,28 +59,42 @@ $MIXER:controls|m00Drc-Roller:knobs in (playback)
 $MIXER:out_L|m800dr_mix:playback_FL
 $MIXER:out_R|m800dr_mix:playback_FR"
 
-# Prints the first port in `pw-link -o` / `-i` (per $1) containing $2.
+# Each pass reads the ports and links once and only runs pw-link for a link
+# that is missing. Every pw-link call is a new PipeWire client, and making ~120
+# of them every INTERVAL (two lookups and a link attempt per line) kept
+# WirePlumber and PipeWire busy enough to make the Python mixer miss its
+# deadlines: 20 dropouts in 30 s while running, none while paused.
+
+# Prints the first port in $1 (a cached `pw-link -o` / `-i` listing) containing $2.
 find_port() {
-    pw-link "$1" | grep -F -m1 -- "$2"
+    printf '%s\n' "$1" | grep -F -m1 -- "$2"
+}
+
+# Links "src|dst" if it isn't in $EXISTING already.
+ensure_link() {
+    printf '%s\n' "$EXISTING" | grep -qxF -- "$1|$2" && return
+    pw-link "$1" "$2" 2>/dev/null && echo "Linked $1 -> $2"
 }
 
 while :; do
+    OUTS=$(pw-link -o) INS=$(pw-link -i)
+    # `pw-link -l` lists each output followed by "  |-> input" lines.
+    EXISTING=$(pw-link -l | awk '/^[^ ]/ { src = $0; next } /^ *\|-> / { sub(/^ *\|-> /, ""); print src "|" $0 }')
     echo "$LINKS" | while IFS='|' read -r out in; do
         [ -z "$out" ] && continue
-        src=$(find_port -o "$out") dst=$(find_port -i "$in")
+        src=$(find_port "$OUTS" "$out") dst=$(find_port "$INS" "$in")
         [ -n "$src" ] && [ -n "$dst" ] || continue
-        # pw-link fails with "File exists" when already linked: the steady state.
-        pw-link "$src" "$dst" 2>/dev/null && echo "Linked $src -> $dst"
+        ensure_link "$src" "$dst"
     done
     # Hardware MIDI inputs (ALSA kernel clients: USB MIDI devices) drive the
     # mixer's faders, except Midi Through and the M8's own MIDI port.
-    dst=$(find_port -i "$MIXER:faders")
+    dst=$(find_port "$INS" "$MIXER:faders")
     [ -n "$dst" ] && aconnect -i | sed -n "s/^client [0-9]*: '\(.*\)' \[type=kernel.*/\1/p" |
         grep -v -e '^System$' -e '^Midi Through$' -e 'M8' |
         while read -r name; do
-            pw-link -o | grep -F "Midi-Bridge:$name:" | grep -F '(capture)' |
+            printf '%s\n' "$OUTS" | grep -F "Midi-Bridge:$name:" | grep -F '(capture)' |
                 while read -r src; do
-                    pw-link "$src" "$dst" 2>/dev/null && echo "Linked $src -> $dst"
+                    ensure_link "$src" "$dst"
                 done
         done
     sleep "$INTERVAL"
