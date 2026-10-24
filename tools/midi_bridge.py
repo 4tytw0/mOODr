@@ -12,10 +12,10 @@ coalesced to the latest value per CC every SEND_EVERY seconds, so a fast
 sweep costs a few dozen requests rather than hundreds. Waits for the
 controller to appear and reconnects if it's unplugged.
 
-Transport: the bottom-left button (TRANSPORT_NOTE, the first Track Control
-button on the factory templates) starts and stops m00Dr, over its web remote
-(--remote), and stays lit green while m00Dr plays and red while it's
-stopped (off while m00Dr can't be reached). The LED is set with a note-on on
+Transport: the bottom-left and bottom-right buttons (TRANSPORT_NOTES, the
+first and last Track Control buttons on the factory templates) each start and
+stop m00Dr, over its web remote (--remote), and both stay lit green while
+m00Dr plays and red while it's stopped (off while m00Dr can't be reached). The LED is set with a note-on on
 the template's channel, learned from the controller's own messages.
 
     uv run tools/midi_bridge.py [--port "Launch Control XL"] [--server http://192.168.1.17:8808]
@@ -27,7 +27,7 @@ import argparse, asyncio, json, threading, time, urllib.request
 import rtmidi, websockets
 
 SEND_EVERY = 0.02
-TRANSPORT_NOTE = 73       # bottom row, first button (Track Control 1)
+TRANSPORT_NOTES = (73, 92)   # bottom row, first and last buttons (Track Control 1 and 8)
 # Launch Control XL LED velocities: red + 16 * green, plus 12 (the "copy and
 # clear" flags a normal write uses).
 LED_OFF, LED_RED, LED_GREEN = 12, 15, 60
@@ -45,7 +45,8 @@ class Transport:
     def led(self):
         if self.midi_out is not None and self.midi_out.is_port_open():
             colour = LED_OFF if self.playing is None else LED_GREEN if self.playing else LED_RED
-            self.midi_out.send_message([0x90 | self.channel, TRANSPORT_NOTE, colour])
+            for note in TRANSPORT_NOTES:
+                self.midi_out.send_message([0x90 | self.channel, note, colour])
 
     def press(self):
         if self.playing is not None and self.loop is not None:
@@ -97,7 +98,7 @@ def main():
         if len(msg) == 3 and msg[0] & 0xF0 in (0x80, 0x90, 0xB0) and msg[0] & 0x0F != transport.channel:
             transport.channel = msg[0] & 0x0F   # the template changed: light it on the new channel
             transport.led()
-        if len(msg) == 3 and msg[0] & 0xF0 == 0x90 and msg[1] == TRANSPORT_NOTE and msg[2]:
+        if len(msg) == 3 and msg[0] & 0xF0 == 0x90 and msg[1] in TRANSPORT_NOTES and msg[2]:
             transport.press()
         if len(msg) == 3 and msg[0] & 0xF0 == 0xB0:
             with lock:
