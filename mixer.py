@@ -26,7 +26,7 @@ fader is plain volume, reaching unity at KNEE; above it the strip blends into
 an asymmetric tanh fuzz that gets harder the higher the fader goes.
 
 Sidechain: the drums strip's low end (mostly the kick), after its fader,
-ducks the tonal strips (SIDECHAIN_DUCKED) -- instant attack, SIDECHAIN_RELEASE
+ducks the tonal strips and the fx (SIDECHAIN_DUCKED) -- instant attack, SIDECHAIN_RELEASE
 recovery, down by up to SIDECHAIN amount (0-1 of their level) on a full-level
 kick. The amount moves on CC SIDECHAIN_CC, the /mixer page's slider, or
 {"sidechain": 0..1} on CONTROL. The breaks aren't ducked: they're drums too.
@@ -52,7 +52,7 @@ BIAS = 0.3            # tanh offset: asymmetric clipping adds even harmonics
 DC_POLE = 0.9987      # DC blocker (~10 Hz): the bias leaves an offset behind
 
 SIDECHAIN_KEY = "drums"
-SIDECHAIN_DUCKED = ("chords", "bass", "arp", "acid")
+SIDECHAIN_DUCKED = ("chords", "bass", "arp", "acid", "fx")
 SIDECHAIN_DEFAULT = 0.6   # full duck = 1 - 0.6 = 0.4x, about -8 dB
 SIDECHAIN_CC = 35         # Launch Control XL middle knob, drums column 7 (factory layout, assumed)
 SIDECHAIN_LPF = 150.0     # Hz: key on the kick, not the hats
