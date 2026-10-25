@@ -39,6 +39,10 @@ each is decided as the section before it starts, by a local model (llama-swap,
 --model) choosing to hold, nudge, shift or leap, with its odds rolled (see
 weights.py). A section it can't decide in time is tossed as usual.
 
+With --arrange dice|model, each section also gets an arrangement move (strip,
+build, drop, sweep out...: see arrangement.py), played on the mixer's faders
+and m00Dr's arp rate and drum mutation. The mix goes back as it was on exit.
+
 Breaks (m800Dr's breaks.py, fader 8): the roller also drives them over
 "sound out" on BREAKS_CHANNEL. Each landed Roll sends a program change, the
 cast's hexagram as binary (0..63), which picks that Roll's break; every chord
@@ -82,12 +86,14 @@ import argparse
 import asyncio
 import json
 import random
+import signal
 import time
 from collections import deque
 from dataclasses import dataclass
 
 import websockets
 
+from .arrangement import Arranger, mixer_faders
 from .weights import MOVES, ModelMover, turn
 
 # Draws are 7-bit, 0..INT_MAX: the range of a MIDI CC, so a sound lane sends
@@ -281,6 +287,7 @@ class Roller:
         self.mover = (ModelMover(args.api, args.model, args.temperature)
                       if args.weights == "model" else None)
         self.arc_task: asyncio.Task | None = None  # fills a model-weighted arc
+        self.arranger: Arranger | None = None
         self.breaks_program = 0             # the break for the current Roll (see _send_breaks)
         self.breaks_sent: int | None = None
         # Lane -> the last value it sent. A lane doesn't send the same value
@@ -422,11 +429,52 @@ class Roller:
             if not self.args.no_midi:
                 self._open_midi()
                 tasks.append(asyncio.create_task(self._listen_knobs()))
+            if self.args.arrange != "off":
+                mix = mixer_faders()
+                if mix is None:
+                    print("arrange: m800Dr's mixer isn't running, so no arrangement moves", flush=True)
+                else:
+                    self.arranger = Arranger(*mix, self.state.get("controls", {}), self.args.dry_run)
+                    print(f"arrange: {self.args.arrange}; {self.arranger.describe()}", flush=True)
+                    tasks.append(asyncio.create_task(self._arrange(ws)))
             try:
                 await self._loop(ws)
             finally:
                 for task in tasks:
                     task.cancel()
+                if self.arranger:
+                    await self.arranger.restore(ws)
+                    print("arrange: mix restored", flush=True)
+
+    async def _arrange(self, ws) -> None:
+        """One arrangement move per arc section, chosen as the section starts
+        and played out over its first bars."""
+        seen, history = None, []
+        while True:
+            await asyncio.sleep(0.25)
+            arc = self.arc
+            if arc is None or playing_chord(self.state) is None:
+                continue
+            k = arc.section(time.monotonic())
+            if (id(arc), k) == seen:
+                continue
+            seen = (id(arc), k)
+            to_roll = max(0.0, self.next_roll - time.monotonic())
+            now = f"section {k + 1} of {arc.count}, next Roll in {to_roll:.0f}s, {self._now_text()}"
+            started = time.monotonic()
+            if self.args.arrange == "model":
+                odds = await asyncio.to_thread(self.arranger.model_odds, self.args.api, self.args.model,
+                                               history, now)
+                move = (Arranger.roll(odds, self.args.temperature, self.stream.rng) if odds
+                        else self.arranger.dice(self.stream.rng)[0])
+            else:
+                odds, move = None, self.arranger.dice(self.stream.rng)[0]
+            took = time.monotonic() - started
+            done = await self.arranger.play(move, ws, self.bpm(), self.stream.rng)
+            history = (history + [f"section {k + 1}: {done}"])[-16:]
+            shown = " ".join(f"{m} {p:.2f}" for m, p in odds.items()) if odds else (
+                "model unavailable, dice" if self.args.arrange == "model" else "dice")
+            print(f"arrange {k + 1}/{arc.count}: {done}  ({shown}; {took:.1f}s)", flush=True)
 
     async def _read(self, ws) -> None:
         try:
@@ -561,6 +609,8 @@ def parse_args(argv=None):
     p.add_argument("--api", default="http://127.0.0.1:8080", help="llama-swap's address")
     p.add_argument("--temperature", type=float, default=2.0,
                    help="flattens the model's odds before they're rolled (1 keeps them)")
+    p.add_argument("--arrange", choices=("off", "dice", "model"), default="off",
+                   help="an arrangement move per section (faders, arp rate, drums), chosen by dice or the model")
     p.add_argument("--dry-run", action="store_true", help="print, don't send")
     p.add_argument("--no-midi", action="store_true",
                    help="no ALSA MIDI (knobs in, sound CCs out); it is Linux only")
@@ -568,6 +618,8 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
+    # systemctl stop sends SIGTERM: handle it like Ctrl-C so the mix is restored.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     try:
         asyncio.run(Roller(parse_args(argv)).run())
     except (ConnectionRefusedError, OSError, websockets.ConnectionClosed) as e:
