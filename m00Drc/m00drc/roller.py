@@ -93,7 +93,7 @@ from dataclasses import dataclass
 
 import websockets
 
-from .arrangement import Arranger, mixer_faders
+from .arrangement import BASE, Arranger, save_base, starting_mix
 from .weights import MOVES, ModelMover, turn
 
 # Draws are 7-bit, 0..INT_MAX: the range of a MIDI CC, so a sound lane sends
@@ -430,11 +430,16 @@ class Roller:
                 self._open_midi()
                 tasks.append(asyncio.create_task(self._listen_knobs()))
             if self.args.arrange != "off":
-                mix = mixer_faders()
+                leftover = BASE.exists() and not self.args.dry_run
+                mix = starting_mix(self.state.get("controls", {}), keep=not self.args.dry_run)
                 if mix is None:
                     print("arrange: m800Dr's mixer isn't running, so no arrangement moves", flush=True)
                 else:
-                    self.arranger = Arranger(*mix, self.state.get("controls", {}), self.args.dry_run)
+                    self.arranger = Arranger(*mix, self.args.dry_run)
+                    if leftover:   # the last run died before restoring: start from the real mix
+                        await self.arranger.restore(ws)
+                        save_base(self.arranger.base, self.arranger.sidechain0, self.arranger.controls0)
+                        print("arrange: the last run didn't restore the mix; restored it from its save", flush=True)
                     print(f"arrange: {self.args.arrange}; {self.arranger.describe()}", flush=True)
                     tasks.append(asyncio.create_task(self._arrange(ws)))
             try:
@@ -459,6 +464,7 @@ class Roller:
             if (id(arc), k) == seen:
                 continue
             seen = (id(arc), k)
+            self.arranger.position = (k, arc.count)
             to_roll = max(0.0, self.next_roll - time.monotonic())
             now = f"section {k + 1} of {arc.count}, next Roll in {to_roll:.0f}s, {self._now_text()}"
             started = time.monotonic()
