@@ -113,6 +113,9 @@ def main():
     args = ap.parse_args()
     app = web.Application()
     app.router.add_post("/offer", offer)
+    # For server.py's idle check: someone listening keeps the roller and model on.
+    app.router.add_get("/listeners", lambda request: web.json_response(
+        {"count": sum(pc.connectionState == "connected" for pc in peers)}))
     app.on_shutdown.append(on_shutdown)
     print(f"m800Dr WebRTC signalling on http://{args.host}:{args.port}/offer", flush=True)
     web.run_app(app, host=args.host, port=args.port, print=None)

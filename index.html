@@ -28,6 +28,8 @@
   .panel { width:100%; height:0; border:0; display:block; align-self:start; }
   .panel[hidden] { display:none; }
   h1 .nav:hover { color:var(--fg); }
+  h1 .nav:disabled { opacity:.45; cursor:default; }
+  h1 #rig.sel { color:var(--accent); }
   button { font:inherit; font-size:16px; padding:14px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
            border-radius:6px; cursor:pointer; }
   button.on { background:transparent; color:var(--fg); }
@@ -60,6 +62,7 @@
 <body>
 <main>
   <h1>AUDIO <span>●</span> SERVER <span class="tabs">
+    <button class="nav" id="rig" title="The rig: synths and m00Dr on or off">RIG …</button>
     <button class="nav" id="tab-acid" title="Show or hide the 303's sound controls beside the scope (the audio keeps playing)">303</button>
     <button class="nav" id="tab-mixer" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER</button></span></h1>
   <section id="player">
@@ -417,6 +420,33 @@ const meterBuf = new Float32Array(2048);
   }
   requestAnimationFrame(meters);
 })();
+
+// The rig (the synths and m00Dr) on and off: from the desktop or a NetBird
+// peer only (the server checks). And a heartbeat: the roller, and the model
+// behind it, run only while a page like this is open or someone's listening.
+const pageId = crypto.randomUUID?.() ?? String(Math.random());
+const beat = () => fetch('/presence', { method: 'POST', keepalive: true,
+  body: JSON.stringify({ id: pageId }) }).catch(() => {});
+beat(); setInterval(beat, 15000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
+let rigState = null;
+async function rigPoll() {
+  try { rigState = await (await fetch('/rig')).json(); } catch { rigState = null; }
+  const b = $('rig');
+  if (!rigState) { b.textContent = 'RIG ?'; b.disabled = true; return; }
+  b.textContent = rigState.busy ? 'RIG …' : rigState.on ? 'RIG ●' : 'RIG ○';
+  b.classList.toggle('sel', rigState.on && !rigState.busy);
+  b.disabled = !rigState.control || rigState.busy;
+  b.title = !rigState.control ? 'Turning the rig on and off works from the desktop or over NetBird'
+    : `${rigState.on ? 'Stop' : 'Start'} the rig (synths and m00Dr) · roller ${rigState.roller ? 'on' : 'off'} · `
+      + (rigState.models.length ? `model loaded: ${rigState.models.join(', ')}` : 'no model loaded');
+}
+$('rig').onclick = async () => {
+  if (!rigState || (rigState.on && !confirm('Stop the rig? (synths, m00Dr and the model)'))) return;
+  await fetch('/rig', { method: 'POST', body: JSON.stringify({ on: !rigState.on }) });
+  setTimeout(rigPoll, 400);
+};
+rigPoll(); setInterval(rigPoll, 3000);
 </script>
 </body>
 </html>
