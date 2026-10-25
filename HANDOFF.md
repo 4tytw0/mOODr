@@ -311,6 +311,8 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
   (common factory-1 layout, **not yet seen**): top knobs CC 13-20, so the drums column's top knob
   is CC 19 (the drums moved to column 7 on 2026-10-10). Check it: turn that knob and look at the "last unmapped CC" line on the mixer page.
 
+> **2026-10-24: every unit below is disabled** (on request): nothing starts at boot or login. The "yes (enabled)" column predates this. Start on demand: `systemctl --user start m800dr-mixer m800dr-audio m800dr-webrtc llama-swap`, then RIG on the audio server page (it starts the synths and m00Dr and presses Play).
+
 ## Resume here
 
 1. **All m00Dr services were stopped on 2026-10-24** (on request; the m800Dr mixer, audio server and
