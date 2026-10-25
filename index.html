@@ -15,6 +15,8 @@
   main { width:100%; max-width:1180px; display:grid; gap:18px 32px; justify-content:center;
          grid-template-columns:minmax(0, 520px); }
   main.with-mixer { grid-template-columns:minmax(0, 560px) minmax(0, 560px); }
+  /* Too narrow for both side by side (a phone, a split window): the panel goes under the scope. */
+  @media (max-width: 860px) { main.with-mixer { grid-template-columns:minmax(0, 560px); } }
   #player { display:grid; gap:18px; align-content:start; }
   h1 { margin:0; font-size:20px; letter-spacing:.08em; grid-column:1 / -1; }
   h1 span { color:var(--accent); }
