@@ -34,6 +34,15 @@ section a lane at a time and land on the last one as the next Roll comes.
 A lane doesn't send the value it last sent again. Before the first Roll (or
 with --no-iching), the stream is the seeded dice, one draw per `--bars` cycle.
 
+With --weights model, an arc's sections aren't tossed with coins up front:
+each is decided as the section before it starts, by a local model (llama-swap,
+--model) choosing to hold, nudge, shift or leap, with its odds rolled (see
+weights.py). A section it can't decide in time is tossed as usual.
+
+With --arrange dice|model, each section also gets an arrangement move (strip,
+build, drop, sweep out...: see arrangement.py), played on the mixer's faders
+and m00Dr's arp rate and drum mutation. The mix goes back as it was on exit.
+
 Breaks (m800Dr's breaks.py, fader 8): the roller also drives them over
 "sound out" on BREAKS_CHANNEL. Each landed Roll sends a program change, the
 cast's hexagram as binary (0..63), which picks that Roll's break; every chord
@@ -77,11 +86,15 @@ import argparse
 import asyncio
 import json
 import random
+import signal
 import time
 from collections import deque
 from dataclasses import dataclass
 
 import websockets
+
+from .arrangement import Arranger, mixer_faders
+from .weights import MOVES, ModelMover, turn
 
 # Draws are 7-bit, 0..INT_MAX: the range of a MIDI CC, so a sound lane sends
 # its int as is. m00Dr's controls fold it into their own range with modulo.
@@ -171,13 +184,23 @@ def hexagram_text(lines: list[bool]) -> str:
     return "".join("⚊" if yang else "⚋" for yang in reversed(lines))
 
 
+def cast_lines(cast: list[int]) -> list[bool]:
+    """A cast's own hexagram: lines 0..3, yang = 2 or 3."""
+    return [value >= 2 for value in cast]
+
+
+def toss_turn(lines: list[bool], rng: random.Random) -> list[bool]:
+    """The next section with the dice: the lines a fresh cast comes up changing on turn."""
+    return [not yang if toss(rng) in (0, 3) else yang for yang in lines]
+
+
 def roll_arc(cast: list[int], rng: random.Random) -> list[list[bool]]:
-    """SECTIONS hexagrams: the cast's own (lines 0..3, yang = 2 or 3), then
-    each one turning the lines a fresh cast comes up changing on."""
-    lines = [value >= 2 for value in cast]
+    """SECTIONS hexagrams: the cast's own, then each one turning the lines a
+    fresh cast comes up changing on."""
+    lines = cast_lines(cast)
     arc = [lines]
     for _ in range(SECTIONS - 1):
-        lines = [not yang if toss(rng) in (0, 3) else yang for yang in lines]
+        lines = toss_turn(lines, rng)
         arc.append(lines)
     return arc
 
@@ -187,10 +210,16 @@ class Arc:
     start: float               # time.monotonic()
     end: float                 # the next Roll
     sections: list[list[bool]]
+    # Sections the arc will have. With --weights model they're appended one at
+    # a time, so a section whose move is late holds the last one until it lands.
+    count: int = SECTIONS
+
+    @property
+    def span(self) -> float:
+        return (self.end - self.start) / self.count
 
     def section(self, now: float) -> int:
-        span = (self.end - self.start) / len(self.sections)
-        return min(int((now - self.start) / span), len(self.sections) - 1)
+        return min(int((now - self.start) / self.span), self.count - 1, len(self.sections) - 1)
 
 
 def playing_chord(state: dict) -> int | None:
@@ -255,6 +284,10 @@ class Roller:
         self.chord_changed = asyncio.Event()
         self.arc: Arc | None = None
         self.arc_cast: list[int] | None = None   # the cast self.arc was rolled from
+        self.mover = (ModelMover(args.api, args.model, args.temperature, args.floor)
+                      if args.weights == "model" else None)
+        self.arc_task: asyncio.Task | None = None  # fills a model-weighted arc
+        self.arranger: Arranger | None = None
         self.breaks_program = 0             # the break for the current Roll (see _send_breaks)
         self.breaks_sent: int | None = None
         # Lane -> the last value it sent. A lane doesn't send the same value
@@ -337,11 +370,47 @@ class Roller:
         # A Roll clicked by hand, or the one the roller is waiting on being
         # close: still give the arc a full minimum gap.
         end = self.next_roll if self.next_roll - now >= ROLL_GAP[0] / 2 else now + ROLL_GAP[0]
-        self.arc, self.arc_cast = Arc(now, end, roll_arc(cast, self.stream.rng)), cast
         self.breaks_program = sum(1 << i for i, value in enumerate(cast) if value >= 2)
-        span = (end - now) / SECTIONS
-        print(f"arc: {SECTIONS} sections of {span:.0f}s: " + " ".join(
+        if self.mover:
+            if self.arc_task:
+                self.arc_task.cancel()
+            self.arc, self.arc_cast = Arc(now, end, [cast_lines(cast)]), cast
+            self.arc_task = asyncio.create_task(self._fill_arc(self.arc))
+            print(f"arc: {SECTIONS} sections of {self.arc.span:.0f}s, moves by {self.mover.model}: "
+                  f"{hexagram_text(self.arc.sections[0])}={hexagram_int(self.arc.sections[0])}", flush=True)
+            return
+        self.arc, self.arc_cast = Arc(now, end, roll_arc(cast, self.stream.rng)), cast
+        print(f"arc: {SECTIONS} sections of {self.arc.span:.0f}s: " + " ".join(
             f"{hexagram_text(lines)}={hexagram_int(lines)}" for lines in self.arc.sections), flush=True)
+
+    def _now_text(self) -> str:
+        """The state the model is shown with each question."""
+        controls = self.state.get("controls", {})
+        mode = (controls.get("mode") or {}).get("value", "?")
+        chord = playing_chord(self.state)
+        return f"mode {mode}, {self.bpm():.0f} BPM, chord pad {'-' if chord is None else chord + 1}"
+
+    async def _fill_arc(self, arc: Arc) -> None:
+        """Appends a model-weighted arc's sections, deciding each one as the
+        section before it starts, so the model has a section's length to
+        answer. A section the model can't decide is tossed with the dice."""
+        history = [f"section 1: {hexagram_text(arc.sections[0])} = {hexagram_int(arc.sections[0])} (the Roll)"]
+        for k in range(1, arc.count):
+            await asyncio.sleep(max(0.0, arc.start + (k - 1) * arc.span - time.monotonic()))
+            started = time.monotonic()
+            probs = await asyncio.to_thread(self.mover.probabilities, history, self._now_text())
+            lines = arc.sections[-1]
+            if probs is None:
+                move, lines = "dice", toss_turn(lines, self.stream.rng)
+                odds = "model unavailable"
+            else:
+                move = self.mover.roll(probs, self.stream.rng)
+                lines = turn(lines, move, self.stream.rng)
+                odds = " ".join(f"{m} {probs[m]:.2f}" for m in MOVES)
+            arc.sections.append(lines)
+            history.append(f"section {k + 1}: {move} -> {hexagram_text(lines)} = {hexagram_int(lines)}")
+            print(f"move {k + 1}/{arc.count}: {move:<5} -> {hexagram_text(lines)}={hexagram_int(lines):<3} "
+                  f"({odds}; {time.monotonic() - started:.1f}s)", flush=True)
 
     def section_int(self) -> tuple[int, int] | None:
         """The arc's current section and its int, or None before a Roll,
@@ -360,11 +429,54 @@ class Roller:
             if not self.args.no_midi:
                 self._open_midi()
                 tasks.append(asyncio.create_task(self._listen_knobs()))
+            if self.args.arrange != "off":
+                mix = mixer_faders()
+                if mix is None:
+                    print("arrange: m800Dr's mixer isn't running, so no arrangement moves", flush=True)
+                else:
+                    self.arranger = Arranger(*mix, self.state.get("controls", {}), self.args.dry_run)
+                    print(f"arrange: {self.args.arrange}; {self.arranger.describe()}", flush=True)
+                    tasks.append(asyncio.create_task(self._arrange(ws)))
             try:
                 await self._loop(ws)
             finally:
                 for task in tasks:
                     task.cancel()
+                if self.arranger:
+                    await self.arranger.restore(ws)
+                    print("arrange: mix restored", flush=True)
+
+    async def _arrange(self, ws) -> None:
+        """One arrangement move per arc section, chosen as the section starts
+        and played out over its first bars."""
+        seen, history = None, []
+        while True:
+            await asyncio.sleep(0.25)
+            arc = self.arc
+            if arc is None or playing_chord(self.state) is None:
+                continue
+            k = arc.section(time.monotonic())
+            if (id(arc), k) == seen:
+                continue
+            seen = (id(arc), k)
+            to_roll = max(0.0, self.next_roll - time.monotonic())
+            now = f"section {k + 1} of {arc.count}, next Roll in {to_roll:.0f}s, {self._now_text()}"
+            started = time.monotonic()
+            if self.args.arrange == "model":
+                odds = await asyncio.to_thread(self.arranger.model_odds, self.args.api, self.args.model,
+                                               history, now)
+                move = (self.arranger.roll(odds, self.args.temperature, self.args.floor, self.stream.rng) if odds
+                        else self.arranger.dice(self.stream.rng)[0])
+            else:
+                odds, move = None, self.arranger.dice(self.stream.rng)[0]
+            took = time.monotonic() - started
+            done = await self.arranger.play(move, ws, self.bpm(), self.stream.rng)
+            history = (history + [f"section {k + 1}: {done}"])[-16:]
+            if self.args.arrange == "model" and self.arranger.wanted:
+                print(f"arrange: the model wanted {self.arranger.wanted}, which isn't possible now", flush=True)
+            shown = " ".join(f"{m} {p:.2f}" for m, p in odds.items()) if odds else (
+                "model unavailable, dice" if self.args.arrange == "model" else "dice")
+            print(f"arrange {k + 1}/{arc.count}: {done}  ({shown}; {took:.1f}s)", flush=True)
 
     async def _read(self, ws) -> None:
         try:
@@ -493,6 +605,17 @@ def parse_args(argv=None):
                    help="only roll while m00Dr's transport is playing")
     p.add_argument("--no-iching", dest="iching", action="store_false",
                    help="roll from the dice only, without the I Ching arcs")
+    p.add_argument("--weights", choices=("dice", "model"), default="dice",
+                   help="how an I Ching arc moves between sections: the coins, or a local model's odds")
+    p.add_argument("--model", default="spark-4b", help="llama-swap model for --weights model")
+    p.add_argument("--api", default="http://127.0.0.1:8080", help="llama-swap's address")
+    p.add_argument("--temperature", type=float, default=2.0,
+                   help="flattens the model's odds before they're rolled (1 keeps them)")
+    p.add_argument("--floor", type=float, default=0.0,
+                   help="0..1 of each model choice spread evenly over the options, so none is ruled out "
+                        "(0 keeps the model's odds; 0.2 gives each of 5 options at least 4%%)")
+    p.add_argument("--arrange", choices=("off", "dice", "model"), default="off",
+                   help="an arrangement move per section (faders, arp rate, drums), chosen by dice or the model")
     p.add_argument("--dry-run", action="store_true", help="print, don't send")
     p.add_argument("--no-midi", action="store_true",
                    help="no ALSA MIDI (knobs in, sound CCs out); it is Linux only")
@@ -500,6 +623,8 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
+    # systemctl stop sends SIGTERM: handle it like Ctrl-C so the mix is restored.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     try:
         asyncio.run(Roller(parse_args(argv)).run())
     except (ConnectionRefusedError, OSError, websockets.ConnectionClosed) as e:
