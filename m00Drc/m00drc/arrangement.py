@@ -11,7 +11,7 @@ level, so a move can't push a part past the mix it started from.
     take_out    one part fades out (2 bars)
     bring_back  one part that's out fades back in (2 bars)
     build       arp rate up a step, drums busier, more sidechain pump
-    drop        every part in at once, on the bar, with a hard pump
+    drop        every part in at once, on the bar; a build's arp, drums and pump let go
     sweep_out   the tonal parts fade out over 4 bars, ready for the next Roll; the pump relaxes
 
 A part's "in" level is its fader when the roller started, so the mix you set
@@ -76,6 +76,7 @@ class Arranger:
         self.mutate0 = int((controls.get("drumMutate") or {}).get("value", 0))
         self.arp_rate, self.mutate = self.arp_rate0, self.mutate0
         self.dry_run = dry_run
+        self.wanted: str | None = None   # the model's favourite, when it wasn't a valid move
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # -- what's possible now ------------------------------------------------------
@@ -93,9 +94,15 @@ class Arranger:
               "take_out": len(ins) > 2,
               "bring_back": bool(outs),
               "build": self.arp_rate != ARP_RATES[-1] or self.mutate < 100 or self.sidechain < SIDECHAIN_MAX,
-              "drop": bool(outs) or self.sidechain < SIDECHAIN_DROP,
+              # A drop needs something to release: parts out, or a build to let go of.
+              "drop": bool(outs) or self.built(),
               "sweep_out": any(p in TONAL for p in ins)}
         return tuple(m for m in MOVES if ok[m])
+
+    def built(self) -> bool:
+        """Whether a build has raised anything a drop would let go of."""
+        return (self.arp_rate != self.arp_rate0 or self.mutate != self.mutate0
+                or abs(self.sidechain - SIDECHAIN_DROP) > 0.01)
 
     def describe(self) -> str:
         return (f"in: {', '.join(self.parts_in()) or 'nothing'}; out: {', '.join(self.parts_out()) or 'nothing'}; "
@@ -114,8 +121,11 @@ class Arranger:
         odds = choice_odds(api, model, MOVES, INSTRUCTIONS, user)
         if odds is None:
             return None
-        odds = {m: p for m, p in odds.items() if m in self.valid()}
-        return odds if sum(odds.values()) > 0 else None
+        top = max(odds, key=odds.get)
+        valid = {m: p for m, p in odds.items() if m in self.valid()}
+        # Its favourite isn't possible now: the rest of its odds are close to noise.
+        self.wanted = top if top not in valid and odds[top] > 0.5 else None
+        return valid if sum(valid.values()) > 0 else None
 
     def roll(self, odds: dict[str, float], temperature: float, floor: float, rng: random.Random) -> str:
         """Rolls the odds over the moves valid now; `floor` spreads some chance over all of them."""
@@ -174,7 +184,7 @@ class Arranger:
             return f"build (arp {self.arp_rate}, drums {self.mutate}%, pump {self.sidechain:.2f})"
         if move == "drop":
             outs = self.parts_out()
-            self._set_sidechain(max(self.sidechain, SIDECHAIN_DROP))
+            self._set_sidechain(SIDECHAIN_DROP)
             self.arp_rate, self.mutate = self.arp_rate0, self.mutate0
             await self._set_m00dr(ws, "arpRate", self.arp_rate)
             await self._set_m00dr(ws, "drumMutate", self.mutate)

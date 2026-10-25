@@ -472,6 +472,8 @@ class Roller:
             took = time.monotonic() - started
             done = await self.arranger.play(move, ws, self.bpm(), self.stream.rng)
             history = (history + [f"section {k + 1}: {done}"])[-16:]
+            if self.args.arrange == "model" and self.arranger.wanted:
+                print(f"arrange: the model wanted {self.arranger.wanted}, which isn't possible now", flush=True)
             shown = " ".join(f"{m} {p:.2f}" for m, p in odds.items()) if odds else (
                 "model unavailable, dice" if self.args.arrange == "model" else "dice")
             print(f"arrange {k + 1}/{arc.count}: {done}  ({shown}; {took:.1f}s)", flush=True)
