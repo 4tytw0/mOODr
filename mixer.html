@@ -16,9 +16,12 @@
   h1 .nav { float:right; font-size:13px; color:var(--dim); text-decoration:none; letter-spacing:.12em; padding-top:4px; }
   h1 .nav:hover { color:var(--fg); }
   #strips { display:grid; grid-template-columns:repeat(auto-fit, minmax(64px, 1fr)); gap:10px; }
-  .strip { display:grid; gap:8px; justify-items:center; padding:12px 6px; border:1px solid var(--line); border-radius:8px;
-           min-width:0; }
-  .db, .drv, .sc, .ch { white-space:nowrap; }
+  /* One column pinned to the strip's width: a label changing length (the SC
+     readout, every few frames) can't widen it and slide the fader sideways. */
+  .strip { display:grid; grid-template-columns:minmax(0, 1fr); gap:8px; justify-items:center; padding:12px 6px;
+           border:1px solid var(--line); border-radius:8px; min-width:0; }
+  .db, .drv, .sc, .ch, .name { white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis;
+                               font-variant-numeric:tabular-nums; }
   .strip.hot { border-color:var(--accent); }
   .name { font-size:13px; letter-spacing:.12em; text-transform:uppercase; }
   .ch { font-size:11px; color:var(--dim); }
@@ -51,6 +54,8 @@
   .embed body { display:block; min-height:0; padding:0; }
   .embed #strips { grid-template-columns:repeat(auto-fit, minmax(0, 1fr)); gap:8px; }
   .embed .sc { letter-spacing:0; }
+  /* A seventh of a narrow panel: tighter names, so "CHORDS" and "F4·CH10" fit. */
+  @media (max-width: 540px) { .embed .name { font-size:12px; letter-spacing:.04em; } .embed .ch { font-size:10px; } }
   .embed h1 { display:none; }
   .embed main { max-width:none; }
   .embed .tracks { height:380px; }   /* beside the scope there's room for long throws */
@@ -64,7 +69,7 @@
 <body>
 <main>
   <h1>MIXER <span>●</span> FADERS <a class="nav" href="/">← AUDIO SERVER</a></h1>
-  <label id="sidechain">Sidechain: drums duck chords, bass, arp, acid <b id="scv"></b>
+  <label id="sidechain">Sidechain: drums duck chords, bass, arp, acid, fx <b id="scv"></b>
     <input id="sc" type="range" min="0" max="100" value="60"></label>
   <div id="strips"></div>
   <div id="status">Connecting…</div>
@@ -82,7 +87,7 @@ const strips = {};   // name -> {el, fader, fill, meter, db, drv, level, held, k
 function build(s, knee) {
   const el = document.createElement('div');
   el.className = 'strip';
-  el.innerHTML = `<div class="name">${s.name}</div><div class="ch">F${s.number} · CH ${s.channel}</div>
+  el.innerHTML = `<div class="name">${s.name}</div><div class="ch">F${s.number}·CH${s.channel}</div>
     <div class="tracks">
       <div class="fader"><div class="zone" style="height:${(1 - knee) * 100}%"></div>
         <div class="fill"></div><div class="knee" style="bottom:${knee * 100}%"></div></div>
@@ -144,7 +149,7 @@ function render(state) {
     // How far the sidechain pulled this strip down in the last 100 ms.
     if (s.duck !== null && s.duck !== undefined) {
       const db = 20 * Math.log10(Math.max(s.duck, 1e-4));
-      v.sc.textContent = db < -0.5 ? `SC ${db.toFixed(1)} dB` : 'SC';
+      v.sc.textContent = db < -0.5 ? `SC ${db.toFixed(1)}` : 'SC';   // dB, like the reading above
       v.sc.classList.toggle('on', db < -0.5);
     }
     // Peak meter on a 60 dB scale, falling back slowly.
