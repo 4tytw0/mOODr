@@ -179,7 +179,8 @@ class Arranger:
             await self._set_m00dr(ws, "arpRate", self.arp_rate)
             await self._set_m00dr(ws, "drumMutate", self.mutate)
             await self._ramp({p: self.base[p] for p in outs}, 0.25, beat_s)   # in on the beat
-            return f"drop ({', '.join(outs) or 'all already in'} in, pump {self.sidechain:.2f})"
+            brought = f"{', '.join(outs)} in" if outs else "all already in"
+            return f"drop ({brought}, pump {self.sidechain:.2f})"
         if move == "sweep_out":
             gone = [p for p in self.parts_in() if p in TONAL]
             self._set_sidechain(self.sidechain0)
