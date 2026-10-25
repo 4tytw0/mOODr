@@ -24,6 +24,8 @@ RtMidiOut Client:m00Dr (capture)|m00Dr-SunVox303:acid in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-SunVox303:acid in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-Breaks:breaks in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-Breaks:breaks in (playback)
+RtMidiOut Client:m00Dr (capture)|m00Dr-FX:fx in (playback)
+m00Drc-Roller:sound out (capture)|m00Dr-FX:fx in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxDrums:drums in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxKeys:keys in (playback)
 m00Dr-FluidSynth:l_00|$MIXER:chords_L
@@ -54,6 +56,8 @@ m00Dr-SunVox303:output_FL|$MIXER:acid_L
 m00Dr-SunVox303:output_FR|$MIXER:acid_R
 m00Dr-Breaks:output_FL|$MIXER:breaks_L
 m00Dr-Breaks:output_FR|$MIXER:breaks_R
+m00Dr-FX:output_FL|$MIXER:fx_L
+m00Dr-FX:output_FR|$MIXER:fx_R
 $MIXER:controls|RtMidiIn Client:m00Dr Control (playback)
 $MIXER:controls|m00Drc-Roller:knobs in (playback)
 $MIXER:out_L|m800dr_mix:playback_FL

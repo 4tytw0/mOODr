@@ -106,6 +106,8 @@ SECTIONS = 8
 # m800Dr's breaks.py: its MIDI channel (1-based) and the CCs that carry a
 # chop's six lines (see breaks.chop).
 BREAKS_CHANNEL, CHOP_LINES_CC, CHOP_CHANGING_CC = 8, 20, 21
+# m800Dr's fx.py (risers, impact, atmosphere): its MIDI channel, 1-based.
+FX_CHANNEL = 10
 
 # Seconds between rolls: ROLL_GAP[0] at int 0 up to ROLL_GAP[1] at INT_MAX.
 ROLL_GAP = (120.0, 240.0)
@@ -348,6 +350,14 @@ class Roller:
         await self._send_cc(BREAKS_CHANNEL, CHOP_LINES_CC, yang)
         await self._send_cc(BREAKS_CHANNEL, CHOP_CHANGING_CC, changing)
 
+    async def _send_fx(self, note: int, velocity: int) -> None:
+        """A note to m800Dr's fx.py (MIDI ch FX_CHANNEL); velocity 0 is a note off."""
+        from alsa_midi import NoteOffEvent, NoteOnEvent
+        ev = (NoteOnEvent(channel=FX_CHANNEL - 1, note=note, velocity=velocity) if velocity
+              else NoteOffEvent(channel=FX_CHANNEL - 1, note=note, velocity=0))
+        await self.midi.event_output(ev, port=self.sound_out)
+        await self.midi.drain_output()
+
     async def _send_cc(self, channel: int, cc: int, value: int) -> None:
         from alsa_midi import ControlChangeEvent
         await self.midi.event_output(
@@ -436,6 +446,8 @@ class Roller:
                     print("arrange: m800Dr's mixer isn't running, so no arrangement moves", flush=True)
                 else:
                     self.arranger = Arranger(*mix, self.args.dry_run)
+                    if self.sound_out is not None:
+                        self.arranger.fx = self._send_fx
                     if leftover:   # the last run died before restoring: start from the real mix
                         await self.arranger.restore(ws)
                         save_base(self.arranger.base, self.arranger.sidechain0, self.arranger.controls0)

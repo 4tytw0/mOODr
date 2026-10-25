@@ -46,7 +46,7 @@
   /* Embedded in the audio server page: no title, no centring, no gutter. The
      panel is sized to the page (see the ResizeObserver), so it never scrolls:
      a scroll bar would narrow it, wrap the labels, make it taller and bring
-     the other scroll bar too. Six strips share the width, however narrow. */
+     the other scroll bar too. The strips share the width, however narrow. */
   .embed, .embed body { overflow:hidden; }
   .embed body { display:block; min-height:0; padding:0; }
   .embed #strips { grid-template-columns:repeat(auto-fit, minmax(0, 1fr)); gap:8px; }
@@ -54,7 +54,7 @@
   .embed h1 { display:none; }
   .embed main { max-width:none; }
   .embed .tracks { height:380px; }   /* beside the scope there's room for long throws */
-  /* Under ~6 strips' worth of width (a phone): two rows of three, shorter throws. */
+  /* Under ~6 strips' worth of width (a phone): rows of three, shorter throws. */
   @media (max-width: 380px) {
     .embed #strips { grid-template-columns:repeat(3, minmax(0, 1fr)); }
     .embed .tracks { height:240px; }

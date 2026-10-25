@@ -16,6 +16,10 @@ level, so a move can't push a part past the mix it started from.
     push        one part driven into the fader's fuzz for a section, for emphasis;
                 it eases back to its level with the next move
 
+With an FX hook (the roller's MIDI out to m800Dr's fx.py, channel 10), a drop
+waits for a 2-bar noise riser and lands with an impact as it ends, a strip
+brings in the atmosphere (until the next drop) and a sweep_out has a downlifter.
+
 A part's "in" level is its fader when the roller started, so the mix you set
 is the ceiling for every move but push, which may go PUSH_ABOVE past it into
 the mixer's drive zone (above its KNEE, 0.8). The big moves have cooldowns
@@ -46,6 +50,10 @@ MUTATE_BUILD_STEP = 25
 # Sections that must pass before a move may come again (a section is 15-30 s).
 COOLDOWN = {"strip": 6, "sweep_out": 6, "drop": 4, "push": 6}
 PUSH_ABOVE, PUSH_MAX = 0.12, 0.95   # how far past its level a push drives a fader, and the top
+
+# fx.py's notes (MIDI ch10): a 2-bar riser, a 4-bar downlifter, the impact, the atmosphere.
+FX_RISER_2, FX_DOWN_4, FX_IMPACT, FX_ATMOS = 60, 65, 67, 72
+RISER_BARS = 2
 
 CONTROL = ("127.0.0.1", 9810)
 LIVE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m800dr-mixer.json"
@@ -120,6 +128,8 @@ class Arranger:
         self.last: dict[str, int] = {}     # move -> the section it was last played in
         self.pushed: str | None = None     # the part a push is driving, until the next move
         self.built_since = False           # a build since the last strip, drop or sweep_out
+        self.fx = None                     # async fx(note, velocity) -> sends to fx.py; 0 = note off
+        self.atmos = False
         self.position: tuple[int, int] | None = None   # (section, of n) in the arc, set by the roller
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -208,6 +218,10 @@ class Arranger:
         self.sidechain = min(max(amount, 0.0), 1.0)
         self._send({"sidechain": round(self.sidechain, 3)})
 
+    async def _fx(self, note: int, velocity: int = 100) -> None:
+        if self.fx is not None and not self.dry_run:
+            await self.fx(note, velocity)
+
     async def play(self, move: str, ws, bpm: float, rng: random.Random) -> str:
         """Plays `move` out; returns what it did, for the log and the model's history."""
         beat_s = 60.0 / bpm
@@ -228,6 +242,9 @@ class Arranger:
         if move == "strip":
             gone = [p for p in self.parts_in() if p not in CORE]
             self._set_sidechain(self.sidechain0)
+            if not self.atmos:
+                await self._fx(FX_ATMOS, 100)
+                self.atmos = True
             await self._ramp({p: 0.0 for p in gone}, 8, beat_s)
             return f"strip ({', '.join(gone)} out)"
         if move == "take_out":
@@ -248,6 +265,12 @@ class Arranger:
             self._set_sidechain(min(SIDECHAIN_MAX, max(self.sidechain, self.sidechain + SIDECHAIN_BUILD_STEP)))
             return f"build (arp {self.arp_rate}, drums {self.mutate}%, pump {self.sidechain:.2f})"
         if move == "drop":
+            await self._fx(FX_RISER_2, 120)          # the riser, and the drop lands as it ends
+            await asyncio.sleep(RISER_BARS * 4 * beat_s)
+            await self._fx(FX_IMPACT, 110)
+            if self.atmos:
+                await self._fx(FX_ATMOS, 0)
+                self.atmos = False
             outs = self.parts_out()
             self._set_sidechain(SIDECHAIN_DROP)
             self.arp_rate, self.mutate = self.arp_rate0, self.mutate0
@@ -259,6 +282,7 @@ class Arranger:
         if move == "sweep_out":
             gone = [p for p in self.parts_in() if p in TONAL]
             self._set_sidechain(self.sidechain0)
+            await self._fx(FX_DOWN_4, 110)
             await self._ramp({p: 0.0 for p in gone}, 16, beat_s)
             return f"sweep_out ({', '.join(gone)})"
         return "hold"
@@ -266,6 +290,12 @@ class Arranger:
     async def restore(self, ws) -> None:
         """Puts the mix and m00Dr's arp rate and drums back as they were."""
         self.pushed = None
+        if self.atmos:
+            try:
+                await self._fx(FX_ATMOS, 0)
+            except Exception:
+                pass
+            self.atmos = False
         for p, level in self.base.items():
             self._send({"strip": p, "fader": level})
         self._set_sidechain(self.sidechain0)

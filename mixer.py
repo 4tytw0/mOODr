@@ -14,7 +14,7 @@ on "controls" -- e.g. the knob that morphs m00Dr's drum pattern.
 Each strip has a MIDI channel (its m00Dr part's: chords 1, bass 2, arp 3,
 drums 4, acid 5) and a fader number, the same as the channel except for the
 drums, which sit on fader 7 (column 7 of the controller, knobs included), and
-breaks.py's breaks on channel and fader 8. A strip moves on CC FADER_CC on its channel,
+breaks.py's breaks on channel and fader 8, and fx.py's risers and atmospheres on channel 10, fader 4. A strip moves on CC FADER_CC on its channel,
 or on CC FADER_CCS[fader-1] on any channel: the Novation Launch Control XL's
 factory templates send faders 1-8 as CC 77-84.
 
@@ -42,7 +42,7 @@ import numpy as np
 from scipy.signal import butter, lfilter
 
 STRIPS = [  # (name, MIDI channel, fader)
-    ("chords", 1, 1), ("bass", 2, 2), ("arp", 3, 3), ("acid", 5, 5), ("drums", 4, 7), ("breaks", 8, 8)]
+    ("chords", 1, 1), ("bass", 2, 2), ("arp", 3, 3), ("fx", 10, 4), ("acid", 5, 5), ("drums", 4, 7), ("breaks", 8, 8)]
 FADER_CC = 7          # CC 7 = channel volume
 FADER_CCS = list(range(77, 85))   # Launch Control XL faders 1-8, on its template's channel
 KNEE = 0.8            # fader position of unity gain; above it the strip distorts
