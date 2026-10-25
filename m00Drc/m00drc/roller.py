@@ -284,7 +284,7 @@ class Roller:
         self.chord_changed = asyncio.Event()
         self.arc: Arc | None = None
         self.arc_cast: list[int] | None = None   # the cast self.arc was rolled from
-        self.mover = (ModelMover(args.api, args.model, args.temperature)
+        self.mover = (ModelMover(args.api, args.model, args.temperature, args.floor)
                       if args.weights == "model" else None)
         self.arc_task: asyncio.Task | None = None  # fills a model-weighted arc
         self.arranger: Arranger | None = None
@@ -465,7 +465,7 @@ class Roller:
             if self.args.arrange == "model":
                 odds = await asyncio.to_thread(self.arranger.model_odds, self.args.api, self.args.model,
                                                history, now)
-                move = (Arranger.roll(odds, self.args.temperature, self.stream.rng) if odds
+                move = (self.arranger.roll(odds, self.args.temperature, self.args.floor, self.stream.rng) if odds
                         else self.arranger.dice(self.stream.rng)[0])
             else:
                 odds, move = None, self.arranger.dice(self.stream.rng)[0]
@@ -609,6 +609,9 @@ def parse_args(argv=None):
     p.add_argument("--api", default="http://127.0.0.1:8080", help="llama-swap's address")
     p.add_argument("--temperature", type=float, default=2.0,
                    help="flattens the model's odds before they're rolled (1 keeps them)")
+    p.add_argument("--floor", type=float, default=0.0,
+                   help="0..1 of each model choice spread evenly over the options, so none is ruled out "
+                        "(0 keeps the model's odds; 0.2 gives each of 5 options at least 4%%)")
     p.add_argument("--arrange", choices=("off", "dice", "model"), default="off",
                    help="an arrangement move per section (faders, arp rate, drums), chosen by dice or the model")
     p.add_argument("--dry-run", action="store_true", help="print, don't send")

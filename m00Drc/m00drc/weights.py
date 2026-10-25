@@ -80,6 +80,15 @@ def flatten(probs: dict[str, float], temperature: float) -> dict[str, float]:
     return {move: w / total for move, w in weights.items()}
 
 
+def with_floor(probs: dict[str, float], floor: float) -> dict[str, float]:
+    """Mixes the odds with an even spread: each of the n options gets at least
+    floor/n, so a model sure of one answer still leaves room for the others
+    (0 keeps the odds, 1 is plain dice). Flattening alone can't do that: it
+    turns 1.00 vs 0.001 into about 0.97 vs 0.03."""
+    total = sum(probs.values())
+    return {k: (1 - floor) * p / total + floor / len(probs) for k, p in probs.items()}
+
+
 def turn(lines: list[bool], move: str, rng: random.Random) -> list[bool]:
     """The hexagram after `move`: one line of the move's pair turned."""
     lines = list(lines)
@@ -90,8 +99,9 @@ def turn(lines: list[bool], move: str, rng: random.Random) -> list[bool]:
 
 
 class ModelMover:
-    def __init__(self, api: str, model: str, temperature: float, timeout: float = 20.0):
+    def __init__(self, api: str, model: str, temperature: float, floor: float = 0.0, timeout: float = 20.0):
         self.api, self.model, self.temperature, self.timeout = api.rstrip("/"), model, temperature, timeout
+        self.floor = floor
 
     def probabilities(self, arc_lines: list[str], now: str) -> dict[str, float] | None:
         """The model's odds for each move, from the arc so far and the state
@@ -101,5 +111,5 @@ class ModelMover:
         return choice_odds(self.api, self.model, MOVES, INSTRUCTIONS, user, self.timeout)
 
     def roll(self, probs: dict[str, float], rng: random.Random) -> str:
-        weights = flatten(probs, self.temperature)
+        weights = with_floor(flatten(dict.fromkeys(MOVES, 0.0) | probs, self.temperature), self.floor)
         return rng.choices(list(weights), weights=list(weights.values()))[0]

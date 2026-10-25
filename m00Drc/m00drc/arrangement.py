@@ -29,7 +29,7 @@ import pathlib
 import random
 import socket
 
-from .weights import choice_odds, flatten
+from .weights import choice_odds, flatten, with_floor
 
 MOVES = ("hold", "strip", "take_out", "bring_back", "build", "drop", "sweep_out")
 PARTS = ("chords", "bass", "arp", "acid", "drums", "breaks")
@@ -117,9 +117,10 @@ class Arranger:
         odds = {m: p for m, p in odds.items() if m in self.valid()}
         return odds if sum(odds.values()) > 0 else None
 
-    @staticmethod
-    def roll(odds: dict[str, float], temperature: float, rng: random.Random) -> str:
-        weights = flatten(odds, temperature)
+    def roll(self, odds: dict[str, float], temperature: float, floor: float, rng: random.Random) -> str:
+        """Rolls the odds over the moves valid now; `floor` spreads some chance over all of them."""
+        odds = {m: odds.get(m, 0.0) for m in self.valid()}
+        weights = with_floor(flatten(odds, temperature), floor)
         return rng.choices(list(weights), weights=list(weights.values()))[0]
 
     # -- playing a move -----------------------------------------------------------
