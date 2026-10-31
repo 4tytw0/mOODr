@@ -12,8 +12,9 @@ PAGE=${RIG_PAGE:-http://192.168.1.17:8808}
 
 remote() { ssh -o ConnectTimeout=5 "$HOST" bash -s; }
 
-# Every unit of the rig, from the target itself, plus the roller (the page starts it).
-UNITS='$(systemctl --user show m00dr.target -p Wants --value | tr " " "\n" | grep -v llama-swap) m00drc-roller.service'
+# Every unit of the rig, from the target itself. The roller isn't one: the audio page
+# starts it while someone's listening, so it's reported on its own line.
+UNITS='$(systemctl --user show m00dr.target -p Wants --value | tr " " "\n" | grep -v llama-swap)'
 
 case "$1" in
 up)
@@ -41,7 +42,9 @@ status)
     remote <<R
 down=""
 for u in $UNITS; do systemctl --user is-active -q "\$u" || down="\$down \${u%.service}"; done
-if [ -z "\$down" ]; then echo "rig: all good"; else echo "rig: not running:\$down"; echo "     (m00drc-roller only runs while someone's listening)"; fi
+if [ -z "\$down" ]; then echo "rig: all good"; else echo "rig: not running:\$down"; fi
+if systemctl --user is-active -q m00drc-roller; then echo "     producer (Qwen): on"
+else echo "     producer (Qwen): waiting for a listener (open the page and press Listen)"; fi
 R
     ;;
 log)
