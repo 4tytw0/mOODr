@@ -35,7 +35,7 @@ Two CCs on the bass channel, sent by m00Drc's arranger:
     uv run sunvoxbass.py                 # run (the m00dr-sunvoxbass user service does this)
     uv run sunvoxbass.py --demo x.wav    # render a short line offline, for listening
 """
-import fcntl, math, subprocess, sys, threading
+import fcntl, json, math, subprocess, sys, threading
 import numpy as np
 import pathlib as _pathlib, sys as _sys
 VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
@@ -44,7 +44,11 @@ from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, ClockFollow
 
 SR, BLOCK = 48000, 256
 BASS_CHANNEL = 1                          # 0-based: m00Dr's bass part is MIDI ch2
-PROJECT = VOICE / "fuzzbass.sunvox"
+# The patches (voices/bass/build.py writes them and patches.json): each is loaded
+# into its own slot, and a program change on the bass channel picks the one that
+# plays (0 = Fuzz, 1 = Reese). All have the same Saws and Sub, so the beat, wobble
+# and gates below work on whichever is playing.
+PATCHES = VOICE / "patches.json"
 VOLUME = 256                              # sv_volume, 0..256
 # Module -> MIDI note to library note. Measured: played directly (no Glide in
 # front, unlike the acid), both generators sound MIDI n at library note n - 11.
@@ -74,15 +78,21 @@ CLOCKS_PER_16TH = 6
 class SunVoxBass:
     def __init__(self):
         sv = self.sv = open_lib(SR)
-        load(sv, 0, PROJECT)
-        self.voices = [(find_module(sv, 0, name, PROJECT), offset) for name, offset in VOICES.items()]
-        self.saws = find_module(sv, 0, SAWS, PROJECT) - 1
-        ctls = [sv.sv_get_module_ctl_name(0, self.saws, c).decode()
-                for c in range(sv.sv_get_number_of_module_ctls(0, self.saws))]
-        self.osc2 = ctls.index("Osc2")
+        self.patches = []             # per slot: (name, voices, saws module, its Osc2 ctl)
+        self.slot_of = {}             # program -> slot
+        for slot, spec in enumerate(json.loads(PATCHES.read_text())["patches"]):
+            path = VOICE / spec["file"]
+            load(sv, slot, path)
+            sv.sv_volume(slot, VOLUME)
+            voices = [(find_module(sv, slot, name, path), offset) for name, offset in VOICES.items()]
+            saws = find_module(sv, slot, SAWS, path) - 1
+            ctls = [sv.sv_get_module_ctl_name(slot, saws, c).decode()
+                    for c in range(sv.sv_get_number_of_module_ctls(slot, saws))]
+            self.patches.append((spec["name"], voices, saws, ctls.index("Osc2")))
+            self.slot_of[spec["program"]] = slot
+        self.slot = 0
         self.bpm = DEFAULT_BPM
         self.clock = ClockFollower(on_tempo=self._set_tempo)
-        sv.sv_volume(0, VOLUME)
         self.lock = threading.Lock()  # ONE_THREAD: events and rendering must not overlap
         self.stack = []               # held notes, last = sounding
         self.wobble = 1.0             # times BEAT_PER_BEAT (WOBBLE_CC)
@@ -96,7 +106,8 @@ class SunVoxBass:
         freq = 440 * 2 ** ((note - 69) / 12)
         beat_hz = self.bpm / 60 * BEAT_PER_BEAT * self.wobble
         units = min(1000, round(64 * 12 * math.log2(1 + beat_hz / freq)))
-        self.sv.sv_set_module_ctl_value(0, self.saws, self.osc2, 1000 + units, 0)
+        _, _, saws, osc2 = self.patches[self.slot]
+        self.sv.sv_set_module_ctl_value(self.slot, saws, osc2, 1000 + units, 0)
 
     def _set_tempo(self, bpm):
         if round(bpm, 1) != round(self.bpm, 1):
@@ -148,12 +159,12 @@ class SunVoxBass:
     def _play(self, note, vel):
         self._detune(note)    # sent first, so the note starts with it
         # One track per voice: a new note on it replaces the one sounding.
-        for track, (module, offset) in enumerate(self.voices):
-            self.sv.sv_send_event(0, track, note + offset, vel + 1, module, 0, 0)   # velocity 1..129
+        for track, (module, offset) in enumerate(self.patches[self.slot][1]):
+            self.sv.sv_send_event(self.slot, track, note + offset, vel + 1, module, 0, 0)   # velocity 1..129
 
     def _release(self):
-        for track, (module, _) in enumerate(self.voices):
-            self.sv.sv_send_event(0, track, NOTECMD_NOTE_OFF, 0, module, 0, 0)
+        for track, (module, _) in enumerate(self.patches[self.slot][1]):
+            self.sv.sv_send_event(self.slot, track, NOTECMD_NOTE_OFF, 0, module, 0, 0)
 
     def note_on(self, note, vel):
         with self.lock:
@@ -175,7 +186,20 @@ class SunVoxBass:
     def all_off(self):
         with self.lock:
             self.stack.clear()
-            self.sv.sv_send_event(0, 0, NOTECMD_ALL_NOTES_OFF, 0, 0, 0, 0)
+            for slot in range(len(self.patches)):
+                self.sv.sv_send_event(slot, 0, NOTECMD_ALL_NOTES_OFF, 0, 0, 0, 0)
+
+    def program(self, number):
+        """Switches the patch. A note that's sounding moves to the new patch at once."""
+        with self.lock:
+            slot = self.slot_of.get(number)
+            if slot is None or slot == self.slot:
+                return False
+            sounding = self.stack and not self.gated_off
+            if sounding: self._release()
+            self.slot = slot
+            if sounding: self._play(self.stack[-1], self.vel)
+            return True
 
     def render(self):
         with self.lock:
@@ -193,7 +217,7 @@ def open_midi():
 
 
 def midi_loop(client, bass):
-    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent, ClockEvent, StartEvent
+    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent, ClockEvent, StartEvent, ProgramChangeEvent
     while True:
         ev = client.event_input()
         if isinstance(ev, ClockEvent): bass.clock_tick(); continue
@@ -202,21 +226,27 @@ def midi_loop(client, bass):
         if isinstance(ev, NoteOnEvent):
             bass.note_on(ev.note, ev.velocity) if ev.velocity else bass.note_off(ev.note)
         elif isinstance(ev, NoteOffEvent): bass.note_off(ev.note)
+        elif isinstance(ev, ProgramChangeEvent):
+            if bass.program(ev.value): print(f"patch: {bass.patches[bass.slot][0]}", flush=True)
         elif isinstance(ev, ControlChangeEvent) and ev.param in (120, 123): bass.all_off()
         elif isinstance(ev, ControlChangeEvent): bass.control(ev.param, ev.value)
 
 
 def demo(path):
-    """A1 A1 C2 G1 E1, like reese.py's demo riff, at 120 bpm."""
+    """A1 A1 C2 G1 E1, like reese.py's demo riff, at 120 bpm: twice per patch,
+    then a held A1 for 4 beats to hear the wobble."""
     import wave
     b = SunVoxBass(); blocks = []
-    for note, beats in [(33, 0.5), (33, 0.25), (36, 0.25), (31, 0.5), (28, 1.0)] * 2:
+    riff = [(33, 0.5), (33, 0.25), (36, 0.25), (31, 0.5), (28, 1.0)] * 2 + [(33, 4.0)]
+    for program in sorted(b.slot_of):
+      b.program(program)
+      for note, beats in riff:
         b.note_on(note, 110)
         n = int(beats * 0.5 * SR / BLOCK)
         for i in range(n):
             if i == int(n * 0.9): b.note_off(note)
             blocks.append(b.render().copy())
-    for _ in range(int(0.3 * SR / BLOCK)): blocks.append(b.render().copy())
+      for _ in range(int(0.5 * SR / BLOCK)): blocks.append(b.render().copy())
     y = np.concatenate(blocks)
     with wave.open(path, "wb") as w:
         w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
