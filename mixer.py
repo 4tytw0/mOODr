@@ -21,7 +21,9 @@ factory templates send faders 1-8 as CC 77-84.
 Faders also move over UDP on CONTROL (localhost; server.py forwards the
 /mixer page's drags and tools/midi_bridge.py's controller on the Mac), one
 JSON object per datagram: {"cc": [status, cc, value]} like a MIDI CC, or
-{"strip": name, "fader": 0..1}. Below KNEE the
+{"strip": name, "fader": 0..1}. A move without "by" is a hand (the controller,
+the /mixer page) and sets the strip's ceiling; one with "by" (m00Drc's arranger
+or producer) is held at or under that ceiling. Below KNEE the
 fader is plain volume, reaching unity at KNEE; above it the strip blends into
 an asymmetric tanh fuzz that gets harder the higher the fader goes.
 
@@ -87,6 +89,7 @@ class Strip:
         self.name, self.channel, self.number = name, channel, number
         self.ins = [client.inports.register(f"{name}_{s}") for s in "LR"]
         self.fader = fader                       # target, set from MIDI
+        self.ceiling = None                      # the last hand position: machine moves stay under it
         self.g, self.d = gain(fader), drive(fader)   # values reached at the end of the last block
         self.zi = np.zeros((2, 1))
         self.peak = 0.0
@@ -205,6 +208,7 @@ def main():
                 s = None
             if s:
                 s.fader = min(max(val, 0), 127) / 127
+                s.ceiling = s.fader   # a hand on the fader
                 return True
             last_cc[0] = (ch + 1, cc, val)
         return False
@@ -222,7 +226,12 @@ def main():
                 elif "sidechain" in msg:
                     sidechain.amount = min(max(float(msg["sidechain"]), 0.0), 1.0)
                 elif msg.get("strip") in by_name:
-                    by_name[msg["strip"]].fader = min(max(float(msg["fader"]), 0.0), 1.0)
+                    strip = by_name[msg["strip"]]
+                    level = min(max(float(msg["fader"]), 0.0), 1.0)
+                    if msg.get("by"):    # m00Drc's arranger or producer: under the hand's ceiling
+                        strip.fader = level if strip.ceiling is None else min(level, strip.ceiling)
+                    else:                # the /mixer page or the Mac's controller: a hand
+                        strip.fader = strip.ceiling = level
             except (ValueError, TypeError, KeyError):
                 pass
 
@@ -265,7 +274,7 @@ def main():
             for s in strips:
                 peak, s.peak = s.peak, 0.0
                 state["strips"].append({"name": s.name, "channel": s.channel, "number": s.number,
-                                        "fader": s.fader,
+                                        "fader": s.fader, "ceiling": s.ceiling,
                                         "gain": gain(s.fader), "drive": drive(s.fader),
                                         "peak": peak,
                                         "duck": duck if s in ducked else None})

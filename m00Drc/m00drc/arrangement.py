@@ -271,7 +271,7 @@ class Arranger:
         for i in range(1, steps + 1):
             for p, target in targets.items():
                 self.level[p] = start[p] + (target - start[p]) * i / steps
-                self._send({"strip": p, "fader": round(self.level[p], 4)})
+                self._send({"by": "arranger", "strip": p, "fader": round(self.level[p], 4)})
             await asyncio.sleep(beat_s / RAMP_STEPS_PER_BEAT)
 
     async def _set_m00dr(self, ws, control: str, value) -> None:
@@ -378,7 +378,7 @@ class Arranger:
                 pass
             self.atmos = False
         for p, level in self.base.items():
-            self._send({"strip": p, "fader": level})
+            self._send({"by": "arranger", "strip": p, "fader": level})
         self._set_sidechain(self.sidechain0)
         self.arp_rate, self.mutate = self.arp_rate0, self.mutate0
         self.gate, self.wobble = "legato", "beat"

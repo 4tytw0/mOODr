@@ -26,6 +26,10 @@ Two CCs on the bass channel, sent by m00Drc's arranger:
   * GATE_CC picks a gate pattern from GATES: 16 bits, the first 16th on top,
     one bar of the clock. On a 16th whose bit is set the held note re-attacks;
     on one that isn't it's silent. 0 is no gate: the bass plays legato.
+  * GATE_BITS_CCS carry a gate pattern of the sender's own, 6 + 5 + 5 bits
+    (bits 15-10, 9-5, 4-0), applied when the last of the three arrives.
+  * WOBBLE_RATE_CC sets the swell rate directly: 2 ** (value / 16) / 8 swells
+    per beat (0 = 1/8, 48 = 1, 96 and up = WOBBLE_MAX).
   CC 121 (reset all controllers) puts both back.
 
     uv run sunvoxbass.py                 # run (the m00dr-sunvoxbass user service does this)
@@ -52,6 +56,7 @@ SAWS, BEAT_PER_BEAT, DEFAULT_BPM = "Saws", 0.5, 120.0
 # CC value -> swell rate, as a multiple of BEAT_PER_BEAT: 0..127 spread over the list.
 WOBBLES = (0.25, 0.5, 1.0, 2.0, 4.0)
 WOBBLE_CC, GATE_CC = 22, 23
+GATE_BITS_CCS, WOBBLE_RATE_CC, WOBBLE_MAX = (25, 26, 27), 28, 8.0
 GATES = (None,                      # 0: legato
          0xAAAA,                    # 1: 8ths
          0xFFFF,                    # 2: 16ths
@@ -80,6 +85,7 @@ class SunVoxBass:
         self.wobble = 1.0             # times BEAT_PER_BEAT (WOBBLE_CC)
         self.gate = None              # 16-bit pattern (GATE_CC), None = legato
         self.gated_off = False        # the gate has the held note silenced
+        self.gate_bits = [0, 0, 0]    # GATE_BITS_CCS as they arrive
         self.buf = np.zeros((BLOCK, 2), dtype="<f4")
 
     def _detune(self, note):
@@ -121,6 +127,17 @@ class SunVoxBass:
                 if self.gate is None and self.gated_off and self.stack:   # back to legato
                     self._play(self.stack[-1], self.vel)
                 self.gated_off = False
+            elif cc in GATE_BITS_CCS:
+                self.gate_bits[GATE_BITS_CCS.index(cc)] = value
+                if cc == GATE_BITS_CCS[-1]:
+                    hi, mid, lo = self.gate_bits
+                    self.gate = (hi & 63) << 10 | (mid & 31) << 5 | lo & 31
+                    if self.gated_off and self.stack:
+                        self._play(self.stack[-1], self.vel)
+                    self.gated_off = False
+            elif cc == WOBBLE_RATE_CC:
+                self.wobble = min(WOBBLE_MAX, 2 ** (value / 16) / 8)
+                if self.stack: self._detune(self.stack[-1])
             elif cc == 121:
                 self.wobble, self.gate = 1.0, None
                 if self.stack: self._detune(self.stack[-1])

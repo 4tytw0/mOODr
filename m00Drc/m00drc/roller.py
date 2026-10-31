@@ -98,6 +98,7 @@ from dataclasses import dataclass
 import websockets
 
 from .arrangement import BASE, BASS_CHANNEL, PART_MOVES, Arranger, save_base, starting_mix
+from .producer import Producer
 from .weights import MOVES, ModelMover, choice_odds, turn
 
 # Draws are 7-bit, 0..INT_MAX: the range of a MIDI CC, so a sound lane sends
@@ -337,6 +338,9 @@ def to_message(lane: Lane, value: int, control: dict | None) -> dict | None:
 class Roller:
     def __init__(self, args):
         self.args = args
+        if args.arrange == "producer":   # the producer has m00Dr and the 303: no dice lanes
+            args.lanes = []
+        self.producer: Producer | None = None
         self.bars, self.shift, self.active = args.bars, args.shift, len(args.lanes)
         self.lanes = make_lanes(args.lanes, self.shift)
         self.stream = PhaseShiftedInts(args.seed, depth=len(args.lanes))
@@ -626,12 +630,18 @@ class Roller:
                         save_base(self.arranger.base, self.arranger.sidechain0, self.arranger.controls0)
                         print("arrange: the last run didn't restore the mix; restored it from its save", flush=True)
                     print(f"arrange: {self.args.arrange}; {self.arranger.describe()}", flush=True)
-                    tasks.append(asyncio.create_task(self._arrange(ws)))
+                    if self.args.arrange == "producer":
+                        self.producer = Producer(self)
+                        tasks.append(asyncio.create_task(self.producer.run(ws)))
+                    else:
+                        tasks.append(asyncio.create_task(self._arrange(ws)))
             try:
                 await self._loop(ws)
             finally:
                 for task in tasks:
                     task.cancel()
+                if self.producer:
+                    await self.producer.stop()
                 if self.arranger:
                     await self.arranger.restore(ws)
                     print("arrange: mix restored", flush=True)
@@ -813,7 +823,7 @@ def parse_args(argv=None):
     p.add_argument("--floor", type=float, default=0.0,
                    help="0..1 of each model choice spread evenly over the options, so none is ruled out "
                         "(0 keeps the model's odds; 0.2 gives each of 5 options at least 4%%)")
-    p.add_argument("--arrange", choices=("off", "dice", "model"), default="off",
+    p.add_argument("--arrange", choices=("off", "dice", "model", "producer"), default="off",
                    help="an arrangement move per section (faders, arp rate, drums), chosen by dice or the model")
     p.add_argument("--dry-run", action="store_true", help="print, don't send")
     p.add_argument("--no-midi", action="store_true",

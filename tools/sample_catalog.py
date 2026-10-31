@@ -13,7 +13,9 @@ and this writes SAMPLES/catalog.json:
   * loops: Sononym's Loops under Drums/Breaks and GAMEBREAKS with a tempo,
     for breaks: path, name, pack, bpm, seconds;
   * hits: its OneShots under Drums/HITs in a drum category (KIT_CATEGORIES),
-    for kits: path, name, pack, category, how sure Sononym is of it, seconds.
+    for kits: path, name, pack, category, how sure Sononym is of it, seconds;
+  * samples: everything, for m00Drc's producer to search: path, name, pack,
+    kind (Loop/OneShot), category, bpm, seconds.
 
 Paths are relative to SAMPLES. Files Sononym couldn't analyse, or that
 aren't in the copy, are left out.
@@ -47,11 +49,14 @@ def main():
     db = sqlite3.connect(f"file:{args.samples / 'sononym.db'}?mode=ro", uri=True)
     rows = db.execute("SELECT filename, basename, classes_VS, categories_VS, category_strengths_VR, bpm_R, "
                       "file_length_R FROM assets WHERE status = 'succeeded'")
-    loops, hits = [], []
+    loops, hits, samples = [], [], []
     for path, name, classes, categories, strengths, bpm, seconds in rows:
         if not (args.samples / path).is_file():
             continue
         kind = (json.loads(classes or "[]") or [None])[0]
+        samples.append({"path": path, "name": name, "pack": path.split("/")[0], "kind": kind,
+                        "category": (json.loads(categories or "[]") or [None])[0],
+                        "bpm": round(bpm, 1) if bpm else None, "seconds": round(seconds or 0, 2)})
         if kind == "Loop" and path.startswith(LOOP_FOLDERS) and bpm and BPM_RANGE[0] <= bpm <= BPM_RANGE[1]:
             loops.append({"path": path, "name": name, "pack": pack(path), "bpm": round(bpm, 2),
                           "seconds": round(seconds, 2)})
@@ -64,11 +69,11 @@ def main():
                 hits.append({"path": path, "name": name, "pack": pack(path), "category": cats[0],
                              "sure": round(sure, 2), "seconds": round(seconds, 3)})
     out = args.samples / "catalog.json"
-    out.write_text(json.dumps({"loops": loops, "hits": hits}, indent=1) + "\n")
+    out.write_text(json.dumps({"loops": loops, "hits": hits, "samples": samples}, indent=1) + "\n")
     by_cat = {}
     for h in hits:
         by_cat[h["category"]] = by_cat.get(h["category"], 0) + 1
-    print(f"{len(loops)} loops, {len(hits)} hits -> {out}")
+    print(f"{len(loops)} loops, {len(hits)} hits, {len(samples)} samples -> {out}")
     print("  " + ", ".join(f"{c.removeprefix('Perc ')} {n}" for c, n in sorted(by_cat.items(), key=lambda x: -x[1])))
 
 

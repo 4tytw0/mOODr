@@ -18,6 +18,9 @@ Notes (FX_CHANNEL):
   67            impact: a sub boom falling in pitch, and a short noise burst
   72            atmosphere, while held: low wind (filtered noise, drifting), faded
                 in on note-on and out on note-off over ATMOS_FADE seconds
+  96 and up     live samples: slot note-96, LIVE/NN.wav described in LIVE/index.json
+                ({"NN": {"name": ..., "loop": bool}}), read on note-on; m00Drc's
+                producer puts library samples there (tools/prep_sample.py)
   84 and up     samples from synths/fx.json ({"samples": [{"note": 84, "file":
                 "rain.wav", "loop": false}]}, files in synths/fx/, 48 kHz): one-shots,
                 or loops while held
@@ -35,6 +38,7 @@ SR, BLOCK = 48000, 256
 FX_CHANNEL = 9                            # 0-based: MIDI ch10 (ch9 is the Launch Control XL's)
 HERE = Path(__file__).resolve().parent
 INDEX = HERE / "synths" / "fx.json"
+LIVE, LIVE_NOTE = Path.home() / ".local/state/m00drc/live-fx", 96
 CLOCKS_PER_16TH = 6
 RISER_NOTES = {60: 2, 61: 4, 62: 8}       # note -> bars
 DOWN_NOTES = {64: 2, 65: 4}
@@ -149,8 +153,23 @@ class FX:
             if len(self.pulse_times) == 25 and self.pulse_times[-1] > self.pulse_times[0]:
                 self.sixteenth = (self.pulse_times[-1] - self.pulse_times[0]) / 4
 
+    def _load_live(self, slot):
+        try:
+            entry = json.loads((LIVE / "index.json").read_text())[f"{slot:02d}"]
+            audio, rate = sf.read(LIVE / f"{slot:02d}.wav", dtype="float32", always_2d=True)
+        except (OSError, ValueError, KeyError, RuntimeError) as e:
+            print(f"live sample {slot}: {e}", flush=True)
+            return None
+        if rate != SR:
+            print(f"live sample {slot} is {rate} Hz", flush=True)
+            return None
+        audio = audio if audio.shape[1] == 2 else np.repeat(audio[:, :1], 2, axis=1)
+        print(f"live sample {slot}: {entry.get('name', '?')}{' (loop)' if entry.get('loop') else ''}", flush=True)
+        return audio, bool(entry.get("loop"))
+
     def note_on(self, note, velocity):
         gain = velocity / 127
+        live = self._load_live(note - LIVE_NOTE) if note >= LIVE_NOTE else None   # outside the lock
         with self.lock:
             bars = RISER_NOTES.get(note) or DOWN_NOTES.get(note)
             if bars:
@@ -161,6 +180,8 @@ class FX:
                 self.voices.append([self.impact, 0, gain, False, note, None])
             elif note == ATMOS_NOTE:
                 self.atmos.target, self.atmos.gain = 1.0, gain
+            elif live is not None:
+                self.voices.append([live[0], 0, gain, live[1], note, None])
             elif note in self.samples:
                 audio, loop = self.samples[note]
                 self.voices.append([audio, 0, gain, loop, note, None])
