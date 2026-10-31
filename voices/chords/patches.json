@@ -1,0 +1,55 @@
+{
+ "patches": [
+  {
+   "program": 0,
+   "name": "Wurli",
+   "file": "wurli.sunvox",
+   "inputs": [
+    "Reed",
+    "Bark"
+   ],
+   "note_offset": 1,
+   "volume": 256
+  },
+  {
+   "program": 1,
+   "name": "OBX strings",
+   "file": "obx-strings.sunvox",
+   "inputs": [
+    "Sampler"
+   ],
+   "note_offset": 1,
+   "volume": 97
+  },
+  {
+   "program": 2,
+   "name": "Arco strings",
+   "file": "arco-strings.sunvox",
+   "inputs": [
+    "Sampler"
+   ],
+   "note_offset": 1,
+   "volume": 168
+  },
+  {
+   "program": 3,
+   "name": "Organ",
+   "file": "organ.sunvox",
+   "inputs": [
+    "Sampler"
+   ],
+   "note_offset": 1,
+   "volume": 133
+  },
+  {
+   "program": 4,
+   "name": "Pad",
+   "file": "pad.sunvox",
+   "inputs": [
+    "Pad"
+   ],
+   "note_offset": -23,
+   "volume": 92
+  }
+ ]
+}

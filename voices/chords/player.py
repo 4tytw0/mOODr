@@ -23,7 +23,7 @@ into the m800Dr Mixer's chords strip, like reese.py.
     uv run sunvoxkeys.py                 # run (the m00dr-sunvoxkeys user service does this)
     uv run sunvoxkeys.py --demo x.wav    # render a few chords offline, for listening
 """
-import fcntl, subprocess, sys, threading
+import fcntl, json, subprocess, sys, threading
 import numpy as np
 import pathlib as _pathlib, sys as _sys
 VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
@@ -32,7 +32,12 @@ from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, ClockFollow
 
 SR, BLOCK = 48000, 256
 KEYS_CHANNEL = 6                          # 0-based: m00Dr's SunVox chords are MIDI ch7
-PROJECT = VOICE / "wurli.sunvox"
+# The patches (voices/chords/build.py writes them and patches.json: program, inputs,
+# note offset, slot volume). Each is loaded into its own slot; a program change on
+# KEYS_CHANNEL picks the one new notes go to. Notes already sounding finish where
+# they started. The Wurli's bark and tremolo below apply to patches that have
+# those modules (only the Wurli today).
+PATCHES = VOICE / "patches.json"
 INPUT_MODULES = ("Reed", "Bark")          # each note plays on both FM layers
 # The Bark layer's level (its C.Volume, 0..256) at velocity 0 and 127, set just
 # before each note so a hard hit barks. Matches m00Drc's build_keys.py.
@@ -58,56 +63,87 @@ DEFAULT_BPM = 120.0
 class SunVoxKeys:
     def __init__(self):
         sv = self.sv = open_lib(SR)
-        load(sv, 0, PROJECT)
-        self.modules = [find_module(sv, 0, name, PROJECT) for name in INPUT_MODULES]
-        self.bark = find_module(sv, 0, BARK_MODULE, PROJECT) - 1   # module number, for ctl calls
-        self.lfo = find_module(sv, 0, TREMOLO_MODULE, PROJECT) - 1
-        ctls = [sv.sv_get_module_ctl_name(0, self.lfo, c).decode()
-                for c in range(sv.sv_get_number_of_module_ctls(0, self.lfo))]
-        self.lfo_freq, self.lfo_phase = ctls.index("Freq"), ctls.index("Set phase")
+        self.patches = []             # per slot: dict(name, mods, offset, per, bark, lfo)
+        self.slot_of = {}             # program -> slot
+        for slot, spec in enumerate(json.loads(PATCHES.read_text())["patches"]):
+            path = VOICE / spec["file"]
+            load(sv, slot, path)
+            sv.sv_volume(slot, spec.get("volume", VOLUME))
+            mods = [find_module(sv, slot, name, path) for name in spec["inputs"]]
+            patch = dict(name=spec["name"], mods=mods, offset=spec.get("note_offset", NOTE_OFFSET),
+                         per=32 // len(mods), bark=None, lfo=None)
+            if BARK_MODULE in spec["inputs"]:
+                patch["bark"] = find_module(sv, slot, BARK_MODULE, path) - 1   # module number, for ctl calls
+            lfo = sv.sv_find_module(slot, TREMOLO_MODULE.encode())
+            if lfo >= 0:
+                ctls = [sv.sv_get_module_ctl_name(slot, lfo, c).decode()
+                        for c in range(sv.sv_get_number_of_module_ctls(slot, lfo))]
+                patch["lfo"] = (lfo, ctls.index("Freq"), ctls.index("Set phase"))
+            self.patches.append(patch)
+            self.slot_of[spec["program"]] = slot
+        self.slot = 0
         self.clock = ClockFollower(on_tempo=self._set_tempo, on_beat=self._restart_tremolo)
         self.period_ms = 0
         self._set_tempo(DEFAULT_BPM)
-        sv.sv_volume(0, VOLUME)
         self.lock = threading.Lock()  # ONE_THREAD: events and rendering must not overlap
-        self.tracks = {}              # held MIDI note -> SunVox track
-        self.free = list(range(TRACKS))
+        self.held = {}                # held MIDI note -> (slot, track)
+        self.free = {slot: list(range(p["per"])) for slot, p in enumerate(self.patches)}
         self.buf = np.zeros((BLOCK, 2), dtype="<f4")
 
-    def _send(self, track, note, vel=0):
+    @property
+    def name(self):
+        return self.patches[self.slot]["name"]
+
+    def program(self, number):
+        with self.lock:
+            slot = self.slot_of.get(number)
+            if slot is None or slot == self.slot:
+                return False
+            self.slot = slot
+            return True
+
+    def _send(self, slot, track, note, vel=0):
         # A track holds one note, so each input module gets its own block of tracks.
-        for i, module in enumerate(self.modules):
-            self.sv.sv_send_event(0, i * TRACKS + track, note, vel, module, 0, 0)
+        p = self.patches[slot]
+        for i, module in enumerate(p["mods"]):
+            self.sv.sv_send_event(slot, i * p["per"] + track, note, vel, module, 0, 0)
+
+    def _release(self, note):
+        slot, track = self.held.pop(note)
+        self._send(slot, track, NOTECMD_NOTE_OFF)
+        self.free[slot].append(track)
 
     def note_on(self, note, vel):
         with self.lock:
-            if note in self.tracks:   # restruck while held: retrigger on its track
-                track = self.tracks[note]
-            elif self.free:
-                track = self.free.pop(0)
-            else:                     # all tracks busy: take the oldest held note's
-                oldest = next(iter(self.tracks))
-                track = self.tracks.pop(oldest)
-            self.tracks[note] = track
-            lo, hi = BARK_LEVEL   # C.Volume is controller 0; events apply in the order sent
-            self.sv.sv_set_module_ctl_value(0, self.bark, 0, round(lo + (hi - lo) * vel / 127), 0)
-            self._send(track, note + NOTE_OFFSET, vel + 1)   # SunVox velocity is 1..129
+            if note in self.held:     # restruck while held: release it where it is
+                self._release(note)
+            slot, p = self.slot, self.patches[self.slot]
+            if self.free[slot]:
+                track = self.free[slot].pop(0)
+            else:                     # all busy: take this slot's oldest held note's track
+                oldest = next(n for n, (s, _) in self.held.items() if s == slot)
+                track = self.held.pop(oldest)[1]
+            self.held[note] = (slot, track)
+            if p["bark"] is not None:  # C.Volume is controller 0; events apply in the order sent
+                lo, hi = BARK_LEVEL
+                self.sv.sv_set_module_ctl_value(slot, p["bark"], 0, round(lo + (hi - lo) * vel / 127), 0)
+            self._send(slot, track, note + p["offset"], vel + 1)   # SunVox velocity is 1..129
 
     def note_off(self, note):
         with self.lock:
-            track = self.tracks.pop(note, None)
-            if track is not None:
-                self._send(track, NOTECMD_NOTE_OFF)
-                self.free.append(track)
+            if note in self.held:
+                self._release(note)
 
     def _set_tempo(self, bpm):
         period = round(60000 / bpm / TREMOLO_PER_BEAT)
         if period != self.period_ms:
             self.period_ms = period
-            self.sv.sv_set_module_ctl_value(0, self.lfo, self.lfo_freq, period, 0)
+            for slot, p in enumerate(self.patches):
+                if p["lfo"]: self.sv.sv_set_module_ctl_value(slot, p["lfo"][0], p["lfo"][1], period, 0)
 
     def _restart_tremolo(self):
-        self.sv.sv_set_module_ctl_value(0, self.lfo, self.lfo_phase, TREMOLO_PHASE, 0)
+        for slot, p in enumerate(self.patches):
+            if p["lfo"]: self.sv.sv_set_module_ctl_value(slot, p["lfo"][0], p["lfo"][2], TREMOLO_PHASE, 0)
 
     def clock_start(self):
         with self.lock:
@@ -120,8 +156,10 @@ class SunVoxKeys:
 
     def all_off(self):
         with self.lock:
-            self.tracks.clear(); self.free = list(range(TRACKS))
-            self.sv.sv_send_event(0, 0, NOTECMD_ALL_NOTES_OFF, 0, 0, 0, 0)
+            self.held.clear()
+            for slot, p in enumerate(self.patches):
+                self.free[slot] = list(range(p["per"]))
+                self.sv.sv_send_event(slot, 0, NOTECMD_ALL_NOTES_OFF, 0, 0, 0, 0)
 
     def render(self):
         with self.lock:
@@ -139,7 +177,7 @@ def open_midi():
 
 
 def midi_loop(client, keys):
-    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent, ClockEvent, StartEvent
+    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent, ClockEvent, StartEvent, ProgramChangeEvent
     while True:
         ev = client.event_input()
         if isinstance(ev, ClockEvent): keys.clock_tick(); continue
@@ -148,13 +186,29 @@ def midi_loop(client, keys):
         if isinstance(ev, NoteOnEvent):
             keys.note_on(ev.note, ev.velocity) if ev.velocity else keys.note_off(ev.note)
         elif isinstance(ev, NoteOffEvent): keys.note_off(ev.note)
+        elif isinstance(ev, ProgramChangeEvent):
+            if keys.program(ev.value): print(f"patch: {keys.name}", flush=True)
         elif isinstance(ev, ControlChangeEvent) and ev.param in (120, 123): keys.all_off()
 
 
 def demo(path):
-    """i-VI-III-VII in A minor, a bar each at 100 bpm, then a soft and a hard stab."""
+    """Per patch: i-VI-III-VII in A minor, a bar each at 100 bpm, then a soft and a
+    hard stab."""
     import wave
     k = SunVoxKeys(); blocks = []
+    for program in sorted(k.slot_of):
+      k.program(program)
+      _demo_patch(k, blocks)
+    hold = lambda seconds: [blocks.append(k.render().copy()) for _ in range(int(seconds * SR / BLOCK))]
+    hold(1.0)
+    y = np.concatenate(blocks)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
+        w.writeframes((np.clip(y, -1, 1) * 32767).astype("<i2").tobytes())
+    print(f"{len(k.patches)} patches, peak {np.abs(y).max():.2f}")
+
+
+def _demo_patch(k, blocks):
     bar = 2.4
     chords = [[57, 60, 64, 67], [53, 57, 60, 64], [48, 52, 55, 59], [55, 59, 62, 65]]
     def hold(seconds):
@@ -169,12 +223,7 @@ def demo(path):
         hold(0.3)
         for n in chords[0]: k.note_off(n)
         hold(0.5)
-    hold(1.0)
-    y = np.concatenate(blocks)
-    with wave.open(path, "wb") as w:
-        w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
-        w.writeframes((np.clip(y, -1, 1) * 32767).astype("<i2").tobytes())
-    print(f"peak {np.abs(y).max():.2f}")
+    hold(1.5)
 
 
 def main():
