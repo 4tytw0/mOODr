@@ -1,0 +1,21 @@
+[Unit]
+PartOf=m00dr.target
+Description=m00Drc: phase-shifted random rolls of m00Dr's parameters (web remote :8766)
+# m00Dr lives with the Plasma session; the roller follows it.
+PartOf=m00dr.service
+After=m00dr.service llama-swap.service
+
+[Service]
+WorkingDirectory=%h/code/m00Dr
+# Rolls only while the transport plays. Exits when it can't reach m00Dr or the
+# connection drops (m00Dr restarted), so systemd retries.
+# The arrangement (faders, arp rate, drums, pump) is Qwen3.6's, through
+# llama-swap on 127.0.0.1:8080; the I Ching arcs stay on the dice. If the model
+# can't answer, that section's move is rolled with the dice. On stop the mix is
+# put back as it was.
+ExecStart=/usr/bin/uv run -q python -u -m brain.roller --wait-for-play --arrange producer --model qwen3.6-35b-music175
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=m00dr.service

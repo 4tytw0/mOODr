@@ -7,4 +7,13 @@ __pycache__/
 
 # m8-project-gen (Node): dependencies and generated output, not source
 node_modules/
-m8-project-gen/*.m8s
+edges/m8/m8-project-gen/*.m8s
+
+# Not in git: the SunVox library, the soundfonts, and the breaks audio
+# (GAMEBREAKS has no license). Copy them in from the old checkouts.
+voices/_sunvox/sunvox_lib/
+voices/_fluidsynth/*.sf2
+voices/breaks/samples/
+
+# Build output
+voices/acid/m00Drc.sunvox

@@ -1,0 +1,25 @@
+[Unit]
+PartOf=m00dr.target
+Description=m00Dr: FluidSynth for chords (ch1), arp (ch3) and drums (ch4) into the m800Dr Mixer
+After=pipewire.service
+
+[Service]
+# Ask for 256-frame buffers so the graph never sits at PipeWire's default
+# 1024: Carla (m00dr-open303) goes silent if it ever sees a different size.
+Environment=PIPEWIRE_LATENCY=256/48000
+# JACK (PipeWire's libjack) with an output group per MIDI channel (0-based
+# channel % audio-groups): chords (0) on l_00/r_00 (+ fx 00/01 = reverb/chorus),
+# arp (2) on l_02/r_02 (+ fx 04/05), drums (3) on l_03/r_03 (+ fx 06/07).
+# mix/links.sh wires them into the mixer.
+ExecStart=/usr/bin/fluidsynth -is -a jack -m alsa_seq -g 1.5 \
+    -o audio.jack.id=m00Dr-FluidSynth -o audio.jack.multi=yes -o audio.jack.autoconnect=0 \
+    -o synth.audio-channels=4 -o synth.audio-groups=4 -o synth.effects-groups=4 \
+    -o synth.sample-rate=48000 \
+    -o midi.alsa_seq.id=m00Dr-FluidSynth -o midi.autoconnect=0 \
+    -f %h/code/m00Dr/voices/_fluidsynth/fluidsynth.cfg \
+    %h/code/m00Dr/voices/_fluidsynth/GeneralUser-GS.sf2
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

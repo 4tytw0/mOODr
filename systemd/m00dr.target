@@ -1,0 +1,5 @@
+[Unit]
+Description=m00Dr rig: composer, voices, mixer, audio page, stream, producer
+# Starting this starts the whole rig; stopping it stops every unit with PartOf=m00dr.target.
+# llama-swap (localModel) is wanted but not owned: `rig down` stops it separately.
+Wants=m00dr.service m00dr-synth-links.service m00dr-sunvoxarp.service m00dr-sunvox303.service m00dr-sunvoxbass.service m00dr-sunvoxdrums.service m00dr-sunvoxkeys.service m00dr-breaks.service m00dr-fx.service m800dr-mixer.service m800dr-audio.service m800dr-webrtc.service llama-swap.service

@@ -1,0 +1,55 @@
+#!/bin/sh
+# rig: start, stop and check the m00Dr rig on the desktop, from the Mac.
+#
+#   rig up       start everything, press Play, open the page
+#   rig status   one line: all good, or what's down
+#   rig down     stop everything and unload the model
+#   rig log      follow the producer (Qwen): its notes, actions and results
+#
+# Runs its work in bash on the desktop (its login shell is fish).
+HOST=${RIG_HOST:-cacheos}
+PAGE=${RIG_PAGE:-http://192.168.1.17:8808}
+
+remote() { ssh -o ConnectTimeout=5 "$HOST" bash -s; }
+
+# Every unit of the rig, from the target itself. The roller isn't one: the audio page
+# starts it while someone's listening, so it's reported on its own line.
+UNITS='$(systemctl --user show m00dr.target -p Wants --value | tr " " "\n" | grep -v llama-swap)'
+
+case "$1" in
+up)
+    ssh -o ConnectTimeout=5 -q "$HOST" true 2>/dev/null || { echo "rig: can't reach $HOST. Is the desktop on?"; exit 1; }
+    remote <<'R' || exit 1
+if ! systemctl --user is-active -q graphical-session.target; then
+    echo "rig: nobody is logged in on the desktop. Log in there first (m00Dr needs the desktop session)."; exit 1
+fi
+echo "starting the rig..."
+systemctl --user start m00dr.target
+for i in $(seq 30); do curl -s -o /dev/null 127.0.0.1:8808/rig && break; sleep 1; done
+curl -s -X POST -d '{"on": true}' http://127.0.0.1:8808/rig >/dev/null || { echo "rig: the audio page didn't come up"; exit 1; }
+R
+    "$0" status
+    open "$PAGE"
+    ;;
+down)
+    remote <<'R'
+curl -s -m 60 -X POST -d '{"on": false}' http://127.0.0.1:8808/rig >/dev/null   # puts the mix back, unloads the model
+systemctl --user stop m00drc-roller m00dr.target llama-swap
+echo "rig: off"
+R
+    ;;
+status)
+    remote <<R
+down=""
+for u in $UNITS; do systemctl --user is-active -q "\$u" || down="\$down \${u%.service}"; done
+if [ -z "\$down" ]; then echo "rig: all good"; else echo "rig: not running:\$down"; fi
+if systemctl --user is-active -q m00drc-roller; then echo "     producer (Qwen): on"
+else echo "     producer (Qwen): waiting for a listener (open the page and press Listen)"; fi
+R
+    ;;
+log)
+    ssh -t "$HOST" "journalctl --user -u m00drc-roller -f | grep producer"
+    ;;
+*)
+    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

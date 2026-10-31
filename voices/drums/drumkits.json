@@ -1,0 +1,121 @@
+{
+  "kits": [
+    {
+      "name": "Machine",
+      "file": "drumkit-machine.sunvox",
+      "voices": {
+        "36": [
+          [
+            "Kick",
+            36
+          ],
+          [
+            "Kick click",
+            37
+          ]
+        ],
+        "38": [
+          [
+            "Snare body",
+            29
+          ],
+          [
+            "Snare noise",
+            37
+          ]
+        ],
+        "42": [
+          [
+            "Hat",
+            37
+          ]
+        ],
+        "46": [
+          [
+            "Open hat",
+            37
+          ]
+        ]
+      },
+      "chokes": {
+        "42": [
+          "46"
+        ]
+      }
+    },
+    {
+      "name": "Boom",
+      "file": "drumkit-boom.sunvox",
+      "voices": {
+        "36": [
+          [
+            "Kick",
+            27
+          ]
+        ],
+        "38": [
+          [
+            "Snare body",
+            34
+          ],
+          [
+            "Snare noise",
+            37
+          ]
+        ],
+        "42": [
+          [
+            "Hat",
+            61
+          ]
+        ],
+        "46": [
+          [
+            "Open hat",
+            61
+          ]
+        ]
+      },
+      "chokes": {
+        "42": [
+          "46"
+        ]
+      }
+    },
+    {
+      "name": "Crunch",
+      "file": "drumkit-crunch.sunvox",
+      "voices": {
+        "36": [
+          [
+            "Drums",
+            13
+          ]
+        ],
+        "38": [
+          [
+            "Drums",
+            44
+          ]
+        ],
+        "42": [
+          [
+            "Drums",
+            31
+          ]
+        ],
+        "46": [
+          [
+            "Drums",
+            42
+          ]
+        ]
+      },
+      "chokes": {
+        "42": [
+          "46"
+        ]
+      }
+    }
+  ]
+}

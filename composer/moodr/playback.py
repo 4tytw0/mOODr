@@ -180,11 +180,14 @@ DRUM_KITS = 32
 SUNVOX_DRUM_CHANNEL = 5  # MIDI channel 6
 SUNVOX_DRUM_KITS = ["Machine", "Boom", "Crunch"]
 SOUNDFONT_DRUMS = "Soundfont"
-DRUM_SOURCES = [SOUNDFONT_DRUMS, *(f"SunVox {name}" for name in SUNVOX_DRUM_KITS)]
+# The menu offers the SunVox kits only: the rig has no soundfont synth since
+# 2026-10-31 (m00Dr's voices are all SunVox), and the producer picks from this menu.
+# The soundfont channel stays for hardware MIDI out.
+DRUM_SOURCES = [f"SunVox {name}" for name in SUNVOX_DRUM_KITS]
 
 # Sounds for the chord and arp channels, as (name, bank, program), picked with bank
 # select (CC 0, GS style: the bank is CC 0's value) and a program change. On
-# the desktop these are FluidSynth's fonts (m800Dr synths/fluidsynth.cfg):
+# the desktop these are FluidSynth's fonts (voices/_fluidsynth/fluidsynth.cfg):
 # bank 0 GeneralUser GM, bank 1 gamebreaks.sf2 (stabs from the gamestabs
 # samples, and the phase_sine loop), bank 2 chords.sf2 (multisampled strings,
 # organ and guitar from the Strings Custom Kit, all looped so chords hold).
@@ -211,8 +214,16 @@ SOUND_NAMES = [name for name, _, _ in SOUNDS]
 # SunVox drum kit moves the drums, so FluidSynth (ch1) and SunVox (ch7) never
 # both play them.
 SUNVOX_CHORD_CHANNEL = 6  # MIDI channel 7
-SUNVOX_CHORD_SOUNDS = ["SunVox Wurli"]
-CHORD_SOUND_NAMES = SOUND_NAMES + SUNVOX_CHORD_SOUNDS
+# Since 2026-10-31 the chords are SunVox only (voices/chords: one patch per program,
+# in this order; its patches.json). The menu, and so the producer's options, is this
+# list; picking one sends its program change on ch7. "SunVox Wurli" was the old name.
+SUNVOX_CHORD_SOUNDS = ["Wurli", "OBX strings", "Arco strings", "Organ", "Pad"]
+CHORD_SOUND_NAMES = SUNVOX_CHORD_SOUNDS
+LEGACY_CHORD_SOUNDS = {"SunVox Wurli": "Wurli"}
+# The arp's menu: the sounds voices/arp plays (bank 1: the stabs and the phase sine).
+ARP_SOUND_NAMES = [name for name, bank, _ in SOUNDS if bank == 1]
+# The bass's patches (voices/bass, program change on the bass channel, in this order).
+BASS_SOUNDS = ["Fuzz", "Reese"]
 
 # The mutation knob (0.0-1.0) morphs between three grooves, each a chance
 # per step that a voice plays: house at 0.0, UK garage two-step at 0.5,
@@ -466,12 +477,13 @@ class PlaybackEngine:
         self._drum_pattern = _drum_pattern_for(self._drum_lines, self._drum_mutation)
         self._drum_swing = 0
         self._drum_kit = 0
-        self._drum_source = SOUNDFONT_DRUMS
+        self._drum_source = SOUNDFONT_DRUMS   # the engine's default; the app picks a SunVox kit
         self._soundfont_drum_channel = drum_channel
         # None until a sound is picked: until then the chord channel keeps
         # whatever its synth was set up with, and nothing is sent.
         self._chord_sound: str | None = None
         self._arp_sound: str | None = None
+        self._bass_sound: str | None = None
         self._ticks_since_advance = 0
         self._playing = False
         # Fires once the loaded progression has played all the way through
@@ -668,11 +680,29 @@ class PlaybackEngine:
 
     @chord_sound.setter
     def chord_sound(self, name: str) -> None:
+        name = LEGACY_CHORD_SOUNDS.get(name, name)
         self._chord_sound = _check_sound(name, CHORD_SOUND_NAMES)
         # The channel setter releases what's sounding on the old one first.
-        self.chord_channel = (SUNVOX_CHORD_CHANNEL if name in SUNVOX_CHORD_SOUNDS
-                              else self._soundfont_chord_channel)
-        self._send_sound(self._chord_channel, name)
+        self.chord_channel = SUNVOX_CHORD_CHANNEL
+        self._send_chord_sound()
+
+    def _send_chord_sound(self) -> None:
+        if self._chord_sound is not None:
+            self._midi_output.send([0xC0 | SUNVOX_CHORD_CHANNEL, SUNVOX_CHORD_SOUNDS.index(self._chord_sound)])
+
+    @property
+    def bass_sound(self) -> str | None:
+        """The bass patch (BASS_SOUNDS), or None before one is picked."""
+        return self._bass_sound
+
+    @bass_sound.setter
+    def bass_sound(self, name: str) -> None:
+        self._bass_sound = _check_sound(name, BASS_SOUNDS)
+        self._send_bass_sound()
+
+    def _send_bass_sound(self) -> None:
+        if self._bass_sound is not None:
+            self._midi_output.send([0xC0 | self._bass_channel, BASS_SOUNDS.index(self._bass_sound)])
 
     @property
     def soundfont_chord_channel(self) -> int:
@@ -693,7 +723,7 @@ class PlaybackEngine:
 
     @arp_sound.setter
     def arp_sound(self, name: str) -> None:
-        self._arp_sound = _check_sound(name)
+        self._arp_sound = _check_sound(name, ARP_SOUND_NAMES)
         self._send_sound(self._arp_channel, name)
 
     def _send_sound(self, channel: int, name: str | None) -> None:
@@ -715,7 +745,9 @@ class PlaybackEngine:
 
     @drum_source.setter
     def drum_source(self, name: str) -> None:
-        if name not in DRUM_SOURCES:
+        # The soundfont stays possible for hardware MIDI out, though the menu
+        # (DRUM_SOURCES) no longer offers it.
+        if name not in DRUM_SOURCES and name != SOUNDFONT_DRUMS:
             raise ValueError(f"unknown drum source {name!r}")
         if name == self._drum_source:
             return
@@ -732,7 +764,7 @@ class PlaybackEngine:
         """The SunVox kit's name, or None while the soundfont plays."""
         if self._drum_source == SOUNDFONT_DRUMS:
             return None
-        return SUNVOX_DRUM_KITS[DRUM_SOURCES.index(self._drum_source) - 1]
+        return self._drum_source.removeprefix("SunVox ")   # by name, not by menu position
 
     def randomize_drum_kit(self) -> None:
         """Switches the soundfont drums to a different kit, at once (a
@@ -842,8 +874,9 @@ class PlaybackEngine:
         self._advance()
         # Re-assert the kit and sounds: the synth may have restarted.
         self._send_drum_kit()
-        self._send_sound(self._chord_channel, self._chord_sound)
+        self._send_chord_sound()
         self._send_sound(self._arp_channel, self._arp_sound)
+        self._send_bass_sound()
         self._drum_tick(0)
         self._clock.add_tick_callback(self._on_tick)
         if not self._clock.is_running:

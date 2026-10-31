@@ -38,8 +38,8 @@ from PySide6.QtWidgets import (
 
 from . import bridge_manager, midi_io, midi_status, oracle, theme, theory, web_remote
 from .clock import MidiClock, MidiClockSlave
-from .playback import (ACID_STEPS, ARP_RATE_TICKS, BASS_CHANNEL, CHORD_CHANNEL, DRUM_SOURCES,
-                       CHORD_SOUND_NAMES, SOUND_NAMES, PlaybackEngine, acid_note_for_step)
+from .playback import (ACID_STEPS, ARP_RATE_TICKS, ARP_SOUND_NAMES, BASS_CHANNEL, BASS_SOUNDS, CHORD_CHANNEL,
+                       DRUM_SOURCES, CHORD_SOUND_NAMES, LEGACY_CHORD_SOUNDS, PlaybackEngine, acid_note_for_step)
 
 DEFAULT_KEY = "E"
 DEFAULT_MODE = "Minor 7"
@@ -59,6 +59,7 @@ WEB_REMOTE_SETTING = "web_remote/enabled"
 EXTERNAL_SYNC_SETTING = "clock/external_sync"
 CHORD_SOUND_SETTING = "sound/chords"
 ARP_SOUND_SETTING = "sound/arp"
+BASS_SOUND_SETTING = "sound/bass"
 DRUM_SOURCE_SETTING = "sound/drums"
 M8_UI_PATH_SETTING = "m8_ui_path"
 
@@ -831,21 +832,26 @@ class MainWindow(QWidget):
             lambda on: QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(EXTERNAL_SYNC_SETTING, on))
         self.web_remote_checkbox.setChecked(
             QSettings(SETTINGS_ORG, SETTINGS_APP).value(WEB_REMOTE_SETTING, False, type=bool))
-        # Only a remembered pick is sent at startup; with none, the synth keeps
-        # its own default and the box just shows the first entry.
+        # The remembered pick, or the menu's first entry, is sent at startup, so
+        # the box (and the producer, which reads it) always says what's playing.
         for box, setting, attr, names in (
                 (self.chord_sound_box, CHORD_SOUND_SETTING, "chord_sound", CHORD_SOUND_NAMES),
-                (self.arp_sound_box, ARP_SOUND_SETTING, "arp_sound", SOUND_NAMES)):
+                (self.arp_sound_box, ARP_SOUND_SETTING, "arp_sound", ARP_SOUND_NAMES),
+                (self.bass_sound_box, BASS_SOUND_SETTING, "bass_sound", BASS_SOUNDS)):
             saved_sound = QSettings(SETTINGS_ORG, SETTINGS_APP).value(setting, None)
-            if saved_sound in names:
-                box.setCurrentText(saved_sound)
-                setattr(self._engine, attr, saved_sound)
+            saved_sound = LEGACY_CHORD_SOUNDS.get(saved_sound, saved_sound)
+            sound = saved_sound if saved_sound in names else names[0]
+            box.setCurrentText(sound)
+            setattr(self._engine, attr, sound)
         self.chord_sound_box.currentTextChanged.connect(self._on_chord_sound_changed)
         self.arp_sound_box.currentTextChanged.connect(self._on_arp_sound_changed)
+        self.bass_sound_box.currentTextChanged.connect(self._on_bass_sound_changed)
         saved_source = QSettings(SETTINGS_ORG, SETTINGS_APP).value(DRUM_SOURCE_SETTING, None)
-        if saved_source in DRUM_SOURCES:
-            self.drums_source_box.setCurrentText(saved_source)
-            self._engine.drum_source = saved_source
+        # No saved kit (or the old "Soundfont"): start on the first SunVox kit, since
+        # the rig has no soundfont synth.
+        source = saved_source if saved_source in DRUM_SOURCES else DRUM_SOURCES[0]
+        self.drums_source_box.setCurrentText(source)
+        self._engine.drum_source = source
         self.drums_source_box.currentTextChanged.connect(self._on_drum_source_changed)
         self._update_part_labels()
 
@@ -931,15 +937,19 @@ class MainWindow(QWidget):
         self.chord_sound_box = QComboBox()
         self.chord_sound_box.addItems(CHORD_SOUND_NAMES)
         self.chord_sound_box.setToolTip(
-            "The chords' sound: bank select + program change on the chord channel "
-            "(on the m800Dr desktop, FluidSynth's strings, stabs and GM sounds). "
-            "\"SunVox Wurli\" moves the chords to MIDI channel 7 instead, where the "
-            "desktop's sunvoxkeys.py plays a DX7-style FM Wurlitzer.")
+            "The chords' sound: a SunVox patch on MIDI channel 7 (voices/chords on the "
+            "desktop), picked by program change.")
 
         self.bass_button = QPushButton("Bass")
         self.bass_button.setCheckable(True)
         self.bass_button.setChecked(True)
         self.bass_button.toggled.connect(self._on_bass_toggled)
+
+        self.bass_sound_box = QComboBox()
+        self.bass_sound_box.addItems(BASS_SOUNDS)
+        self.bass_sound_box.setToolTip(
+            "The bass's sound: a SunVox patch (voices/bass on the desktop), picked by program "
+            "change on the bass channel. Both follow the tempo-locked wobble and gates.")
 
         self.stab_button = QPushButton("Stabs")
         self.stab_button.setCheckable(True)
@@ -979,7 +989,7 @@ class MainWindow(QWidget):
         self.arp_rate_box.currentTextChanged.connect(self._on_arp_rate_changed)
 
         self.arp_sound_box = QComboBox()
-        self.arp_sound_box.addItems(SOUND_NAMES)
+        self.arp_sound_box.addItems(ARP_SOUND_NAMES)
         self.arp_sound_box.setToolTip(
             "The arp's sound: bank select + program change on the arp channel "
             "(on the m800Dr desktop, FluidSynth's strings, stabs and GM sounds).")
@@ -1152,7 +1162,8 @@ class MainWindow(QWidget):
 
         performance_row = QHBoxLayout()
         for widget in (self.humanize_checkbox, self.octave_spinbox, self.chords_button,
-                       self.chord_sound_box, self.bass_button, self.stab_button, self.circuit_channels_button,
+                       self.chord_sound_box, self.bass_button, self.bass_sound_box, self.stab_button,
+                       self.circuit_channels_button,
                        self.external_sync_checkbox, self.web_remote_checkbox,
                        self.midi_status_button):
             performance_row.addWidget(widget)
@@ -1420,6 +1431,10 @@ class MainWindow(QWidget):
     def _on_arp_sound_changed(self, name: str) -> None:
         self._engine.arp_sound = name
         QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(ARP_SOUND_SETTING, name)
+
+    def _on_bass_sound_changed(self, name: str) -> None:
+        self._engine.bass_sound = name
+        QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(BASS_SOUND_SETTING, name)
 
     def _on_bass_toggled(self, checked: bool) -> None:
         self._engine.bass_enabled = checked

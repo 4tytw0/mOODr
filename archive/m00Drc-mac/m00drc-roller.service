@@ -1,0 +1,16 @@
+[Unit]
+Description=m00Drc: phase-shifted random rolls of m00Dr's parameters (web remote :8766)
+# m00Dr lives with the Plasma session; the roller follows it.
+PartOf=m00dr.service
+After=m00dr.service
+
+[Service]
+WorkingDirectory=/home/emin0r/code/m00Drc
+# Rolls only while the transport plays. Exits when it can't reach m00Dr or the
+# connection drops (m00Dr restarted), so systemd retries.
+ExecStart=/usr/bin/uv run -q python -u -m m00drc.roller --wait-for-play
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=m00dr.service

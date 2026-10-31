@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Server</title>
+<style>
+  :root { --bg:#f4f4f2; --fg:#1b1b1b; --dim:#6b6b6b; --line:#d4d4d0; --accent:#e8501e; --ok:#2f9e5a;
+          --scope-bg:#07090a; --scope-dim:#5d6a66; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#ececec; --dim:#8a8a8a; --line:#2c2c2c; --ok:#4cc27a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg);
+         font:15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; padding:16px; }
+  /* Player on the left; the mixer panel (when open) to its right, top-aligned. */
+  main { width:100%; max-width:1180px; display:grid; gap:18px 32px; justify-content:center;
+         grid-template-columns:minmax(0, 520px); }
+  main.with-mixer { grid-template-columns:minmax(0, 560px) minmax(0, 560px); }
+  /* Too narrow for both side by side (a phone, a split window): the panel goes under the scope. */
+  @media (max-width: 860px) { main.with-mixer { grid-template-columns:minmax(0, 560px); } }
+  #player { display:grid; gap:18px; align-content:start; }
+  h1 { margin:0; font-size:20px; letter-spacing:.08em; grid-column:1 / -1; }
+  h1 span { color:var(--accent); }
+  h1 .nav { float:right; font-size:13px; color:var(--dim); text-decoration:none; letter-spacing:.12em;
+            padding:4px 0 0; border:0; background:none; font-family:inherit; cursor:pointer; }
+  h1 .tabs { float:right; display:flex; gap:16px; }
+  h1 .tabs .nav { float:none; }
+  h1 .tabs .nav.sel { color:var(--fg); }
+  .panel { width:100%; height:0; border:0; display:block; align-self:start; }
+  .panel[hidden] { display:none; }
+  h1 .nav:hover { color:var(--fg); }
+  h1 .nav:disabled { opacity:.45; cursor:default; }
+  h1 #rig.sel, h1 #rec.sel { color:var(--accent); }
+  button { font:inherit; font-size:16px; padding:14px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
+           border-radius:6px; cursor:pointer; }
+  button.on { background:transparent; color:var(--fg); }
+  .meter { display:grid; gap:6px; }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--ok); transition:width 60ms linear; }
+  label { display:grid; gap:6px; color:var(--dim); font-size:13px; }
+  label b { color:var(--fg); font-weight:normal; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  #status { color:var(--dim); font-size:13px; min-height:1.4em; }
+  /* The producer's (Qwen's) notes: what it's thinking each plan, newest on top. */
+  /* The right column: the producer's notes on top, then the mixer or 303 panel. */
+  #side { display:grid; gap:18px; align-content:start; min-width:0; }
+  #producer { border-bottom:1px solid var(--line); padding-bottom:14px; display:grid; gap:10px; }
+  #producer[hidden] { display:none; }
+  #producer .head { color:var(--dim); font-size:12px; letter-spacing:.12em; }
+  #producer .head span { letter-spacing:0; }
+  #pnow { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+  #pold { list-style:none; margin:0; padding:0; display:grid; gap:10px; color:var(--dim); font-size:13px;
+          max-height:12em; overflow:auto; }
+  #pold li { white-space:pre-wrap; overflow-wrap:anywhere; }
+  /* Talking to the producer: its next plan reads what you say here. */
+  #chat { display:grid; gap:8px; border-bottom:1px solid var(--line); padding-bottom:14px; }
+  #chat .head { color:var(--dim); font-size:12px; letter-spacing:.12em; }
+  #chatlog { list-style:none; margin:0; padding:0; display:grid; gap:8px; font-size:13px; max-height:16em; overflow:auto; }
+  #chatlog li { white-space:pre-wrap; overflow-wrap:anywhere; }
+  #chatlog li.user { color:var(--dim); }
+  #chatlog li.user::before { content:"you · "; color:var(--accent); }
+  #chatlog li.assistant::before { content:"producer · "; color:var(--accent); }
+  #chatform { display:flex; gap:8px; }
+  #chatin { flex:1; min-width:0; font:inherit; font-size:14px; padding:8px 10px; border-radius:6px;
+            border:1px solid var(--line); background:transparent; color:var(--fg); }
+  #chatform button { font:inherit; font-size:13px; padding:0 14px; border-radius:6px; border:1px solid var(--line);
+            background:transparent; color:var(--fg); cursor:pointer; }
+  #chatform button:disabled, #chatin:disabled { opacity:.45; cursor:default; }
+  #chatstatus { color:var(--dim); font-size:12px; min-height:1.3em; }
+  #pold time, #pnow + .when { color:var(--dim); font-size:12px; }
+
+  /* Scope: always a dark "screen", whatever the page theme. */
+  #scope { position:relative; aspect-ratio:1; background:var(--scope-bg); border-radius:10px; overflow:hidden;
+           box-shadow:inset 0 0 60px rgba(0,0,0,.8); user-select:none; -webkit-user-select:none; }
+  #scope canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #scope .hud { position:absolute; left:12px; right:12px; top:10px; display:flex; gap:6px; align-items:center;
+                font-size:11px; letter-spacing:.12em; color:var(--scope-dim); transition:opacity .4s; }
+  #scope .hud .grow { flex:1; }
+  #scope .chip { padding:5px 9px; font-size:11px; letter-spacing:.12em; border:1px solid #2a3330; border-radius:4px;
+                 background:transparent; color:var(--scope-dim); }
+  #scope .chip.sel { color:#ffb08a; border-color:#7a3a1f; }
+  #scope .idle { position:absolute; inset:0; display:grid; place-items:center; color:var(--scope-dim);
+                 font-size:12px; letter-spacing:.2em; pointer-events:none; }
+  #scope.full { position:fixed; inset:0; z-index:10; aspect-ratio:auto; border-radius:0; }
+  #scope:fullscreen { aspect-ratio:auto; border-radius:0; }
+  #scope.calm .hud { opacity:0; }
+  #scope.calm { cursor:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AUDIO <span>●</span> SERVER <span class="tabs">
+    <button class="nav" id="rig" title="The rig: synths and m00Dr on or off">RIG …</button>
+    <button class="nav" id="rec" title="Record the mix to a WAV on the desktop">REC ○</button>
+    <a class="nav" id="recfile" hidden download>↓ WAV</a>
+    <button class="nav" id="tab-acid" title="Show or hide the 303's sound controls beside the scope (the audio keeps playing)">303</button>
+    <button class="nav" id="tab-mixer" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER</button></span></h1>
+  <section id="player">
+  <div id="scope">
+    <canvas id="grid"></canvas>
+    <canvas id="trace"></canvas>
+    <div class="idle" id="idle">PRESS LISTEN</div>
+    <div class="hud">
+      <button class="chip sel" id="m-xy" title="XY turned 45°: mono lies flat along the screen's width, stereo spreads up and down">XY</button>
+      <button class="chip" id="m-ms" title="Goniometer: mono is vertical, stereo width spreads sideways">M/S</button>
+      <button class="chip sel" id="agc" title="Automatic gain: scales quiet signals up to fill the screen">AUTO</button>
+      <span class="grow"></span>
+      <button class="chip" id="fs" title="Full screen (or double-click the scope)">FULL ⤢</button>
+    </div>
+  </div>
+  <button id="go">Listen</button>
+  <div class="meter"><div class="bar"><i id="l"></i></div><div class="bar"><i id="r"></i></div></div>
+  <label>Volume <b id="volv">100%</b><input id="vol" type="range" min="0" max="150" value="100"></label>
+  <label>Stream <span><button class="chip sel" id="via-webrtc" title="Opus over UDP: a lost packet is concealed instead of stalling the stream, and the browser's jitter buffer adapts to the network">WEBRTC</button> <button class="chip" id="via-raw" title="Raw PCM over HTTP: no codec, but a lost packet stalls the stream until it's resent">RAW</button></span></label>
+  <label>Buffer <button class="chip sel" id="bufauto" title="Auto: keep the buffer just above what the network needs, growing after a dropout and shrinking while it's calm">AUTO</button> <b id="bufv">60 ms</b><input id="buf" type="range" min="10" max="300" step="5" value="60"></label>
+  <div id="status">Stopped</div>
+  </section>
+  <div id="side">
+  <div id="producer" hidden>
+    <div class="head">PRODUCER <span id="pmeta"></span></div>
+    <p id="pnow"></p>
+    <ol id="pold"></ol>
+  </div>
+  <div id="chat">
+    <div class="head">TALK TO THE PRODUCER</div>
+    <ol id="chatlog"></ol>
+    <form id="chatform"><input id="chatin" maxlength="500" autocomplete="off"
+      placeholder="Ask why it did something, or tell it what you want"><button id="chatsend">Send</button></form>
+    <div id="chatstatus">It answers between plans; its next plan reads what you say.</div>
+  </div>
+  <iframe class="panel" id="mixer" title="Mixer" hidden></iframe>
+  <iframe class="panel" id="acid" title="303" hidden></iframe>
+  </div>
+</main>
+<script>
+const RATE = 48000, CH = 2, BYTES_PER_FRAME = CH * 2, MIN_FRAMES = 480; // schedule >=10 ms at a time
+const $ = id => document.getElementById(id);
+let ctx, tap, gain, anL, anR, playAt = 0, running = false, abort, peaks = [0, 0], underruns = 0;
+let target = +$('buf').value / 1000;
+// Auto buffer: start low and let the network decide. A dropout grows the
+// target by AUTO_GROW; a calm AUTO_WINDOW (the buffer never got below
+// AUTO_HEADROOM) shrinks it by AUTO_SHRINK. Between, the playback rate is
+// nudged (up to RATE_TRIM, a few cents) so the buffer settles on the target
+// instead of floating: the two machines' clocks differ by ~50 ppm, and a late
+// burst would otherwise leave the delay higher until the next dropout.
+const AUTO_MIN = 0.02, AUTO_MAX = 0.3, AUTO_START = 0.03, AUTO_GROW = 0.015, AUTO_SHRINK = 0.005;
+const AUTO_WINDOW = 4, AUTO_HEADROOM = 0.012, RATE_GAIN = 0.05, RATE_TRIM = 0.004;
+let auto = true, minLead = Infinity, windowStart = 0, rate = 1;
+try { auto = localStorage.getItem('bufauto') !== 'off'; } catch {}
+// WEBRTC or RAW (see the Stream chips). Over WebRTC the browser does the
+// buffering: AUTO leaves its jitter buffer adaptive, the slider sets its
+// target delay (jitterBufferTarget, where the browser has it).
+let via = 'webrtc', pc = null, rx = null, mirror = null, stats = null;
+try { via = localStorage.getItem('via') === 'raw' ? 'raw' : 'webrtc'; } catch {}
+function showTarget() { const ms = Math.round(target * 1000); $('bufv').textContent = ms + ' ms'; $('buf').value = ms; }
+function setAuto(on) {
+  auto = on; $('bufauto').classList.toggle('sel', on);
+  if (on) target = AUTO_START;
+  showTarget(); jitterTarget();
+  try { localStorage.setItem('bufauto', on ? 'on' : 'off'); } catch {}
+}
+setAuto(auto);
+$('bufauto').onclick = () => setAuto(!auto);
+
+$('vol').oninput = e => { $('volv').textContent = e.target.value + '%'; if (gain) gain.gain.value = e.target.value / 100; };
+$('buf').oninput = e => { setAuto(false); target = e.target.value / 1000; showTarget(); jitterTarget(); };
+function setVia(v) {
+  via = v; $('via-webrtc').classList.toggle('sel', v === 'webrtc'); $('via-raw').classList.toggle('sel', v === 'raw');
+  try { localStorage.setItem('via', v); } catch {}
+}
+setVia(via);
+for (const v of ['webrtc', 'raw']) $('via-' + v).onclick = () => { if (v === via) return; const was = running; if (was) stop(); setVia(v); if (was) start(); };
+function jitterTarget() {
+  if (!rx) return;
+  const ms = auto ? null : Math.round(target * 1000);
+  if ('jitterBufferTarget' in rx) rx.jitterBufferTarget = ms;
+  if ('playoutDelayHint' in rx) rx.playoutDelayHint = ms === null ? null : ms / 1000;
+}
+$('go').onclick = () => running ? stop() : start();
+// The mixer and the 303 are tabs of a panel beside the scope (iframes of
+// /mixer?embed and /acid?embed), so the audio keeps playing. Clicking the open
+// tab closes the panel. The mixer is open unless last closed; each page
+// reports its height so the panel fits it.
+const PANELS = ['mixer', 'acid'];
+function showPanel(name) {
+  for (const p of PANELS) {
+    const f = $(p);
+    if (p === name && !f.src) f.src = `/${p}?embed`;
+    f.hidden = p !== name;
+    $('tab-' + p).classList.toggle('sel', p === name);
+  }
+  document.querySelector('main').classList.toggle('with-mixer', !!name);
+  try { localStorage.setItem('panel', name || 'closed'); } catch {}
+}
+for (const p of PANELS) $('tab-' + p).onclick = () => showPanel($(p).hidden ? p : null);
+let panelPref = 'mixer';
+try { panelPref = localStorage.getItem('panel') || (localStorage.getItem('mixer') === 'closed' ? 'closed' : 'mixer'); } catch {}
+showPanel(PANELS.includes(panelPref) ? panelPref : null);
+addEventListener('message', e => {
+  for (const p of PANELS)
+    if (e.source === $(p).contentWindow && e.data?.[p + 'Height']) $(p).style.height = e.data[p + 'Height'] + 'px';
+});
+
+function stop() {
+  running = false; abort?.abort();
+  pc?.close(); pc = rx = stats = null; playAt = 0; if (mirror) mirror.srcObject = null;
+  ctx?.close(); ctx = anL = anR = null;
+  $('go').textContent = 'Listen'; $('go').classList.remove('on'); $('status').textContent = 'Stopped';
+  $('idle').hidden = false;
+}
+
+async function start() {
+  ctx = new AudioContext({ sampleRate: RATE, latencyHint: 'interactive' });
+  // tap (unity) feeds both the speakers (via the volume gain) and the scope, so the
+  // scope shows the stream itself regardless of the volume slider.
+  tap = new GainNode(ctx);
+  gain = new GainNode(ctx, { gain: $('vol').value / 100 });
+  tap.connect(gain).connect(ctx.destination);
+  const split = new ChannelSplitterNode(ctx, { numberOfOutputs: 2 });
+  anL = new AnalyserNode(ctx, { fftSize: 2048 }); anR = new AnalyserNode(ctx, { fftSize: 2048 });
+  const sink = new GainNode(ctx, { gain: 0 }); // Safari only runs analysers that reach the destination
+  tap.connect(split); split.connect(anL, 0); split.connect(anR, 1);
+  anL.connect(sink); anR.connect(sink); sink.connect(ctx.destination);
+  running = true; $('go').textContent = 'Stop'; $('go').classList.add('on'); $('idle').hidden = true;
+  while (running) {
+    try { await (via === 'webrtc' ? rtc() : pump()); } catch (e) { if (!running) break; $('status').textContent = 'Reconnecting… (' + e.message + ')'; }
+    if (running) await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+async function rtc() {
+  pc = new RTCPeerConnection();
+  const transceiver = pc.addTransceiver('audio', { direction: 'recvonly' });
+  const track = new Promise(r => { pc.ontrack = e => r(e.streams[0] || new MediaStream([e.track])); });
+  const offer = await pc.createOffer();
+  // Browsers decode Opus to mono unless the receiving side's SDP asks for stereo.
+  offer.sdp = offer.sdp.replace(/useinbandfec=1/g, 'useinbandfec=1;stereo=1;sprop-stereo=1');
+  await pc.setLocalDescription(offer);
+  await new Promise(r => {   // LAN host candidates: gathering takes milliseconds
+    if (pc.iceGatheringState === 'complete') return r();
+    pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r();
+    setTimeout(r, 2000);
+  });
+  const res = await fetch('webrtc/offer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(pc.localDescription) });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  await pc.setRemoteDescription(await res.json());
+  const stream = await track;
+  rx = transceiver.receiver; jitterTarget();
+  // Chrome only feeds a remote stream into Web Audio while a media element is playing it.
+  mirror = mirror || new Audio(); mirror.muted = true; mirror.srcObject = stream; mirror.play().catch(() => {});
+  ctx.createMediaStreamSource(stream).connect(tap);
+  $('status').textContent = 'Connected';
+  stats = { jb: 0, emitted: 0, concealed: 0, received: 0 };
+  await new Promise((_, reject) => {
+    pc.onconnectionstatechange = () => ['failed', 'closed'].includes(pc?.connectionState) && reject(new Error(pc.connectionState));
+  });
+}
+
+// Over WebRTC: the jitter buffer's delay and how much audio was concealed,
+// both over the last second, from the receiver's stats.
+async function rtcStatus() {
+  const out = Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000);
+  for (const r of (await pc.getStats()).values()) {
+    if (r.type !== 'inbound-rtp' || r.kind !== 'audio') continue;
+    const emitted = r.jitterBufferEmittedCount - stats.emitted, received = r.totalSamplesReceived - stats.received;
+    const jb = emitted > 0 ? Math.round((r.jitterBufferDelay - stats.jb) / emitted * 1000) : 0;
+    const hid = received > 0 ? (r.concealedSamples - stats.concealed) / received * 100 : 0;
+    stats = { jb: r.jitterBufferDelay, emitted: r.jitterBufferEmittedCount, concealed: r.concealedSamples, received: r.totalSamplesReceived };
+    $('status').textContent = `WebRTC · ${jb} ms jitter buffer + ${out} ms output · ${hid.toFixed(1)}% concealed · ${r.packetsLost} lost`;
+  }
+}
+setInterval(() => { if (running && pc && stats) rtcStatus().catch(() => {}); }, 1000);
+
+async function pump() {
+  abort = new AbortController();
+  const res = await fetch('stream', { signal: abort.signal, cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const reader = res.body.getReader();
+  let pending = new Uint8Array(0); playAt = 0;
+  $('status').textContent = 'Connected';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error('stream ended');
+    const joined = new Uint8Array(pending.length + value.length);
+    joined.set(pending); joined.set(value, pending.length);
+    const frames = Math.floor(joined.length / BYTES_PER_FRAME);
+    if (frames < MIN_FRAMES) { pending = joined; continue; }
+    play(new DataView(joined.buffer, 0, frames * BYTES_PER_FRAME), frames);
+    pending = joined.slice(frames * BYTES_PER_FRAME);
+  }
+}
+
+function play(view, frames) {
+  const buf = ctx.createBuffer(CH, frames, RATE);
+  for (let c = 0; c < CH; c++) {
+    const out = buf.getChannelData(c); let peak = 0;
+    for (let i = 0; i < frames; i++) {
+      const s = view.getInt16((i * CH + c) * 2, true) / 32768;
+      out[i] = s; if (Math.abs(s) > peak) peak = Math.abs(s);
+    }
+    peaks[c] = Math.max(peak, peaks[c] * 0.85);
+  }
+  const now = ctx.currentTime;
+  let lead = playAt - now;   // how much audio is queued ahead of the speaker
+  if (lead < 0.003) {
+    // Ran dry: count it, give auto more room, restart at the target delay.
+    if (playAt) { underruns++; if (auto) { target = Math.min(target + AUTO_GROW, AUTO_MAX); showTarget(); } }
+    playAt = now + target; lead = target; minLead = Infinity; windowStart = now;
+  } else if (lead > target + 0.25) {
+    playAt = now + target; lead = target;   // a big late burst: skip ahead rather than trim for minutes
+  }
+  if (auto) {
+    minLead = Math.min(minLead, lead);
+    if (now - windowStart > AUTO_WINDOW) {
+      if (minLead > AUTO_HEADROOM && target > AUTO_MIN) { target = Math.max(target - AUTO_SHRINK, AUTO_MIN); showTarget(); }
+      minLead = Infinity; windowStart = now;
+    }
+  }
+  // Ahead of the target: play a hair fast to drain; behind: a hair slow.
+  rate = 1 + Math.max(-RATE_TRIM, Math.min(RATE_TRIM, (lead - target) * RATE_GAIN));
+  const src = new AudioBufferSourceNode(ctx, { buffer: buf, playbackRate: rate });
+  src.connect(tap); src.start(playAt);
+  playAt += frames / RATE / rate;
+}
+
+// ---- Lissajous scope -------------------------------------------------------
+const scope = $('scope'), grid = $('grid'), trace = $('trace');
+const g = grid.getContext('2d'), t = trace.getContext('2d');
+const bufL = new Float32Array(2048), bufR = new Float32Array(2048);
+let mode = 'xy', agc = true, level = 0.25, W = 0, H = 0, dpr = 1;
+
+function chip(id, on) { $(id).classList.toggle('sel', on); }
+$('m-xy').onclick = () => { mode = 'xy'; chip('m-xy', true); chip('m-ms', false); drawGrid(); };
+$('m-ms').onclick = () => { mode = 'ms'; chip('m-ms', true); chip('m-xy', false); drawGrid(); };
+$('agc').onclick = () => { agc = !agc; chip('agc', agc); };
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = scope.getBoundingClientRect();
+  W = Math.round(r.width * dpr); H = Math.round(r.height * dpr);
+  for (const c of [grid, trace]) { c.width = W; c.height = H; }
+  drawGrid();
+}
+new ResizeObserver(resize).observe(scope);
+
+function drawGrid() {
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.45, RX = W * 0.45;
+  g.clearRect(0, 0, W, H);
+  g.lineWidth = dpr;
+  // Mark where mono (L = R) lands: flat across the width in XY (turned 45°),
+  // straight up in M/S.
+  g.setLineDash([4 * dpr, 6 * dpr]); g.strokeStyle = 'rgba(232,80,30,.18)';
+  g.beginPath();
+  if (mode === 'xy') { g.moveTo(cx - RX, cy); g.lineTo(cx + RX, cy); }
+  else { g.moveTo(cx, cy + R); g.lineTo(cx, cy - R); }
+  g.stroke(); g.setLineDash([]);
+  g.fillStyle = 'rgba(120,150,140,.35)'; g.font = `${10 * dpr}px ui-monospace, monospace`;
+  if (mode === 'xy') { g.fillText('L+R', cx + RX - 24 * dpr, cy - 6 * dpr); g.fillText('R−L', cx + 6 * dpr, cy - R + 10 * dpr); }
+  else { g.fillText('M', cx + 6 * dpr, cy - R + 10 * dpr); g.fillText('S', cx + R - 10 * dpr, cy - 6 * dpr); }
+}
+
+// Echo trail: every ECHO_EVERY frames the trace is kept as an echo that expands
+// outward (by ECHO_GROW per ECHO_EVERY frames) and fades as it ages, out to the
+// edges of the scope, so the curve looks like it's travelling out toward you.
+const ECHOES = 10, ECHO_EVERY = 3, ECHO_GROW = 1.12;
+const echoes = []; let tick = 0;
+const HAAS = Math.round(RATE * 0.00025); // 0.25 ms (~24° at C4); larger values turn mono lines into circles
+
+// Traces pts (x, y pairs relative to the centre) at scale s, every step-th point.
+function path(pts, s, step) {
+  const cx = W / 2, cy = H / 2;
+  t.beginPath(); t.moveTo(cx + pts[0] * s, cy - pts[1] * s);
+  for (let i = 2 * step; i < pts.length; i += 2 * step) t.lineTo(cx + pts[i] * s, cy - pts[i + 1] * s);
+}
+
+function frame() {
+  // Phosphor persistence: fade the previous frame rather than clearing it.
+  t.globalCompositeOperation = 'source-over';
+  t.fillStyle = 'rgba(7,9,10,.22)'; t.fillRect(0, 0, W, H);
+  tick++;
+  if (anL && anR) {
+    anL.getFloatTimeDomainData(bufL); anR.getFloatTimeDomainData(bufR);
+    let peak = 0;
+    for (let i = 0; i < bufL.length; i++) peak = Math.max(peak, Math.abs(bufL[i]), Math.abs(bufR[i]));
+    // Auto gain: rise fast, fall slowly, floor so silence stays a dot instead of amplified noise.
+    level = peak > level ? level + (peak - level) * 0.3 : level + (peak - level) * 0.02;
+    const gain = agc ? 0.9 / Math.max(level, 0.02) : 1;
+    const k = Math.min(W, H) * 0.45 * gain;
+    // XY's mono axis runs along the width, so it scales to the width: on a
+    // wide screen the trace spans the monitor rather than a centred square.
+    const kx = mode === 'xy' ? W * 0.45 * gain * Math.SQRT1_2 : k;
+    // Haas: draw R a little behind L (visual only) so mono parts open from a
+    // flat line into ellipses and stereo shapes widen. XY is the classic L/R
+    // plot turned 45° (x = L + R, y = R - L), so mono lies horizontal.
+    const pts = new Float32Array((bufL.length - HAAS) * 2);
+    for (let i = 0; i < bufL.length - HAAS; i++) {
+      const l = bufL[i + HAAS], r = bufR[i];
+      pts[2 * i] = mode === 'xy' ? (l + r) * kx : (r - l) * Math.SQRT1_2 * k;
+      pts[2 * i + 1] = (mode === 'xy' ? r - l : l + r) * Math.SQRT1_2 * k;
+    }
+    if (tick % ECHO_EVERY === 0) { echoes.unshift({ pts, born: tick }); if (echoes.length > ECHOES) echoes.pop(); }
+    t.globalCompositeOperation = 'lighter';
+    t.lineJoin = 'round';
+    // Oldest first, so newer echoes land on top. Age is fractional so the growth is smooth.
+    for (let e = echoes.length - 1; e >= 0; e--) {
+      const age = (tick - echoes[e].born) / ECHO_EVERY, s = ECHO_GROW ** age;
+      const a = Math.max(0, 1 - age / ECHOES) ** 2;
+      if (!a) continue;
+      path(echoes[e].pts, s, 2);
+      t.strokeStyle = `rgba(57,255,20,${.07 * a})`; t.lineWidth = 6 * dpr; t.stroke();   // glow
+      t.strokeStyle = `rgba(120,30,220,${.30 * a})`; t.lineWidth = 1.6 * dpr; t.stroke(); // body
+    }
+    path(pts, 1, 1);
+    t.strokeStyle = 'rgba(57,255,20,.06)'; t.lineWidth = 12 * dpr; t.stroke();   // outer neon glow
+    t.strokeStyle = 'rgba(57,255,20,.12)'; t.lineWidth = 6 * dpr; t.stroke();    // neon glow
+    t.strokeStyle = 'rgba(110,20,210,.55)'; t.lineWidth = 3.2 * dpr; t.stroke(); // deep purple body
+    // Solarized centre: paint (not add) a black core so the line reads as a dark
+    // channel edged in purple and green.
+    t.globalCompositeOperation = 'source-over';
+    t.strokeStyle = 'rgba(0,0,0,.9)'; t.lineWidth = 1.2 * dpr; t.stroke();       // black core
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// Full screen: the real Fullscreen API where it exists, a fixed-position fallback where it
+// doesn't (iPhone Safari, some console browsers). The HUD and cursor hide after 2 s idle.
+function isFull() { return document.fullscreenElement === scope || document.webkitFullscreenElement === scope || scope.classList.contains('full'); }
+function toggleFull() {
+  if (isFull()) {
+    if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    scope.classList.remove('full');
+  } else {
+    const req = scope.requestFullscreen || scope.webkitRequestFullscreen;
+    if (req) req.call(scope)?.catch?.(() => scope.classList.add('full')); else scope.classList.add('full');
+  }
+}
+$('fs').onclick = toggleFull;
+scope.ondblclick = e => { if (!e.target.closest('button')) toggleFull(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'f' && !e.target.closest('input')) toggleFull();
+  if (e.key === 'Escape') scope.classList.remove('full');
+});
+let calm;
+function wake() { scope.classList.remove('calm'); clearTimeout(calm); calm = setTimeout(() => isFull() && scope.classList.add('calm'), 2000); }
+scope.addEventListener('pointermove', wake); document.addEventListener('fullscreenchange', wake);
+
+const meterBuf = new Float32Array(2048);
+(function meters() {
+  if (via === 'webrtc' && anL && anR)
+    [anL, anR].forEach((an, c) => {
+      an.getFloatTimeDomainData(meterBuf);
+      let peak = 0; for (const v of meterBuf) peak = Math.max(peak, Math.abs(v));
+      peaks[c] = Math.max(peak, peaks[c] * 0.85);
+    });
+  $('l').style.width = Math.min(100, peaks[0] * 100) + '%';
+  $('r').style.width = Math.min(100, peaks[1] * 100) + '%';
+  if (running && ctx && playAt) {
+    const ms = Math.max(0, Math.round((playAt - ctx.currentTime) * 1000));
+    // outputLatency: what the Mac's audio output adds after the buffer (large on Bluetooth).
+    const out = Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000);
+    $('status').textContent = `Live · ${ms} ms buffered + ${out} ms output · ${underruns} dropouts`;
+  }
+  requestAnimationFrame(meters);
+})();
+
+// The rig (the synths and m00Dr) on and off: from the desktop or a NetBird
+// peer only (the server checks). And a heartbeat: the roller, and the model
+// behind it, run only while a page like this is open or someone's listening.
+const pageId = crypto.randomUUID?.() ?? String(Math.random());
+const beat = () => fetch('/presence', { method: 'POST', keepalive: true,
+  body: JSON.stringify({ id: pageId }) }).catch(() => {});
+beat(); setInterval(beat, 15000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
+// The producer's notes (/producer): the newest in full, the earlier ones dimmed below.
+const ago = t => { const s = Math.max(0, Date.now() / 1000 - t);
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
+async function producerPoll() {
+  let d = null;
+  try { const r = await fetch('/producer', { cache: 'no-store' }); if (r.ok) d = await r.json(); } catch {}
+  const notes = d?.notes ?? [];
+  $('producer').hidden = !notes.length;
+  if (!notes.length) return;
+  const [now, ...old] = [...notes].reverse();
+  $('pnow').textContent = now.notes;
+  $('pmeta').textContent = ` · ${ago(now.time)} · thought ${now.took} s` + (d.model ? ` · ${d.model}` : '');
+  $('pold').replaceChildren(...old.map(n => {
+    const li = document.createElement('li'), t = document.createElement('time');
+    t.textContent = ago(n.time) + ' · '; li.append(t, n.notes); return li; }));
+}
+producerPoll(); setInterval(producerPoll, 5000);
+// The chat: the log is polled (so replies and other listeners' messages show up),
+// a message is POSTed and waits for the answer (a plan in progress goes first).
+let chatShown = '', chatWaiting = false;
+async function chatPoll() {
+  let d = null;
+  try { const r = await fetch('/chat', { cache: 'no-store' }); if (r.ok) d = await r.json(); } catch {}
+  if (!d) return;
+  if (!d.chat) { $('chatin').disabled = $('chatsend').disabled = true;
+    $('chatstatus').textContent = 'The chat works from this machine, NetBird and the home network.'; }
+  const key = JSON.stringify(d.messages.map(m => m.time));
+  if (key === chatShown) return;
+  chatShown = key;
+  const log = $('chatlog'), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+  log.replaceChildren(...d.messages.map(m => { const li = document.createElement('li');
+    li.className = m.role; li.textContent = m.text; return li; }));
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+$('chatform').onsubmit = async e => {
+  e.preventDefault();
+  const text = $('chatin').value.trim();
+  if (!text || chatWaiting) return;
+  chatWaiting = true; $('chatsend').disabled = true; $('chatin').value = '';
+  $('chatstatus').textContent = 'Thinking… (if it is mid-plan, that finishes first: up to a couple of minutes)';
+  setTimeout(chatPoll, 300);
+  try {
+    const r = await fetch('/chat', { method: 'POST', body: JSON.stringify({ text }) });
+    const d = await r.json().catch(() => ({}));
+    $('chatstatus').textContent = r.ok ? 'Its next plan will read this too.'
+      : `No answer: ${d.error || r.statusText}. Your message is kept; the next plan still reads it.`;
+  } catch { $('chatstatus').textContent = 'No answer: the server didn\'t respond.'; }
+  chatWaiting = false; $('chatsend').disabled = false; chatPoll();
+};
+chatPoll(); setInterval(chatPoll, 4000);
+let rigState = null;
+async function rigPoll() {
+  try { rigState = await (await fetch('/rig')).json(); } catch { rigState = null; }
+  const b = $('rig');
+  if (!rigState) { b.textContent = 'RIG ?'; b.disabled = true; return; }
+  b.textContent = rigState.busy ? 'RIG …' : rigState.on ? 'RIG ●' : 'RIG ○';
+  b.classList.toggle('sel', rigState.on && !rigState.busy);
+  b.disabled = !rigState.control || rigState.busy;
+  b.title = !rigState.control ? 'Turning the rig on and off works from the desktop or over NetBird'
+    : `${rigState.on ? 'Stop' : 'Start'} the rig (synths and m00Dr) · roller ${rigState.roller ? 'on' : 'off'} · `
+      + (rigState.models.length ? `model loaded: ${rigState.models.join(', ')}` : 'no model loaded');
+}
+$('rig').onclick = async () => {
+  if (!rigState || (rigState.on && !confirm('Stop the rig? (synths, m00Dr and the model)'))) return;
+  await fetch('/rig', { method: 'POST', body: JSON.stringify({ on: !rigState.on }) });
+  setTimeout(rigPoll, 400);
+};
+rigPoll(); setInterval(rigPoll, 3000);
+
+// Recording happens on the desktop (the mix itself, not this page's stream);
+// the newest take downloads from the ↓ WAV link.
+let recState = null;
+const clock = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+async function recPoll() {
+  try { recState = await (await fetch('/record')).json(); } catch { recState = null; }
+  const b = $('rec'), link = $('recfile');
+  b.disabled = !recState;
+  b.textContent = !recState ? 'REC ?' : recState.on ? `REC ● ${clock(recState.seconds)}` : 'REC ○';
+  b.classList.toggle('sel', !!recState?.on);
+  const last = !recState?.on && recState?.files[0];
+  link.hidden = !last;
+  if (last) {
+    link.href = 'recordings/' + encodeURIComponent(last.name);
+    link.title = `${last.name} · ${(last.bytes / 1e6).toFixed(1)} MB`;
+  }
+}
+$('rec').onclick = async () => {
+  if (!recState) return;
+  await fetch('/record', { method: 'POST', body: JSON.stringify({ on: !recState.on }) });
+  recPoll();
+};
+recPoll(); setInterval(recPoll, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+[Unit]
+PartOf=m00dr.target
+Description=m800Dr: audio server (port 8808): streams the m800Dr Mix to browsers, mixer page
+After=pipewire.service pipewire-pulse.service
+
+[Service]
+ExecStart=/usr/bin/python3 %h/code/m00Dr/surfaces/server.py --port 8808
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

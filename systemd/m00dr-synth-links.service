@@ -1,0 +1,12 @@
+[Unit]
+PartOf=m00dr.target
+Description=m00Dr: keep the PipeWire graph wired (m00Dr -> voices -> mixer -> mix bus)
+After=pipewire.service
+
+[Service]
+ExecStart=%h/code/m00Dr/mix/links.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
