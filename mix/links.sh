@@ -5,18 +5,15 @@
 # because PipeWire's Midi-Bridge names embed ALSA client names. Each line of
 # LINKS: "<output port>|<input port>".
 #
-# Replaces ~/code/mOODr/m8_midi_route.sh (m00Dr -> M8) now that m00Dr drives
-# FluidSynth (ch1 chords, ch3 arp, ch4 drums), the reese synth (ch2) and
-# SunVox (sunvox303.py, ch5) instead.
-# Since 2026-10-31 FluidSynth only reaches the arp strip (ch3): chords and
-# drums are SunVox-only on the rig (ch1/ch4 still go out for hardware, PR #6). Open303 (ch5) was removed 2026-10-31.
-# SunVox (sunvoxbass.py) replaced reese.py on ch2; reese.py is kept in
-# voices/reference/ for its BPM-locked wobble (run it by hand, then swap the
-# m00Dr-SunVoxBass lines for the same ones with m00Dr-Reese).
+# Every strip is a SunVox voice (voices/<strip>/player.py) since 2026-10-31;
+# FluidSynth and Open303 are out of the rig. m00Dr still sends ch1/ch4 (its
+# soundfont chords and drums) for hardware MIDI out (mOODr PR #6); nothing here
+# links them. voices/reference/reese.py isn't a service: to hear it, run it by
+# hand and swap the m00Dr-SunVoxBass lines for m00Dr-Reese ones.
 
 INTERVAL=${INTERVAL:-2}
 MIXER=m800Dr-Mixer
-LINKS="RtMidiOut Client:m00Dr (capture)|Synth input port (m00Dr-FluidSynth:0) (playback)
+LINKS="RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxArp:arp in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxBass:bass in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-SunVoxBass:bass in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVox303:acid in (playback)
@@ -33,12 +30,8 @@ m00Dr-SunVoxBass:output_FL|$MIXER:bass_L
 m00Dr-SunVoxBass:output_FR|$MIXER:bass_R
 m00Dr-SunVoxDrums:output_FL|$MIXER:drums_L
 m00Dr-SunVoxDrums:output_FR|$MIXER:drums_R
-m00Dr-FluidSynth:l_02|$MIXER:arp_L
-m00Dr-FluidSynth:r_02|$MIXER:arp_R
-m00Dr-FluidSynth:fx_l_04|$MIXER:arp_L
-m00Dr-FluidSynth:fx_r_04|$MIXER:arp_R
-m00Dr-FluidSynth:fx_l_05|$MIXER:arp_L
-m00Dr-FluidSynth:fx_r_05|$MIXER:arp_R
+m00Dr-SunVoxArp:output_FL|$MIXER:arp_L
+m00Dr-SunVoxArp:output_FR|$MIXER:arp_R
 m00Dr-SunVox303:output_FL|$MIXER:acid_L
 m00Dr-SunVox303:output_FR|$MIXER:acid_R
 m00Dr-Breaks:output_FL|$MIXER:breaks_L
