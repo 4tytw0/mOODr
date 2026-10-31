@@ -129,6 +129,20 @@ One of them is the break already chosen for this Roll. Pick the break that best 
 fits the groove and the arrangement now. Answer with exactly one letter."""
 
 
+# m00Dr's sound menus (web-remote ids) the model picks on each Roll, with --arrange
+# model: what's playing and up to SOUND_CHOICES - 1 others from the menu, lettered
+# in shuffled order (a whole menu is too long to answer by name in one token).
+SOUND_MENUS = {"chordSound": "chord sound", "arpSound": "arp sound",
+               "arpPattern": "arp pattern (the order the arp runs through the chord)", "drumSource": "drum kit"}
+SOUND_CHOICES = 6
+SOUND_INSTRUCTIONS = """\
+You choose the instrument sounds for the next stretch of a live generative techno \
+set, like a producer swapping patches between sections. You see the set's mode, \
+tempo, drum break and arrangement, and a few options for one sound; one is what's \
+playing now. Pick the one that best suits the music now: keep it if it's right, \
+change it when a new colour would lift the set. Answer with exactly one letter."""
+
+
 def break_text(entry: dict) -> str:
     """A break for the arranger: name, bars and each bar's 16ths as x/. with its hit count."""
     bars = [f"{int(tag, 16):016b}" for tag in entry.get("transients", [])]
@@ -347,6 +361,8 @@ class Roller:
         self.live: dict[int, dict] = {}     # program (LIVE_FIRST and up) -> the live cut's entry
         self.live_next = 0                  # the live slot the next pick goes to
         self.break_task: asyncio.Task | None = None
+        self.sound_task: asyncio.Task | None = None
+        self.ws = None                      # m00Dr's web remote, while connected
         try:
             self.breaks_index = json.loads(BREAKS_INDEX.read_text())["breaks"]
         except (OSError, ValueError, KeyError):
@@ -467,6 +483,35 @@ class Roller:
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    async def _pick_sounds(self) -> None:
+        """The model's sounds for this Roll, one SOUND_MENUS menu at a time; a
+        menu it can't answer for keeps what's playing."""
+        for control, label in SOUND_MENUS.items():
+            entry = self.state.get("controls", {}).get(control) or {}
+            options, now = entry.get("options") or [], entry.get("value")
+            others = [o for o in options if o != now]
+            if not others:
+                continue
+            offer = self.stream.rng.sample(others, min(len(others), SOUND_CHOICES - 1))
+            offer += [now] if now in options else []
+            self.stream.rng.shuffle(offer)
+            letters = "abcdef"[:len(offer)]
+            listing = "\n".join(f"{k}: {o}" + (" - playing now" if o == now else "") for k, o in zip(letters, offer))
+            user = (f"Now: {self._now_text()}\n"
+                    + (f"The arrangement: {self.arranger.describe()}\n" if self.arranger else "")
+                    + f"The {label}, options:\n{listing}\nWhich {label.split(' (')[0]} for this Roll?")
+            odds = await asyncio.to_thread(choice_odds, self.args.api, self.args.model, tuple(letters),
+                                           SOUND_INSTRUCTIONS, user)
+            if not odds:
+                continue
+            pick = offer[letters.index(max(odds, key=odds.get))]
+            if pick == now:
+                print(f"     sounds: {control} kept {now!r}", flush=True)
+                continue
+            if not self.args.dry_run and self.ws is not None:
+                await self.ws.send(json.dumps({"op": "set", "id": control, "value": pick}))
+            print(f"     sounds: {control} {now!r} -> {pick!r}", flush=True)
+
     async def _send_fx(self, note: int, velocity: int) -> None:
         """A note to m800Dr's fx.py (MIDI ch FX_CHANNEL); velocity 0 is a note off."""
         from alsa_midi import NoteOffEvent, NoteOnEvent
@@ -502,6 +547,10 @@ class Roller:
             if self.break_task:
                 self.break_task.cancel()
             self.break_task = asyncio.create_task(self._pick_break(self.breaks_program))
+        if self.args.arrange == "model":
+            if self.sound_task:
+                self.sound_task.cancel()
+            self.sound_task = asyncio.create_task(self._pick_sounds())
         if self.mover:
             if self.arc_task:
                 self.arc_task.cancel()
@@ -555,6 +604,7 @@ class Roller:
         uri = f"ws://{self.args.host}:{self.args.port}"
         async with websockets.connect(uri) as ws:
             print(f"connected to m00Dr at {uri}", flush=True)
+            self.ws = ws
             self.state = json.loads(await ws.recv())
             tasks = [asyncio.create_task(self._read(ws))]
             if not self.args.no_midi:
