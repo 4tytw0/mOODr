@@ -20,6 +20,7 @@ GET /record       -> recording state as JSON: on, file, seconds, and the newest 
 POST /record      -> {"on": true|false}: starts or stops recording the mix to RECORDINGS
                      (a WAV per take; stops itself after RECORD_MAX seconds)
 GET /recordings/<file> -> downloads a recording
+GET /producer     -> the producer's (Qwen's) last notes as JSON, newest last (503 before any)
 GET /hexagram     -> the roller's current section as JSON: its lines (bottom first),
                      which of them change next, and the section (503 before a Roll)
 GET /acid         -> the 303 page (acid.html): the acid patch's sound controls
@@ -69,6 +70,7 @@ PANELS = {
              RUNTIME / "m800dr-acid.json", "sunvox303 not running"),
 }
 HEXAGRAM = RUNTIME / "m00drc-hexagram.json"   # written by the roller each section
+PRODUCER = RUNTIME / "m00drc-producer.json"   # written by the roller's producer each plan
 
 # Recording: parec of the mix into a WAV, the same source the listeners hear.
 RECORDINGS = pathlib.Path.home() / "Recordings" / "m800Dr"
@@ -247,6 +249,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_body(json.dumps(record_state()).encode(), "application/json")
         elif self.path.startswith("/recordings/"):
             self.send_recording(self.path.removeprefix("/recordings/"))
+        elif self.path == "/producer":
+            try:
+                self.send_body(PRODUCER.read_bytes(), "application/json")
+            except OSError:
+                self.send_error(503, "no producer notes yet")
         elif self.path == "/hexagram":
             try:
                 self.send_body(HEXAGRAM.read_bytes(), "application/json")

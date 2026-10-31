@@ -45,6 +45,10 @@ ACID_CCS = {"cutoff": 74, "resonance": 71, "decay": 75, "accent": 76, "glide": 5
 ACID_ALIASES = {"filter": "cutoff", "res": "resonance", "env": "decay", "slide": "glide", "distortion": "drive"}
 RAMP_STEPS_PER_BEAT = 8
 HISTORY = 16                  # action results kept for the next prompt
+# The producer's notes for the audio page (server.py serves this as /producer): the
+# last NOTES_KEPT, newest last, each {"time": epoch s, "took": s, "notes": text}.
+NOTES_FILE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00drc-producer.json"
+NOTES_KEPT = 8
 DEFAULT_BARS = 4              # when a plan doesn't come back
 
 PLAN_SCHEMA = {
@@ -170,6 +174,7 @@ class Producer:
         self.args = roller.args
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.notes = ""
+        self.feed = []                # NOTES_FILE's entries
         self.history: list[str] = []
         self.ramps: dict[str, asyncio.Task] = {}
         self.bass = {"gate": "legato", "wobble": "1 swell a beat"}
@@ -289,6 +294,20 @@ under, shown with the mixer. A limiter protects the speakers."""
 
     # -- the loop -----------------------------------------------------------------
 
+    def _publish_notes(self, took: float, notes: str) -> None:
+        """Adds this plan's notes, in full (self.notes is cut to 600 for the prompt), to
+        NOTES_FILE for the audio page. Best effort."""
+        notes = str(notes).strip()[:4000]
+        if not notes:
+            return
+        self.feed = (self.feed + [{"time": time.time(), "took": round(took), "notes": notes}])[-NOTES_KEPT:]
+        tmp = NOTES_FILE.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps({"model": getattr(self.roller.args, "model", None), "notes": self.feed}))
+            tmp.replace(NOTES_FILE)
+        except OSError:
+            pass
+
     async def run(self, ws) -> None:
         print(f"producer: on, {len(self.library.get('samples', []))} library samples", flush=True)
         while True:
@@ -304,6 +323,7 @@ under, shown with the mixer. A limiter protects the speakers."""
                 self.notes = plan.get("notes", "")[:600]
                 bars = min(max(int(plan.get("next_bars", DEFAULT_BARS)), 1), 16)
                 print(f"producer ({took:.0f}s): {self.notes}", flush=True)
+                self._publish_notes(took, plan.get("notes", ""))
                 for action in plan.get("actions", [])[:12]:
                     try:
                         result = await self.apply(ws, action)
