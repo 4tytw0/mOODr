@@ -178,7 +178,8 @@ On the desktop itself: `systemctl --user start m00dr.target`. Install the units 
 Needs: Linux with PipeWire (the voices and mixer use PipeWire/JACK and ALSA sequencer),
 [uv](https://docs.astral.sh/uv/), the SunVox library in `voices/_sunvox/sunvox_lib/`, and,
 for the producer, llama-swap serving the model named in `systemd/m00drc-roller.service`.
-Someone has to be logged in on the desktop, because m00Dr is still a Qt app.
+m00Dr is still a Qt app, so it needs a desktop session; a locked screen is fine (the desktop logs
+in at boot).
 
 The composer alone runs on any machine and drives external gear over MIDI:
 
@@ -191,8 +192,8 @@ uv run pytest composer/tests     # 233 tests
 ## What's next
 
 - **First full listen** of the merged rig, then delete the leftover FluidSynth files.
-- **Headless composer**: run m00Dr's engine without the Qt window, so the rig no longer
-  needs a logged-in desktop and the page is the only interface.
+- **Headless composer** (nice to have): run m00Dr's engine without the Qt window, so the rig
+  doesn't depend on a desktop session at all and the page is the only interface.
 - **Fewer processes**: one process holding one SunVox library copy per strip (strips stay
   separate).
 - **MIDI out to hardware** (branch `midi-out`): send m00Dr's parts to physical instruments.
