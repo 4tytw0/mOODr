@@ -133,7 +133,7 @@ fits the groove and the arrangement now. Answer with exactly one letter."""
 # m00Dr's sound menus (web-remote ids) the model picks on each Roll, with --arrange
 # model: what's playing and up to SOUND_CHOICES - 1 others from the menu, lettered
 # in shuffled order (a whole menu is too long to answer by name in one token).
-SOUND_MENUS = {"chordSound": "chord sound", "arpSound": "arp sound",
+SOUND_MENUS = {"chordSound": "chord sound", "bassSound": "bass sound", "arpSound": "arp sound",
                "arpPattern": "arp pattern (the order the arp runs through the chord)", "drumSource": "drum kit"}
 SOUND_CHOICES = 6
 SOUND_INSTRUCTIONS = """\
@@ -493,7 +493,9 @@ class Roller:
         menu it can't answer for keeps what's playing."""
         for control, label in SOUND_MENUS.items():
             entry = self.state.get("controls", {}).get(control) or {}
-            options, now = entry.get("options") or [], entry.get("value")
+            # m00Dr's web remote lists a menu's entries as "items" (this read "options",
+            # so --arrange model never offered a sound until 2026-10-31).
+            options, now = entry.get("items") or [], entry.get("value")
             others = [o for o in options if o != now]
             if not others:
                 continue

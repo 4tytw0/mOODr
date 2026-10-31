@@ -40,6 +40,7 @@ from moodr.playback import (
     ACID_REST,
     ACID_ROOT,
     AcidStep,
+    ARP_SOUND_NAMES, BASS_SOUNDS, CHORD_SOUND_NAMES, SUNVOX_CHORD_SOUNDS, SOUNDFONT_DRUMS,
 )
 
 
@@ -1223,15 +1224,17 @@ def test_sunvox_drum_source_moves_the_drums_to_channel_6_and_picks_the_kit():
 
 
 def test_back_to_the_soundfont_restores_channel_4_and_its_kit():
+    # Not on the menu any more (the rig is SunVox), but kept for hardware MIDI out.
     output, clock, engine = make_engine()
     engine.randomize_drum_kit()
     kit = engine.drum_kit
     engine.drum_source = "SunVox Crunch"
     output.sent.clear()
-    engine.drum_source = DRUM_SOURCES[0]
+    engine.drum_source = SOUNDFONT_DRUMS
     assert engine.drum_channel == DRUM_CHANNEL
     assert engine.sunvox_drum_kit is None
     assert _kit_changes(output) == [kit]
+    assert SOUNDFONT_DRUMS not in DRUM_SOURCES
 
 
 def test_roll_keeps_a_sunvox_kit():
@@ -1250,61 +1253,60 @@ def test_unknown_drum_source_is_refused():
         pass
     else:
         raise AssertionError("expected ValueError")
-    assert engine.drum_source == DRUM_SOURCES[0]
+    assert engine.drum_source == SOUNDFONT_DRUMS
 
 
-def test_chord_sound_sends_bank_select_then_program_change():
+def test_chord_sound_sends_its_program_on_the_sunvox_channel():
     output, clock, engine = make_engine()
     assert engine.chord_sound is None
-    name, bank, program = SOUNDS[3]
-    engine.chord_sound = name
-    assert output.sent == [[0xB0 | CHORD_CHANNEL, 0, bank], [0xC0 | CHORD_CHANNEL, program]]
+    engine.chord_sound = "Organ"
+    assert output.sent == [[0xC0 | SUNVOX_CHORD_CHANNEL, SUNVOX_CHORD_SOUNDS.index("Organ")]]
 
 
 def test_start_resends_the_chord_sound_only_once_one_is_picked():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
     engine.start()
-    assert not [m for m in output.sent if m[0] == 0xC0 | CHORD_CHANNEL]
+    assert not [m for m in output.sent if m[0] == 0xC0 | SUNVOX_CHORD_CHANNEL]
     engine.stop()
-    engine.chord_sound = SOUNDS[0][0]
+    engine.chord_sound = "Pad"
     output.sent.clear()
     engine.start()
-    assert [0xC0 | CHORD_CHANNEL, SOUNDS[0][2]] in output.sent
+    assert [0xC0 | SUNVOX_CHORD_CHANNEL, SUNVOX_CHORD_SOUNDS.index("Pad")] in output.sent
 
 
-def test_sunvox_chord_sound_moves_the_chords_to_channel_7_without_a_program_change():
+def test_chord_sound_moves_the_chords_to_channel_7_with_its_program():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
     engine.start()
     held = sorted(m[1] for m in output.sent if m[0] == 0x90 | CHORD_CHANNEL)
     output.sent.clear()
-    engine.chord_sound = "SunVox Wurli"
+    engine.chord_sound = "Wurli"
     assert engine.chord_channel == SUNVOX_CHORD_CHANNEL
-    # The held chord is released on ch1; nothing is sent as a program.
-    assert all(m[0] == 0x80 | CHORD_CHANNEL for m in output.sent)
-    assert sorted(m[1] for m in output.sent) == held
+    # The held chord is released on ch1, then the patch is picked on ch7.
+    assert sorted(m[1] for m in output.sent if m[0] == 0x80 | CHORD_CHANNEL) == held
+    assert output.sent[-1] == [0xC0 | SUNVOX_CHORD_CHANNEL, 0]
     output.sent.clear()
     engine.stop(); engine.start()
-    assert not [m for m in output.sent if isinstance(m[0], int)
-                and m[0] & 0xF0 in (0xB0, 0xC0) and m[0] & 0x0F == SUNVOX_CHORD_CHANNEL]
+    assert [0xC0 | SUNVOX_CHORD_CHANNEL, 0] in output.sent
     assert sorted(m[1] for m in output.sent if m[0] == 0x90 | SUNVOX_CHORD_CHANNEL) == held
 
 
-def test_soundfont_chord_sound_returns_the_chords_to_their_channel():
+def test_the_old_wurli_name_still_loads():
     output, clock, engine = make_engine()
     engine.chord_sound = "SunVox Wurli"
-    engine.chord_sound = SOUNDS[0][0]
-    assert engine.chord_channel == CHORD_CHANNEL
+    assert engine.chord_sound == "Wurli"
 
 
-def test_circuit_channel_waits_while_a_sunvox_chord_sound_plays():
+def test_the_chord_menu_offers_only_sunvox_patches():
     output, clock, engine = make_engine()
-    engine.chord_sound = "SunVox Wurli"
-    engine.soundfont_chord_channel = 3
-    assert engine.chord_channel == SUNVOX_CHORD_CHANNEL
-    engine.chord_sound = SOUNDS[0][0]
-    assert engine.chord_channel == 3
+    assert CHORD_SOUND_NAMES == SUNVOX_CHORD_SOUNDS
+    try:
+        engine.chord_sound = "Phase sine"   # a soundfont sound: no synth plays it on the rig
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")
 
 
 def test_unknown_chord_sound_is_rejected():
@@ -1319,13 +1321,35 @@ def test_unknown_chord_sound_is_rejected():
 def test_arp_sound_goes_to_the_arp_channel_and_is_resent_on_start():
     output, clock, engine = make_engine()
     engine.load_progression([[60, 64, 67]], [48])
-    name, bank, program = SOUNDS[5]
+    name = ARP_SOUND_NAMES[5]
+    _, bank, program = SOUNDS[[n for n, _, _ in SOUNDS].index(name)]
     engine.arp_sound = name
     assert output.sent == [[0xB0 | ARP_CHANNEL, 0, bank], [0xC0 | ARP_CHANNEL, program]]
     output.sent.clear()
     engine.start()
     assert [0xC0 | ARP_CHANNEL, program] in output.sent
     assert not [m for m in output.sent if m[0] == 0xC0 | CHORD_CHANNEL]
+
+
+def test_the_arp_menu_offers_only_what_voices_arp_plays():
+    assert "Phase sine" in ARP_SOUND_NAMES and len(ARP_SOUND_NAMES) == 11
+    output, clock, engine = make_engine()
+    try:
+        engine.arp_sound = "OBX strings"
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_bass_sound_sends_its_program_on_the_bass_channel_and_again_on_start():
+    output, clock, engine = make_engine()
+    engine.load_progression([[60, 64, 67]], [48])
+    engine.bass_sound = "Reese"
+    assert output.sent == [[0xC0 | engine.bass_channel, BASS_SOUNDS.index("Reese")]]
+    output.sent.clear()
+    engine.start()
+    assert [0xC0 | engine.bass_channel, BASS_SOUNDS.index("Reese")] in output.sent
 
 
 def test_main_hits_always_play_near_their_groove():
