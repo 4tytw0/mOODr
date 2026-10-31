@@ -196,6 +196,8 @@ uv run pytest composer/tests     # 233 tests
 - **Fewer processes**: one process holding one SunVox library copy per strip (strips stay
   separate).
 - **MIDI out to hardware** (branch `midi-out`): send m00Dr's parts to physical instruments.
+- **WebRTC doesn't connect from Chrome on the Mac** (it never has; the iPad's does). Use
+  **RAW** under Stream there.
 - Unit names still carry the old project names (`m800dr-*`, `m00drc-*`).
 - Known gaps: the Reese doesn't have `voices/reference/reese.py`'s bright attack; a
   "Tremolo violins" chord set was left out (its octave couldn't be pinned down).
