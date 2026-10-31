@@ -16,6 +16,10 @@ POST /rig         -> {"on": true|false}: starts the m00Dr side of the rig (synth
                      m00Dr, then Play) or stops it (Stop, the roller, the synths,
                      the model). Only from this machine and NetBird peers.
 POST /presence    -> {"id": ...}: an open player page, every PRESENCE_EVERY s
+GET /record       -> recording state as JSON: on, file, seconds, and the newest recordings
+POST /record      -> {"on": true|false}: starts or stops recording the mix to RECORDINGS
+                     (a WAV per take; stops itself after RECORD_MAX seconds)
+GET /recordings/<file> -> downloads a recording
 GET /hexagram     -> the roller's current section as JSON: its lines (bottom first),
                      which of them change next, and the section (503 before a Roll)
 GET /acid         -> the 303 page (acid.html): the acid patch's sound controls
@@ -40,6 +44,7 @@ import ipaddress
 import json
 import os
 import pathlib
+import signal
 import socket
 import subprocess
 import threading
@@ -64,6 +69,46 @@ PANELS = {
              RUNTIME / "m800dr-acid.json", "sunvox303 not running"),
 }
 HEXAGRAM = RUNTIME / "m00drc-hexagram.json"   # written by the roller each section
+
+# Recording: parec of the mix into a WAV, the same source the listeners hear.
+RECORDINGS = pathlib.Path.home() / "Recordings" / "m800Dr"
+RECORD_MAX = 3 * 3600                    # s: a forgotten take stops itself (~1 GB an hour)
+recording: dict = {"proc": None, "file": None, "start": 0.0}
+record_lock = threading.Lock()
+
+
+def record(on: bool) -> None:
+    with record_lock:
+        proc = recording["proc"]
+        if on and proc is None:
+            RECORDINGS.mkdir(parents=True, exist_ok=True)
+            path = RECORDINGS / time.strftime("m800dr-%Y%m%d-%H%M%S.wav")
+            recording.update(proc=subprocess.Popen(
+                ["parec", "-d", SOURCE, "--file-format=wav", "--format=s24le", f"--rate={RATE}",
+                 f"--channels={CHANNELS}", "--latency-msec=20", "--client-name=m800Dr recorder", str(path)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), file=path.name, start=time.monotonic())
+            threading.Timer(RECORD_MAX, stop_if, args=(recording["proc"],)).start()
+        elif not on and proc is not None:
+            proc.send_signal(signal.SIGINT)   # parec writes the WAV header's sizes on the way out (a short
+            # --latency-msec, or the last ~2 s still in its buffer are lost)
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            recording["proc"] = None
+
+
+def stop_if(proc) -> None:
+    """RECORD_MAX ran out: stops the take, if it's still that one."""
+    if recording["proc"] is proc:
+        record(False)
+
+
+def record_state() -> dict:
+    files = sorted(RECORDINGS.glob("m800dr-*.wav"), reverse=True)[:5] if RECORDINGS.is_dir() else []
+    on = recording["proc"] is not None
+    return {"on": on, "file": recording["file"], "seconds": round(time.monotonic() - recording["start"]) if on else 0,
+            "files": [{"name": f.name, "bytes": f.stat().st_size} for f in files]}
 
 
 # The m00Dr side of the rig, started and stopped as a whole. The mixer, this
@@ -198,6 +243,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(503, missing)
         elif self.path == "/stream":
             self.stream()
+        elif self.path == "/record":
+            self.send_body(json.dumps(record_state()).encode(), "application/json")
+        elif self.path.startswith("/recordings/"):
+            self.send_recording(self.path.removeprefix("/recordings/"))
         elif self.path == "/hexagram":
             try:
                 self.send_body(HEXAGRAM.read_bytes(), "application/json")
@@ -215,13 +264,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/webrtc/offer":
             self.webrtc_offer()
             return
-        if self.path in ("/rig", "/presence"):
+        if self.path in ("/rig", "/presence", "/record"):
             length = int(self.headers.get("Content-Length", 0))
             try:
                 body = json.loads(self.rfile.read(length)) if 0 < length <= 256 else {}
             except ValueError:
                 body = {}
-            if self.path == "/presence":
+            if self.path == "/record":
+                if isinstance(body.get("on"), bool):
+                    record(body["on"])
+            elif self.path == "/presence":
                 with state_lock:
                     presence[str(body.get("id", self.client_address[0]))[:64]] = time.monotonic()
             elif not self.may_control():
@@ -268,8 +320,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_recording(self, name):
+        path = RECORDINGS / name
+        if "/" in name or not name.endswith(".wav") or not path.is_file():
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(path.stat().st_size))
+        self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+        self.end_headers()
+        with path.open("rb") as f:
+            while chunk := f.read(1 << 16):
+                self.wfile.write(chunk)
+
     def log_request(self, code="-", size="-"):
-        if not self.path.endswith(("/state", "/control", "/presence", "/rig")):   # high-rate, not worth a log line
+        if not self.path.endswith(("/state", "/control", "/presence", "/rig", "/record")):   # high-rate, not worth a log line
             super().log_request(code, size)
 
     def stream(self):

@@ -29,7 +29,7 @@
   .panel[hidden] { display:none; }
   h1 .nav:hover { color:var(--fg); }
   h1 .nav:disabled { opacity:.45; cursor:default; }
-  h1 #rig.sel { color:var(--accent); }
+  h1 #rig.sel, h1 #rec.sel { color:var(--accent); }
   button { font:inherit; font-size:16px; padding:14px; border:1px solid var(--fg); background:var(--fg); color:var(--bg);
            border-radius:6px; cursor:pointer; }
   button.on { background:transparent; color:var(--fg); }
@@ -63,6 +63,8 @@
 <main>
   <h1>AUDIO <span>●</span> SERVER <span class="tabs">
     <button class="nav" id="rig" title="The rig: synths and m00Dr on or off">RIG …</button>
+    <button class="nav" id="rec" title="Record the mix to a WAV on the desktop">REC ○</button>
+    <a class="nav" id="recfile" hidden download>↓ WAV</a>
     <button class="nav" id="tab-acid" title="Show or hide the 303's sound controls beside the scope (the audio keeps playing)">303</button>
     <button class="nav" id="tab-mixer" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER</button></span></h1>
   <section id="player">
@@ -447,6 +449,30 @@ $('rig').onclick = async () => {
   setTimeout(rigPoll, 400);
 };
 rigPoll(); setInterval(rigPoll, 3000);
+
+// Recording happens on the desktop (the mix itself, not this page's stream);
+// the newest take downloads from the ↓ WAV link.
+let recState = null;
+const clock = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+async function recPoll() {
+  try { recState = await (await fetch('/record')).json(); } catch { recState = null; }
+  const b = $('rec'), link = $('recfile');
+  b.disabled = !recState;
+  b.textContent = !recState ? 'REC ?' : recState.on ? `REC ● ${clock(recState.seconds)}` : 'REC ○';
+  b.classList.toggle('sel', !!recState?.on);
+  const last = !recState?.on && recState?.files[0];
+  link.hidden = !last;
+  if (last) {
+    link.href = 'recordings/' + encodeURIComponent(last.name);
+    link.title = `${last.name} · ${(last.bytes / 1e6).toFixed(1)} MB`;
+  }
+}
+$('rec').onclick = async () => {
+  if (!recState) return;
+  await fetch('/record', { method: 'POST', body: JSON.stringify({ on: !recState.on }) });
+  recPoll();
+};
+recPoll(); setInterval(recPoll, 1000);
 </script>
 </body>
 </html>
