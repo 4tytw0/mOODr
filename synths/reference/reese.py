@@ -16,8 +16,8 @@ how fast they beat. Stable chords pulse slowly (BEAT_MIN Hz), dissonant or low,
 muddy ones beat fast (up to BEAT_MAX Hz), gliding over BEAT_GLIDE as the
 progression moves.
 
-    uv run reese.py                # run (the m00dr-reese user service does this)
-    uv run reese.py --demo x.wav   # render a short riff offline, for checking levels
+    uv run synths/reference/reese.py   # run (no longer a service: kept as the reference for its BPM-locked wobble)
+    uv run synths/reference/reese.py --demo x.wav   # render a short riff offline, for checking levels
 """
 import fcntl, subprocess, sys, threading
 import numpy as np

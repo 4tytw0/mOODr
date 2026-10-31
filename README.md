@@ -34,7 +34,7 @@ yet, only measured. The SunVox work is in open, stacked PRs (merge bottom-up: m8
 | Player | `/` on :8808 | AUTO buffer, ~23 ms instead of 60 (PR #3) |
 | LCXL knobs | roller CC 16/32/52/18 | wired; CC numbers assumed, unverified on the device |
 | Wi-Fi power save | desktop `wlan0` | **still on**; turning it off needs root (see HANDOFF) |
-| reese.py, Open303 | — | disabled; `synths/links.sh` says how to switch back |
+| reese.py | — | kept in `synths/reference/` for its BPM-locked wobble (not a service). Open303 removed 2026-10-31 |
 
 ## Video
 
@@ -90,9 +90,9 @@ SysEx and LED reference.
   arp use `gamebreaks.sf2` (stabs and a phaser sine) or `chords.sf2` (15 looped string/organ/guitar
   multisamples; m00Dr's Chord sound menu picks one), drums use `gamedrums.sf2` (32 kits, a new one
   per Roll).
-- **`reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive. The saws' beat
-  follows the chords on ch1: consonant chords pulse slowly, dissonant ones beat faster. **Disabled**:
-  `sunvoxbass.py` plays the bass now.
+- **`synths/reference/reese.py`** is a numpy reese bass: two detuned saws, a sub, a filter and drive. The saws' beat
+  follows the chords on ch1: consonant chords pulse slowly, dissonant ones beat faster. Not a service:
+  `sunvoxbass.py` plays the bass now; this is kept as the reference for porting the wobble to SunVox.
 - **`sunvox303.py`** plays the acid on a headless SunVox library: `synths/acid303.sunvox`, a 303-shaped
   patch built by [m00Drc](m00Drc/) (Glide → mono saw → resonant low-pass kicked open per note,
   harder on accents → drive). 7-bit CCs on ch5 move its key controls (74 cutoff, 71 resonance,
@@ -119,8 +119,6 @@ SysEx and LED reference.
   remote and sends the sound CCs above, from one phase-shifted stream of 7-bit random ints. Roll
   fires at most once every 2-4 minutes. Its shift, bars, lanes and seed are on Launch Control XL
   knobs; see `m00Drc/README.md`.
-- **Open303** (JC303 in a headless Carla rack, `synths/open303.carxp`) played ch5 before SunVox. Its
-  unit is still in `systemd/`; `synths/links.sh` says how to switch back.
 - **`synths/links.sh`** keeps the PipeWire graph wired (m00Dr → synths → mixer → mix bus, and
   controllers → mixer), re-linking anything that restarts.
 
@@ -133,7 +131,6 @@ machine that has the GAMEBREAKS sample pack:
 tools/build_gamebreaks.sh                              # synths/gamebreaks.sf2 (stabs + phase_sine)
 uv run tools/build_chords.py synths/chords.sf2         # strings/organ/guitar (Strings Custom Kit)
 uv run tools/build_drumkit.py synths/gamedrums.sf2     # kits sliced from the raw drum breaks
-python3 tools/build_open303.py                         # synths/open303.carxp (edit PATCH first)
 ```
 
 ## Running

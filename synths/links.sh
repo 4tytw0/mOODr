@@ -7,14 +7,12 @@
 #
 # Replaces ~/code/mOODr/m8_midi_route.sh (m00Dr -> M8) now that m00Dr drives
 # FluidSynth (ch1 chords, ch3 arp, ch4 drums), the reese synth (ch2) and
-# SunVox (sunvox303.py, ch5) instead. Open303/JC303 played ch5 before SunVox;
-# to switch back, swap the m00Dr-SunVox303 lines for
-#   RtMidiOut Client:m00Dr (capture)|m00Dr-Open303:events-in
-#   m00Dr-Open303:audio-out1|$MIXER:acid_L
-#   m00Dr-Open303:audio-out2|$MIXER:acid_R
-# Likewise the bass: SunVox (sunvoxbass.py) replaced reese.py on ch2. To switch
-# back, swap the m00Dr-SunVoxBass lines for the same ones with m00Dr-Reese
-# ("bass in (playback)" and output_FL/output_FR).
+# SunVox (sunvox303.py, ch5) instead.
+# Since 2026-10-31 FluidSynth only reaches the arp strip (ch3): chords and
+# drums are SunVox-only on the rig (ch1/ch4 still go out for hardware, PR #6). Open303 (ch5) was removed 2026-10-31.
+# SunVox (sunvoxbass.py) replaced reese.py on ch2; reese.py is kept in
+# synths/reference/ for its BPM-locked wobble (run it by hand, then swap the
+# m00Dr-SunVoxBass lines for the same ones with m00Dr-Reese).
 
 INTERVAL=${INTERVAL:-2}
 MIXER=m800Dr-Mixer
@@ -29,22 +27,10 @@ RtMidiOut Client:m00Dr (capture)|m00Dr-FX:fx in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-FX:fx in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxDrums:drums in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxKeys:keys in (playback)
-m00Dr-FluidSynth:l_00|$MIXER:chords_L
-m00Dr-FluidSynth:r_00|$MIXER:chords_R
-m00Dr-FluidSynth:fx_l_00|$MIXER:chords_L
-m00Dr-FluidSynth:fx_r_00|$MIXER:chords_R
-m00Dr-FluidSynth:fx_l_01|$MIXER:chords_L
-m00Dr-FluidSynth:fx_r_01|$MIXER:chords_R
 m00Dr-SunVoxKeys:output_FL|$MIXER:chords_L
 m00Dr-SunVoxKeys:output_FR|$MIXER:chords_R
 m00Dr-SunVoxBass:output_FL|$MIXER:bass_L
 m00Dr-SunVoxBass:output_FR|$MIXER:bass_R
-m00Dr-FluidSynth:l_03|$MIXER:drums_L
-m00Dr-FluidSynth:r_03|$MIXER:drums_R
-m00Dr-FluidSynth:fx_l_06|$MIXER:drums_L
-m00Dr-FluidSynth:fx_r_06|$MIXER:drums_R
-m00Dr-FluidSynth:fx_l_07|$MIXER:drums_L
-m00Dr-FluidSynth:fx_r_07|$MIXER:drums_R
 m00Dr-SunVoxDrums:output_FL|$MIXER:drums_L
 m00Dr-SunVoxDrums:output_FR|$MIXER:drums_R
 m00Dr-FluidSynth:l_02|$MIXER:arp_L
