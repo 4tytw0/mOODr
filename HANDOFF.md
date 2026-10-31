@@ -418,3 +418,17 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
   what's playing + 5 shuffled menu options (letters); logged as `sounds:`. The 303 knobs stay on the dice lanes.
 - **Not done:** drum kits composed from the library's hits (catalog has 4849 categorised hits; FluidSynth needs an
   sf2 per kit — the gamedrums builder could be reused).
+
+## Done 2026-10-31: Qwen is the producer
+- **Limiter** (3f483b8): mixer.py's last stage, -1 dBFS peak / -9 dBFS RMS (300 ms), 250 ms release; no control
+  reaches it. `limiter_db` in the mixer state.
+- **Producer mode** (caf97a9): `m00Drc/producer.py`, roller `--arrange producer` (the unit runs it on music20; dice
+  lanes off). Each plan: the model sees all m00Dr controls + options, mixer (ceilings, limiter), bass, 303, break,
+  samples sounding, its notes and its last actions' results; answers JSON (grammar-enforced): raw actions + next_bars.
+  Logged as `producer:` lines. A plan takes ~80-110 s. Bad values come back to it as results, not guesses.
+- **Hand ceilings:** a fader moved by hand (controller, /mixer page) caps machine moves on that strip until you move
+  it again. Shown in the mixer state as `ceiling`.
+- **Library:** `~/samples` = the Mac's whole PRODUCTION/SAMPLES (19 GB, 17,215 samples catalogued); resync steps in
+  `tools/sample_catalog.py`; the producer reloads the catalog when it changes. Library samples play through fx.py's
+  live slots (notes 96+, `~/.local/state/m00drc/live-fx/`), prepared by `tools/prep_sample.py`.
+- **Back to the menu arranger:** set the unit's ExecStart to `--arrange model --model qwen3.6-35b-music20 --floor 0.15`.
