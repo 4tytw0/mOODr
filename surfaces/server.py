@@ -82,7 +82,9 @@ it every few bars with moves (hold, strip, take_out, bring_back, build, drop, sw
 gate, wobble), by setting m00Dr's controls and sounds, and with samples. The human listening is \
 talking to you in a chat on the audio page, between your plans. Answer as yourself, in a few \
 sentences: explain your decisions honestly from your notes and what your actions did, below. \
-Nothing you say here happens: you can't act from this chat, only in your next plan, \
+The "audible right now" line below is the truth about what can be heard: if a part is \
+SILENT, don't talk as if it's playing; say it's silent and why. Nothing you say here \
+happens: you can't act from this chat, only in your next plan, \
 which reads it. So don't narrate moves as if you're making them now ("I'm rolling the filter \
 down"); say what you did, and what you'll do next plan, if anything. Plain words, no stage \
 directions."""
@@ -154,6 +156,29 @@ def chat_save(messages: list) -> None:
     tmp.replace(CHAT)
 
 
+MIXER_LIVE = RUNTIME / "m800dr-mixer.json"   # the mixer's live state (faders, peaks)
+AUDIBLE_PARTS = {"chords": "chords", "bass": "bass", "arp": "arp", "acid": "acid", "drums": "drums",
+                 "breaks": None, "fx": None}   # part -> m00Dr toggle (as brain/producer.py)
+
+
+def audible_now(toggles: dict) -> str:
+    """Each part as heard right now: the mixer live, m00Dr's toggles as of the last plan."""
+    try:
+        strips = {s["name"]: s for s in json.loads(MIXER_LIVE.read_text())["strips"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return "unknown (the mixer isn't reporting)"
+    out = []
+    for part, toggle in AUDIBLE_PARTS.items():
+        strip = strips.get(part)
+        if toggle and toggles.get(toggle) is False:
+            out.append(f"{part} SILENT (switched off in m00Dr)")
+        elif strip is not None and strip.get("fader", 1) <= 0.01:
+            out.append(f"{part} SILENT (fader at 0)")
+        elif strip is not None:
+            out.append(f"{part} " + ("sounding" if strip.get("peak", 0) > 0.001 else "on, silent right now"))
+    return "; ".join(out)
+
+
 def chat_answer(text: str) -> str:
     """Adds the human's message, asks the producer's model with its notes and actions
     as context, adds and returns its answer. Blocks while the model is busy (a plan in
@@ -169,7 +194,8 @@ def chat_answer(text: str) -> str:
     plans = "\n\n".join(f"{(now - n['time']) / 60:.0f} min ago, you wrote: {n['notes']}\n"
                          + ("What your actions did: " + "; ".join(n.get("actions", [])) if n.get("actions") else "(no actions)")
                          for n in producer.get("notes", []))
-    system = (CHAT_SYSTEM + f"\n\nThe set as you saw it at your last plan:\n{producer.get('state', '(unknown)')}"
+    system = (CHAT_SYSTEM + f"\n\nAudible right now: {audible_now(producer.get('toggles') or {})}."
+              + f"\n\nThe set as you saw it at your last plan:\n{producer.get('state', '(unknown)')}"
               + f"\n\nYour recent plans, oldest first:\n{plans or '(none yet)'}")
     history = [{"role": m["role"], "content": m["text"]} for m in messages[-CHAT_CONTEXT:]]
     body = {"model": producer["model"], "max_tokens": 400, "temperature": 0.7,

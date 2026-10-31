@@ -52,6 +52,24 @@ NOTES_KEPT = 8
 # The page chat (surfaces/server.py writes it): what the human listening said, and what
 # you answered there. Messages since the last plan go into the next plan's prompt.
 CHAT_FILE = NOTES_FILE.with_name("m00drc-chat.json")
+# What can be heard: each part's m00Dr on/off toggle (web remote id; None: no toggle)
+# and its mixer strip. The prompt says which parts are silent and why, and actions on
+# a part that's switched off are flagged in the feedback: the model kept tuning parts
+# it had switched off itself, believing them heard.
+AUDIBLE_PARTS = {"chords": "chords", "bass": "bass", "arp": "arp", "acid": "acid", "drums": "drums",
+                 "breaks": None, "fx": None}
+# Action results -> the part they affect (by prefix, lowercased).
+RESULT_PARTS = (("acid ", "acid"), ("set acidnoise", "acid"), ("set acidwide", "acid"), ("bass ", "bass"),
+                ("set basssound", "bass"), ("set chordsound", "chords"), ("set stabs", "chords"),
+                ("set arpsound", "arp"), ("set arppattern", "arp"), ("set arprate", "arp"),
+                ("set drumsource", "drums"), ("set drummutate", "drums"), ("break", "breaks"))
+FAILED = ("not ", "no such", "failed", "one of", "disabled")
+
+
+def part_of(result: str) -> str | None:
+    """The part an action result touched, if it's one of AUDIBLE_PARTS."""
+    r = result.lower()
+    return next((part for prefix, part in RESULT_PARTS if r.startswith(prefix)), None)
 DEFAULT_BARS = 4              # when a plan doesn't come back
 
 PLAN_SCHEMA = {
@@ -272,16 +290,59 @@ under, shown with the mixer. A limiter protects the speakers."""
         from .roller import break_text
         brk = break_text(entry) if entry else "none"
         bars = (time.monotonic() - self.started) / (240 / r.bpm())
+        audible = "; ".join(f"{p} {s}" for p, s in self.audible().items())
         return (f"Bar {bars:.0f} of the set, {r.bpm():.0f} BPM, "
                 f"{'playing' if r.state.get('playing') else 'stopped'}; last Roll {time.monotonic() - self.rolled:.0f} s ago, "
                 f"{sum(1 for t in self.rolls if time.monotonic() - t < 600)} Rolls in the last 10 minutes.\n"
                 f"m00Dr: {values}\nChord progression slots:\n{slots}\n{mix}\n"
+                f"What's audible now: {audible}. Moves on a SILENT part change nothing anyone hears.\n"
                 f"Bass: gate {self.bass['gate']}, wobble {self.bass['wobble']}. "
                 f"303 knobs you've set: {self.acid or 'none yet'}.\nBreak playing: {brk}\n"
                 f"Samples sounding: {', '.join(n for _, n in self.playing) or 'none'}\n"
                 f"Your notes: {self.notes or '(none yet: this is the start of the set)'}\n"
                 f"What your last actions did:\n" + ("\n".join(self.history) or "(nothing yet)")
                 + self._chat_text() + "\nPlan the next stretch.")
+
+    def toggles(self) -> dict[str, bool]:
+        """m00Dr's part toggles as the web remote last reported them."""
+        controls = self.roller.state.get("controls", {})
+        return {t: bool(controls[t].get("value")) for t in AUDIBLE_PARTS.values() if t and t in controls}
+
+    def audible(self) -> dict[str, str]:
+        """Each part: "sounding", "on, silent right now", or SILENT and why."""
+        toggles = self.toggles()
+        try:
+            strips = {s["name"]: s for s in json.loads(MIXER_LIVE.read_text())["strips"]}
+        except (OSError, ValueError, KeyError, TypeError):
+            strips = {}
+        out = {}
+        for part, toggle in AUDIBLE_PARTS.items():
+            strip = strips.get(part)
+            if toggle and toggles.get(toggle) is False:
+                out[part] = f"SILENT (switched off in m00Dr: set {toggle} = true to hear it)"
+            elif strip is not None and strip.get("fader", 1) <= 0.01:
+                out[part] = "SILENT (its fader is at 0)"
+            elif strip is not None:
+                out[part] = "sounding" if strip.get("peak", 0) > 0.001 else "on, silent right now"
+        return out
+
+    def _flag_silent(self, results: list[str]) -> list[str]:
+        """Marks actions on a part that's switched off in m00Dr (after the plan's own
+        toggles: a plan that switches a part on and tunes it isn't flagged)."""
+        toggles = self.toggles()
+        for res in results:   # this plan's own switches win over a state echo that may lag
+            low = res.lower()
+            for t in AUDIBLE_PARTS.values():
+                if t and low.startswith(f"set {t} = "):
+                    toggles[t] = low.endswith("true")
+        flagged = []
+        for res in results:
+            part = part_of(res)
+            toggle = AUDIBLE_PARTS.get(part) if part else None
+            if toggle and toggles.get(toggle) is False and not any(f in res.lower() for f in FAILED):
+                res += f" (no effect anyone hears: {part} is switched off in m00Dr)"
+            flagged.append(res)
+        return flagged
 
     def _chat_text(self) -> str:
         """The page chat since the last plan, for the prompt ("" if nothing new)."""
@@ -329,7 +390,7 @@ under, shown with the mixer. A limiter protects the speakers."""
         tmp = NOTES_FILE.with_suffix(".tmp")
         try:
             tmp.write_text(json.dumps({"model": getattr(self.roller.args, "model", None), "api": self.args.api,
-                                       "state": state, "notes": self.feed}))
+                                       "state": state, "toggles": self.toggles(), "notes": self.feed}))
             tmp.replace(NOTES_FILE)
         except OSError:
             pass
@@ -357,8 +418,13 @@ under, shown with the mixer. A limiter protects the speakers."""
                     except Exception as e:   # one bad action mustn't stop the set
                         result = f"{action.get('do')} {action.get('target')}: failed ({e})"
                     print(f"producer:   {result}", flush=True)
-                    self.history = (self.history + [result])[-HISTORY:]
                     results.append(result)
+                await asyncio.sleep(0.5)   # let m00Dr's state echo this plan's switches
+                results = self._flag_silent(results)
+                for result in results:
+                    if result.endswith("switched off in m00Dr)"):
+                        print(f"producer:   ^ {result.rsplit(' (', 1)[1][:-1]}", flush=True)
+                self.history = (self.history + results)[-HISTORY:]
                 self._publish_notes(took, plan.get("notes", ""), results)
                 print(f"producer: next in {bars} bars", flush=True)
             await asyncio.sleep(bars * 240 / self.roller.bpm())
