@@ -127,7 +127,13 @@ def starting_mix(controls: dict, keep: bool) -> tuple[dict[str, float], float, d
     until restore() clears it (a dry run doesn't save: it changes nothing)."""
     try:
         saved = json.loads(BASE.read_text())
-        return saved["faders"], saved["sidechain"], saved["controls"]
+        # A save from before the part toggles were kept: take them as they are now,
+        # so the save written from it has them from here on.
+        kept = dict(saved["controls"])
+        for k in PART_TOGGLES:
+            if k not in kept and k in controls:
+                kept[k] = controls[k]
+        return saved["faders"], saved["sidechain"], kept
     except (OSError, ValueError, KeyError):
         pass
     mix = mixer_faders()
