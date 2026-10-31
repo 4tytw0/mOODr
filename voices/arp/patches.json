@@ -1,0 +1,93 @@
+{
+ "bank": 1,
+ "patches": [
+  {
+   "program": 0,
+   "name": "Stab smet_nor3",
+   "file": "stab-smet_nor3.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 1,
+   "name": "Stab toa_f",
+   "file": "stab-toa_f.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 2,
+   "name": "Stab toa_fm2",
+   "file": "stab-toa_fm2.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 3,
+   "name": "Stab toa_lif",
+   "file": "stab-toa_lif.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 4,
+   "name": "Stab toa_ns",
+   "file": "stab-toa_ns.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 5,
+   "name": "Stab toa_oue",
+   "file": "stab-toa_oue.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 6,
+   "name": "Stab tyr_sav",
+   "file": "stab-tyr_sav.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 7,
+   "name": "Stab tyr_sav2",
+   "file": "stab-tyr_sav2.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 8,
+   "name": "Stab vk_cfh2",
+   "file": "stab-vk_cfh2.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 9,
+   "name": "Stab vk_sos",
+   "file": "stab-vk_sos.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  },
+  {
+   "program": 10,
+   "name": "Phase sine",
+   "file": "phase-sine.sunvox",
+   "inputs": [
+    "Sampler"
+   ]
+  }
+ ]
+}

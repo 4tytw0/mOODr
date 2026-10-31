@@ -113,7 +113,7 @@ def record_state() -> dict:
 
 # The m00Dr side of the rig, started and stopped as a whole. The mixer, this
 # server and the stream stay up, so the page can always turn it back on.
-RIG_UNITS = ["m00dr-synth-links", "m00dr-fluidsynth", "m00dr-sunvox303", "m00dr-sunvoxbass",
+RIG_UNITS = ["m00dr-synth-links", "m00dr-sunvoxarp", "m00dr-sunvox303", "m00dr-sunvoxbass",
              "m00dr-sunvoxdrums", "m00dr-sunvoxkeys", "m00dr-breaks", "m00dr-fx", "m00dr"]
 ROLLER = "m00drc-roller"
 # Who may switch the rig: this machine and NetBird peers, not everyone on the Wi-Fi.
