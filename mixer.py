@@ -33,10 +33,14 @@ kick. The amount moves on CC SIDECHAIN_CC, the /mixer page's slider, or
 
 Fader positions and the sidechain amount survive restarts (SAVED); the live
 state, with meters, is in LIVE for server.py's /mixer page.
+Master limiter: the very last stage before out_L/R (so before the stream, the
+recorder and any speakers). A -1 dBFS peak ceiling and a LIMIT_RMS cap on the
+sustained level. Nothing reaches it from MIDI, UDP or the page: it's the one
+part of the mix that m00Drc's producer can't move. LIVE reports its reduction.
 
     uv run mixer.py   # the m800dr-mixer user service does this
 """
-import collections, json, os, pathlib, socket, threading, time
+import collections, json, math, os, pathlib, socket, threading, time
 import jack
 import numpy as np
 from scipy.signal import butter, lfilter
@@ -59,6 +63,11 @@ SIDECHAIN_LPF = 150.0     # Hz: key on the kick, not the hats
 SIDECHAIN_FULL = 0.25     # key level (after the low-pass) that ducks by the full amount
 SIDECHAIN_RELEASE = 0.15  # s, exponential recovery: the pump
 SIDECHAIN_SMOOTH = 0.002  # s, rounds off the instant attack so the duck doesn't click
+
+# Master limiter (see the docstring): no control reaches these.
+LIMIT_PEAK = 10 ** (-1.0 / 20)       # -1 dBFS peak ceiling
+LIMIT_RMS = 10 ** (-9.0 / 20)        # loudest sustained level let through (RMS over LIMIT_RMS_WINDOW)
+LIMIT_RMS_WINDOW, LIMIT_RELEASE = 0.3, 0.25   # s
 
 CONTROL = ("127.0.0.1", 9810)
 LIVE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m800dr-mixer.json"
@@ -142,6 +151,29 @@ def write_json(path, data):
     tmp.replace(path)
 
 
+class Limiter:
+    """Block-wise master limiter: gain falls at once to keep both the peak and the
+    sustained (RMS) level under their ceilings, and recovers over LIMIT_RELEASE.
+    A hard clip at the ceiling catches what the in-block ramp lets past."""
+
+    def __init__(self, rate):
+        self.rate, self.gain, self.ms = rate, 1.0, 0.0
+        self.lowest = 1.0                 # the lowest gain since the meter last read it
+
+    def process(self, x):
+        n = x.shape[1]
+        a = math.exp(-n / (LIMIT_RMS_WINDOW * self.rate))
+        self.ms = a * self.ms + (1 - a) * float((x ** 2).mean())
+        target = min(1.0, LIMIT_PEAK / (float(np.abs(x).max()) + 1e-12),
+                     LIMIT_RMS / (math.sqrt(self.ms) + 1e-12))
+        if target >= self.gain:           # recover
+            target += (self.gain - target) * math.exp(-n / (LIMIT_RELEASE * self.rate))
+        ramp = np.linspace(self.gain, target, n)
+        self.gain = target
+        self.lowest = min(self.lowest, target)
+        return np.clip(x * ramp, -LIMIT_PEAK, LIMIT_PEAK)
+
+
 def main():
     client = jack.Client("m800Dr-Mixer", no_start_server=True)
     saved = load_faders()
@@ -196,6 +228,8 @@ def main():
 
     threading.Thread(target=control_loop, daemon=True).start()
 
+    limiter = Limiter(client.samplerate)
+
     @client.set_process_callback
     def process(n):
         controls.clear_buffer()
@@ -211,7 +245,8 @@ def main():
             out[s] = out[s] * duck
         for s, y in out.items():
             s.peak = max(s.peak, float(np.abs(y).max()))
-        mix = np.tanh(sum(out.values()))   # bus safety: transparent when quiet, rounds off overs
+        mix = np.tanh(sum(out.values()))   # bus saturation: transparent when quiet, rounds off overs
+        mix = limiter.process(mix)          # the last stage: nothing but this file sets it
         for port, ch in zip(outs, mix):
             port.get_array()[:] = ch
 
@@ -224,7 +259,9 @@ def main():
             duck, sidechain.min_gain = sidechain.min_gain, 1.0
             state = {"knee": KNEE, "cc": FADER_CC, "last_cc": last_cc[0], "time": time.time(),
                      "sidechain": sidechain.amount, "sidechain_cc": SIDECHAIN_CC,
-                     "sidechain_key": SIDECHAIN_KEY, "strips": []}
+                     "sidechain_key": SIDECHAIN_KEY, "strips": [],
+                     "limiter_db": round(20 * math.log10(max(limiter.lowest, 1e-6)), 1)}
+            limiter.lowest = 1.0
             for s in strips:
                 peak, s.peak = s.peak, 0.0
                 state["strips"].append({"name": s.name, "channel": s.channel, "number": s.number,
