@@ -88,15 +88,17 @@ import json
 import os
 import pathlib
 import random
+import shutil
 import signal
+import tempfile
 import time
 from collections import deque
 from dataclasses import dataclass
 
 import websockets
 
-from .arrangement import BASE, PART_MOVES, Arranger, save_base, starting_mix
-from .weights import MOVES, ModelMover, turn
+from .arrangement import BASE, BASS_CHANNEL, PART_MOVES, Arranger, save_base, starting_mix
+from .weights import MOVES, ModelMover, choice_odds, turn
 
 # Draws are 7-bit, 0..INT_MAX: the range of a MIDI CC, so a sound lane sends
 # its int as is. m00Dr's controls fold it into their own range with modulo.
@@ -110,6 +112,21 @@ HEXAGRAM = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00drc-hex
 
 # breaks.py's breaks with their transient maps (tools/transient_map.py), shown to the arranger.
 BREAKS_INDEX = pathlib.Path(__file__).resolve().parents[2] / "synths" / "breaks.json"
+
+# Breaks from the sample library (m800Dr tools/sample_catalog.py and cut_breaks.py): on each
+# Roll, with --arrange model, the model picks between the Roll's own break and up to
+# LOOP_CHOICES loops cut fresh from SAMPLES; a pick goes to breaks.py's next live slot.
+SAMPLES = pathlib.Path.home() / "samples"
+CUT_BREAKS = pathlib.Path(__file__).resolve().parents[2] / "tools" / "cut_breaks.py"
+LIVE_BREAKS = pathlib.Path.home() / ".local/state/m00drc/live-breaks"
+LIVE_FIRST, LIVE_SLOTS, LOOP_CHOICES = 64, 64, 5
+STRETCH = (0.75, 1.33)   # breaks.py's RATE_LIMITS: how far a loop's tempo can be bent to the set's
+BREAK_INSTRUCTIONS = """\
+You pick the drum break for the next stretch of a live generative techno set, \
+like a DJ digging for the right loop. Each break is listed with its pack, its \
+tempo and its 16ths a bar at a time: x where a hit starts, . where none does. \
+One of them is the break already chosen for this Roll. Pick the break that best \
+fits the groove and the arrangement now. Answer with exactly one letter."""
 
 
 def break_text(entry: dict) -> str:
@@ -324,6 +341,13 @@ class Roller:
         self.arranger: Arranger | None = None
         self.breaks_program = 0             # the break for the current Roll (see _send_breaks)
         try:
+            self.loops = json.loads((SAMPLES / "catalog.json").read_text())["loops"]
+        except (OSError, ValueError, KeyError):
+            self.loops = []
+        self.live: dict[int, dict] = {}     # program (LIVE_FIRST and up) -> the live cut's entry
+        self.live_next = 0                  # the live slot the next pick goes to
+        self.break_task: asyncio.Task | None = None
+        try:
             self.breaks_index = json.loads(BREAKS_INDEX.read_text())["breaks"]
         except (OSError, ValueError, KeyError):
             self.breaks_index = []
@@ -386,6 +410,63 @@ class Roller:
         await self._send_cc(BREAKS_CHANNEL, CHOP_LINES_CC, yang)
         await self._send_cc(BREAKS_CHANNEL, CHOP_CHANGING_CC, changing)
 
+    async def _pick_break(self, own: int) -> None:
+        """The model's break for this Roll: its own or a loop from the
+        sample library, cut to bars. A cut goes to the next live slot and plays
+        from the next chord change; anything failing keeps the Roll's own."""
+        bpm = self.bpm()
+        fits = [loop for loop in self.loops if STRETCH[0] <= bpm / loop["bpm"] <= STRETCH[1]]
+        if not fits or own >= len(self.breaks_index):
+            return
+        picks = self.stream.rng.sample(fits, min(len(fits), 2 * LOOP_CHOICES))   # some won't cut
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="m00drc-cuts-"))
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "uv", "run", "-q", str(CUT_BREAKS), "--out", str(tmp),
+                *[f"{SAMPLES / loop['path']}@{loop['bpm']}" for loop in picks],
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await proc.communicate()
+            cuts = [({"name": loop["name"], "pack": loop["pack"], "bars": cut["bars"], "bpm": cut["bpm"],
+                      "transients": cut["transients"]}, tmp / cut["file"])
+                    for loop, cut in zip(picks, json.loads(out or b"[]")) if "file" in cut][:LOOP_CHOICES]
+            if not cuts:
+                return
+            options = [(dict(self.breaks_index[own], pack=self.breaks_index[own].get("pack", "")), None)] + cuts
+            self.stream.rng.shuffle(options)   # models lean to the first option: the Roll's own isn't always a
+            letters = "abcdef"[:len(options)]
+            listing = "\n".join(f"{k}: {break_text(entry)} ({entry['pack']}, {entry['bpm']:.0f} bpm)"
+                                 + (" - this Roll's own" if wav is None else "")
+                                 for k, (entry, wav) in zip(letters, options))
+            user = (f"Now: {self._now_text()}\n"
+                    + (f"The arrangement: {self.arranger.describe()}\n" if self.arranger else "")
+                    + f"Breaks:\n{listing}\nWhich break for this Roll?")
+            odds = await asyncio.to_thread(choice_odds, self.args.api, self.args.model, tuple(letters),
+                                           BREAK_INSTRUCTIONS, user)
+            pick = max(odds, key=odds.get) if odds else "a"
+            entry, wav = options[letters.index(pick)]
+            if wav is None or self.breaks_program != own:   # kept, or a newer Roll took over
+                print(f"     breaks: kept the Roll's own ({entry['name']}) over {len(cuts)} cuts", flush=True)
+                return
+            slot, self.live_next = self.live_next, (self.live_next + 1) % LIVE_SLOTS
+            if not self.args.dry_run:
+                LIVE_BREAKS.mkdir(parents=True, exist_ok=True)
+                shutil.copy(wav, LIVE_BREAKS / f"{slot:02d}.wav")
+                index_path = LIVE_BREAKS / "index.json"
+                try:
+                    index = json.loads(index_path.read_text())
+                except (OSError, ValueError):
+                    index = {}
+                index[str(slot)] = entry
+                index_path.write_text(json.dumps(index, indent=1))
+            self.live[LIVE_FIRST + slot] = entry
+            self.breaks_program = LIVE_FIRST + slot
+            print(f"     breaks: picked {entry['name']} ({entry['pack']}, {entry['bpm']:.0f} bpm) "
+                  f"over {len(cuts) - 1} other cuts and the Roll's own -> live {slot}", flush=True)
+        except (OSError, ValueError) as e:
+            print(f"     breaks: library pick failed ({e}); keeping the Roll's own", flush=True)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     async def _send_fx(self, note: int, velocity: int) -> None:
         """A note to m800Dr's fx.py (MIDI ch FX_CHANNEL); velocity 0 is a note off."""
         from alsa_midi import NoteOffEvent, NoteOnEvent
@@ -417,6 +498,10 @@ class Roller:
         # close: still give the arc a full minimum gap.
         end = self.next_roll if self.next_roll - now >= ROLL_GAP[0] / 2 else now + ROLL_GAP[0]
         self.breaks_program = sum(1 << i for i, value in enumerate(cast) if value >= 2)
+        if self.args.arrange == "model" and self.loops:
+            if self.break_task:
+                self.break_task.cancel()
+            self.break_task = asyncio.create_task(self._pick_break(self.breaks_program))
         if self.mover:
             if self.arc_task:
                 self.arc_task.cancel()
@@ -484,6 +569,7 @@ class Roller:
                     self.arranger = Arranger(*mix, self.args.dry_run)
                     if self.sound_out is not None:
                         self.arranger.fx = self._send_fx
+                        self.arranger.bass_cc = lambda cc, value: self._send_cc(BASS_CHANNEL, cc, value)
                     if leftover:   # the last run died before restoring: start from the real mix
                         await self.arranger.restore(ws)
                         save_base(self.arranger.base, self.arranger.sidechain0, self.arranger.controls0)
@@ -513,8 +599,10 @@ class Roller:
                 continue
             seen = (id(arc), k)
             self.arranger.position = (k, arc.count)
-            if self.breaks_program < len(self.breaks_index):
-                self.arranger.break_info = break_text(self.breaks_index[self.breaks_program])
+            entry = self.live.get(self.breaks_program) or (
+                self.breaks_index[self.breaks_program] if self.breaks_program < len(self.breaks_index) else None)
+            if entry:
+                self.arranger.break_info = break_text(entry)
             to_roll = max(0.0, self.next_roll - time.monotonic())
             now = f"section {k + 1} of {arc.count}, next Roll in {to_roll:.0f}s, {self._now_text()}"
             started = time.monotonic()

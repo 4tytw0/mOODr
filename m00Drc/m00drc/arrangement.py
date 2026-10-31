@@ -40,7 +40,7 @@ import socket
 
 from .weights import choice_odds, flatten, with_floor
 
-MOVES = ("hold", "strip", "take_out", "bring_back", "build", "drop", "sweep_out", "push")
+MOVES = ("hold", "strip", "take_out", "bring_back", "build", "drop", "sweep_out", "push", "gate", "wobble")
 PARTS = ("chords", "bass", "arp", "acid", "drums", "breaks")
 CORE = ("drums", "bass")          # what strip keeps
 TONAL = ("chords", "bass", "arp", "acid")
@@ -48,7 +48,7 @@ ARP_RATES = ("1/4", "1/8", "1/16")
 SIDECHAIN_BUILD_STEP, SIDECHAIN_DROP, SIDECHAIN_MAX = 0.1, 0.6, 0.8   # builds stop at MAX
 MUTATE_BUILD_STEP = 25
 # Sections that must pass before a move may come again (a section is 15-30 s).
-COOLDOWN = {"strip": 6, "sweep_out": 6, "drop": 4, "push": 6}
+COOLDOWN = {"strip": 6, "sweep_out": 6, "drop": 4, "push": 6, "gate": 3, "wobble": 3}
 PUSH_ABOVE, PUSH_MAX = 0.12, 0.95   # how far past its level a push drives a fader, and the top
 
 # fx.py's notes (MIDI ch10): a 2-bar riser, a 4-bar downlifter, the impact, the atmosphere.
@@ -73,6 +73,8 @@ working the mixer. Each section lasts 15 to 30 seconds. Choose the next move:
 - drop: everything in at once, the release after a build
 - sweep_out: fade the music out, leading into a new key
 - push: drive one part into distortion for one section, for emphasis
+- gate: chop the bass into a rhythm, re-attacked on some 16ths, or let it play legato again
+- wobble: change how fast the bass swells: slower or faster than once a beat
 A drop only comes after a build. Move mostly one part at a time: take_out and bring_back shape a groove \
 gradually. Strip, drop and sweep_out are big moments; push is rare emphasis, \
 for when a part really needs to hit harder. Builds should lead to drops, strips \
@@ -81,15 +83,30 @@ The break line is the drum break playing now, a bar at a time: its 16ths as x \
 (a hit starts there) or . (none), and how many of the 16 hit. A busy break \
 already carries the rhythm, so other parts can make room; a sparse one leaves \
 space to fill. \
+Gate and wobble are bass colour: use them to answer the drums or to lift a \
+section without moving the mix. \
 Answer with exactly one word: hold, strip, take_out, bring_back, build, drop, \
-sweep_out or push."""
+sweep_out, push, gate or wobble."""
 
 PART_INSTRUCTIONS = """\
 You arrange a live generative techno set like a DJ working the mixer. The \
-next move is chosen; pick the part it acts on, from the ones listed. Weigh \
+next move is chosen; pick what it acts on, from the ones listed: a part, or \
+for gate a bass pattern (x where the note re-attacks) and for wobble a swell \
+speed. Weigh \
 the drum break: when it's busy, the breaks part carries the rhythm; when it's \
-sparse, other parts have room. Answer with exactly one word: the part."""
-PART_MOVES = ("take_out", "bring_back", "push")
+sparse, other parts have room. Answer with exactly one word from the list."""
+PART_MOVES = ("take_out", "bring_back", "push", "gate", "wobble")
+
+# The bass's gate patterns and swell speeds: m800Dr sunvoxbass.py's GATES and
+# WOBBLES, in the same order (a gate's CC value is its index), on MIDI ch2.
+BASS_CHANNEL, BASS_WOBBLE_CC, BASS_GATE_CC = 2, 22, 23
+GATES = {"legato": None, "eighths": 0xAAAA, "sixteenths": 0xFFFF, "offbeats": 0x2222,
+         "quarters": 0x8888, "dotted": 0x9249, "gallop": 0xB6DB, "broken": 0x8A28}
+WOBBLES = {"crawl": 0.25, "slow": 0.5, "beat": 1.0, "fast": 2.0, "frantic": 4.0}
+
+
+def steps(pattern: int | None) -> str:
+    return "legato" if pattern is None else f"{pattern:016b}".replace("1", "x").replace("0", ".")
 
 
 def mixer_faders() -> tuple[dict[str, float], float] | None:
@@ -143,6 +160,8 @@ class Arranger:
         self.atmos = False
         self.position: tuple[int, int] | None = None   # (section, of n) in the arc, set by the roller
         self.break_info: str | None = None   # the break playing and its transient map, set by the roller
+        self.gate, self.wobble = "legato", "beat"   # the bass's, see GATES and WOBBLES
+        self.bass_cc = None                  # async bass_cc(cc, value) -> sends to sunvoxbass.py
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # -- what's possible now ------------------------------------------------------
@@ -166,7 +185,9 @@ class Arranger:
               # Only into the next Roll: the arc's last two sections.
               "sweep_out": any(p in TONAL for p in ins) and (self.position is None
                                                               or self.position[0] >= self.position[1] - 2),
-              "push": any(p in TONAL for p in ins)}
+              "push": any(p in TONAL for p in ins),
+              "gate": "bass" in ins,
+              "wobble": "bass" in ins}
         for move, gap in COOLDOWN.items():
             if move in self.last and self.section + 1 - self.last[move] < gap:
                 ok[move] = False
@@ -179,7 +200,8 @@ class Arranger:
 
     def describe(self) -> str:
         return (f"in: {', '.join(self.parts_in()) or 'nothing'}; out: {', '.join(self.parts_out()) or 'nothing'}; "
-                f"arp {self.arp_rate}, drums busy {self.mutate}%, pump {self.sidechain:.2f}"
+                f"arp {self.arp_rate}, drums busy {self.mutate}%, pump {self.sidechain:.2f}, "
+                f"bass gate {self.gate}, wobble {self.wobble}"
                 + (f"\nBreak: {self.break_info}" if self.break_info else ""))
 
     def part_choices(self, move: str) -> list[str]:
@@ -190,6 +212,10 @@ class Arranger:
             return self.parts_out()
         if move == "push":
             return [p for p in self.parts_in() if p in TONAL]
+        if move == "gate":
+            return [g for g in GATES if g != self.gate]
+        if move == "wobble":
+            return [w for w in WOBBLES if w != self.wobble]
         return []
 
     # -- choosing -----------------------------------------------------------------
@@ -218,7 +244,11 @@ class Arranger:
             return None
         user = ("Sections so far:\n" + ("\n".join(history) or "(none yet)")
                 + f"\n\nNow: {now}\nThe arrangement: {self.describe()}\n"
-                f"The next move: {move}. Parts it can act on: {', '.join(choices)}.\nWhich part?")
+                + (f"The next move: gate. Bass patterns: "
+                   + ", ".join(f"{g} {steps(GATES[g])}" for g in choices) + ".\nWhich pattern?" if move == "gate"
+                   else f"The next move: wobble. Swell speeds, per beat: "
+                   + ", ".join(f"{w} {WOBBLES[w]:g}" for w in choices) + ".\nWhich speed?" if move == "wobble"
+                   else f"The next move: {move}. Parts it can act on: {', '.join(choices)}.\nWhich part?"))
         odds = choice_odds(api, model, tuple(choices), PART_INSTRUCTIONS, user)
         return max(odds, key=odds.get) if odds else None
 
@@ -252,6 +282,10 @@ class Arranger:
         self.sidechain = min(max(amount, 0.0), 1.0)
         self._send({"sidechain": round(self.sidechain, 3)})
 
+    async def _bass(self, cc: int, value: int) -> None:
+        if self.bass_cc is not None and not self.dry_run:
+            await self.bass_cc(cc, value)
+
     async def _fx(self, note: int, velocity: int = 100) -> None:
         if self.fx is not None and not self.dry_run:
             await self.fx(note, velocity)
@@ -272,6 +306,15 @@ class Arranger:
         if self.pushed:   # last section's push eases back first
             part, self.pushed = self.pushed, None
             await self._ramp({part: self.base[part]}, 2, beat_s)
+        if move == "gate":
+            self.gate = part or rng.choice(self.part_choices("gate"))
+            await self._bass(BASS_GATE_CC, list(GATES).index(self.gate))
+            return f"gate (bass {self.gate})"
+        if move == "wobble":
+            self.wobble = part or rng.choice(self.part_choices("wobble"))
+            i = list(WOBBLES).index(self.wobble)
+            await self._bass(BASS_WOBBLE_CC, (2 * i + 1) * 128 // (2 * len(WOBBLES)))
+            return f"wobble (bass {self.wobble})"
         if move == "push":
             part = part or rng.choice(self.part_choices("push"))
             self.pushed = part
@@ -338,6 +381,11 @@ class Arranger:
             self._send({"strip": p, "fader": level})
         self._set_sidechain(self.sidechain0)
         self.arp_rate, self.mutate = self.arp_rate0, self.mutate0
+        self.gate, self.wobble = "legato", "beat"
+        try:
+            await self._bass(121, 0)   # sunvoxbass: reset all controllers = legato, one swell a beat
+        except Exception:
+            pass
         try:
             await self._set_m00dr(ws, "arpRate", self.arp_rate0)
             await self._set_m00dr(ws, "drumMutate", self.mutate0)

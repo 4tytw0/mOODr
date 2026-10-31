@@ -20,6 +20,7 @@ INTERVAL=${INTERVAL:-2}
 MIXER=m800Dr-Mixer
 LINKS="RtMidiOut Client:m00Dr (capture)|Synth input port (m00Dr-FluidSynth:0) (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxBass:bass in (playback)
+m00Drc-Roller:sound out (capture)|m00Dr-SunVoxBass:bass in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVox303:acid in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-SunVox303:acid in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-Breaks:breaks in (playback)

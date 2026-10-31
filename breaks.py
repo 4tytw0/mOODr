@@ -18,6 +18,9 @@ playing it faster or slower (within RATE_LIMITS; beyond that the slice is
 cut short or leaves a gap, as a sampler's chopped break would).
 
 What plays comes from m00Drc's roller, on MIDI ch8 (BREAKS_CHANNEL):
+  * a program change 64..127 picks one of the roller's own cuts from the
+    sample library instead: live slot N-64, LIVE/NN.wav described in
+    LIVE/index.json, read when the program change arrives.
   * a program change 0..63 picks the break: the roller sends each landed
     Roll's hexagram, so every Roll brings a new break, from the next bar line.
   * CC CHOP_LINES_CC / CHOP_CHANGING_CC carry six I Ching lines (yang bits,
@@ -40,6 +43,7 @@ SR, BLOCK = 48000, 256
 BREAKS_CHANNEL = 7                        # 0-based: MIDI ch8
 HERE = Path(__file__).resolve().parent
 INDEX = HERE / "synths" / "breaks.json"
+LIVE, LIVE_FIRST = Path.home() / ".local/state/m00drc/live-breaks", 64   # the roller's cuts (see program)
 CHOP_LINES_CC, CHOP_CHANGING_CC = 20, 21
 CHOP_STEPS = (2, 4, 6, 10, 12, 14)        # the 16th each line's pair starts on, bottom line first
 CLOCKS_PER_16TH = 6                       # MIDI Beat Clock: 24 per beat
@@ -71,6 +75,8 @@ class Breaks:
             audio, rate = sf.read(INDEX.parent / "breaks" / entry["file"], dtype="float32", always_2d=True)
             assert rate == SR, f"{entry['file']} is {rate} Hz"
             self.breaks.append((audio, entry["bars"], entry["name"]))
+        self.fixed = len(self.breaks)
+        self.breaks += [None] * (128 - LIVE_FIRST)   # live slots, filled as they're picked
         self.lock = threading.Lock()
         self.current = self.pending = 0
         self.order = list(range(16))
@@ -106,8 +112,28 @@ class Breaks:
             self.count += 1
 
     def program(self, number):
+        if number >= LIVE_FIRST:
+            live = self._load_live(number - LIVE_FIRST)   # outside the lock: reading a WAV takes a moment
+            if live is None:
+                return                                   # keep playing what's there
         with self.lock:
-            self.pending = number % len(self.breaks)
+            if number >= LIVE_FIRST:
+                self.breaks[number - LIVE_FIRST + self.fixed] = live
+                self.pending = number - LIVE_FIRST + self.fixed
+            else:
+                self.pending = number % self.fixed
+
+    def _load_live(self, slot):
+        try:
+            entry = json.loads((LIVE / "index.json").read_text())[str(slot)]
+            audio, rate = sf.read(LIVE / f"{slot:02d}.wav", dtype="float32", always_2d=True)
+        except (OSError, ValueError, KeyError, RuntimeError) as e:
+            print(f"live break {slot}: {e}", flush=True)
+            return None
+        if rate != SR:
+            print(f"live break {slot} is {rate} Hz", flush=True)
+            return None
+        return audio, entry["bars"], f"{entry['name']} (live {slot})"
 
     def control(self, cc, value):
         with self.lock:

@@ -20,6 +20,14 @@ swell starts on the note. Without a clock it keeps the last tempo heard.
 Mono, last-note priority: a new note retriggers, and releasing it falls back
 to a note still held.
 
+Two CCs on the bass channel, sent by m00Drc's arranger:
+  * WOBBLE_CC picks the swell rate from WOBBLES (swells per beat; 64 is the
+    default one per beat), applied to the note sounding at once.
+  * GATE_CC picks a gate pattern from GATES: 16 bits, the first 16th on top,
+    one bar of the clock. On a 16th whose bit is set the held note re-attacks;
+    on one that isn't it's silent. 0 is no gate: the bass plays legato.
+  CC 121 (reset all controllers) puts both back.
+
     uv run sunvoxbass.py                 # run (the m00dr-sunvoxbass user service does this)
     uv run sunvoxbass.py --demo x.wav    # render a short line offline, for listening
 """
@@ -41,6 +49,18 @@ VOICES = {"Saws": -11, "Sub": -11}
 # half a cycle per beat is one swell per beat. Osc2's detune is in 1/64
 # semitones, stored as 1000 + that (see m00Drc's build_bass.py).
 SAWS, BEAT_PER_BEAT, DEFAULT_BPM = "Saws", 0.5, 120.0
+# CC value -> swell rate, as a multiple of BEAT_PER_BEAT: 0..127 spread over the list.
+WOBBLES = (0.25, 0.5, 1.0, 2.0, 4.0)
+WOBBLE_CC, GATE_CC = 22, 23
+GATES = (None,                      # 0: legato
+         0xAAAA,                    # 1: 8ths
+         0xFFFF,                    # 2: 16ths
+         0x2222,                    # 3: offbeats
+         0x8888,                    # 4: quarters
+         0x9249,                    # 5: dotted 8ths (3+3+3+3+4 feel)
+         0xB6DB,                    # 6: gallop
+         0x8A28)                    # 7: broken (a two-step kick line)
+CLOCKS_PER_16TH = 6
 
 
 class SunVoxBass:
@@ -57,12 +77,15 @@ class SunVoxBass:
         sv.sv_volume(0, VOLUME)
         self.lock = threading.Lock()  # ONE_THREAD: events and rendering must not overlap
         self.stack = []               # held notes, last = sounding
+        self.wobble = 1.0             # times BEAT_PER_BEAT (WOBBLE_CC)
+        self.gate = None              # 16-bit pattern (GATE_CC), None = legato
+        self.gated_off = False        # the gate has the held note silenced
         self.buf = np.zeros((BLOCK, 2), dtype="<f4")
 
     def _detune(self, note):
         """Sets osc2 so the saws beat BEAT_PER_BEAT times per beat at `note`."""
         freq = 440 * 2 ** ((note - 69) / 12)
-        beat_hz = self.bpm / 60 * BEAT_PER_BEAT
+        beat_hz = self.bpm / 60 * BEAT_PER_BEAT * self.wobble
         units = min(1000, round(64 * 12 * math.log2(1 + beat_hz / freq)))
         self.sv.sv_set_module_ctl_value(0, self.saws, self.osc2, 1000 + units, 0)
 
@@ -78,6 +101,29 @@ class SunVoxBass:
     def clock_tick(self, now=None):
         with self.lock:
             self.clock.tick(now)
+            pulse = self.clock.count - 1
+            if self.gate is None or pulse % CLOCKS_PER_16TH or not self.stack:
+                return
+            if self.gate >> (15 - pulse // CLOCKS_PER_16TH % 16) & 1:
+                self._play(self.stack[-1], self.vel)    # re-attack on the step
+                self.gated_off = False
+            elif not self.gated_off:
+                self._release()
+                self.gated_off = True
+
+    def control(self, cc, value):
+        with self.lock:
+            if cc == WOBBLE_CC:
+                self.wobble = WOBBLES[min(value * len(WOBBLES) // 128, len(WOBBLES) - 1)]
+                if self.stack: self._detune(self.stack[-1])
+            elif cc == GATE_CC:
+                self.gate = GATES[value % len(GATES)]
+                if self.gate is None and self.gated_off and self.stack:   # back to legato
+                    self._play(self.stack[-1], self.vel)
+                self.gated_off = False
+            elif cc == 121:
+                self.wobble, self.gate = 1.0, None
+                if self.stack: self._detune(self.stack[-1])
 
     def _play(self, note, vel):
         self._detune(note)    # sent first, so the note starts with it
@@ -94,6 +140,7 @@ class SunVoxBass:
             if note in self.stack: self.stack.remove(note)
             self.stack.append(note)
             self.vel = vel
+            self.gated_off = False
             self._play(note, vel)
 
     def note_off(self, note):
@@ -136,6 +183,7 @@ def midi_loop(client, bass):
             bass.note_on(ev.note, ev.velocity) if ev.velocity else bass.note_off(ev.note)
         elif isinstance(ev, NoteOffEvent): bass.note_off(ev.note)
         elif isinstance(ev, ControlChangeEvent) and ev.param in (120, 123): bass.all_off()
+        elif isinstance(ev, ControlChangeEvent): bass.control(ev.param, ev.value)
 
 
 def demo(path):
