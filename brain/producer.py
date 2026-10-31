@@ -49,6 +49,9 @@ HISTORY = 16                  # action results kept for the next prompt
 # last NOTES_KEPT, newest last, each {"time": epoch s, "took": s, "notes": text}.
 NOTES_FILE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00drc-producer.json"
 NOTES_KEPT = 8
+# The page chat (surfaces/server.py writes it): what the human listening said, and what
+# you answered there. Messages since the last plan go into the next plan's prompt.
+CHAT_FILE = NOTES_FILE.with_name("m00drc-chat.json")
 DEFAULT_BARS = 4              # when a plan doesn't come back
 
 PLAN_SCHEMA = {
@@ -175,6 +178,9 @@ class Producer:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.notes = ""
         self.feed = []                # NOTES_FILE's entries
+        self.chat_seen = time.time() - 600   # page chat read up to here (the last 10 min at start)
+        self._chat_upto = self.chat_seen
+        self.prompt = ""              # the state the last plan was asked with, for the chat
         self.history: list[str] = []
         self.ramps: dict[str, asyncio.Task] = {}
         self.bass = {"gate": "legato", "wobble": "1 swell a beat"}
@@ -275,14 +281,31 @@ under, shown with the mixer. A limiter protects the speakers."""
                 f"Samples sounding: {', '.join(n for _, n in self.playing) or 'none'}\n"
                 f"Your notes: {self.notes or '(none yet: this is the start of the set)'}\n"
                 f"What your last actions did:\n" + ("\n".join(self.history) or "(nothing yet)")
-                + "\nPlan the next stretch.")
+                + self._chat_text() + "\nPlan the next stretch.")
+
+    def _chat_text(self) -> str:
+        """The page chat since the last plan, for the prompt ("" if nothing new)."""
+        try:
+            messages = json.loads(CHAT_FILE.read_text()).get("messages", [])
+        except (OSError, ValueError, AttributeError):
+            return ""
+        self._chat_upto = time.time()
+        new = [m for m in messages if m.get("time", 0) > self.chat_seen]
+        if not any(m.get("role") == "user" for m in new):
+            return ""
+        lines = "\n".join(("The human: " if m["role"] == "user" else "You (in the chat): ") + str(m.get("text", ""))
+                          for m in new[-8:])
+        return ("\nThe human listening talked to you in the page chat since your last plan (newest last):\n"
+                f"{lines}\nWeigh it like a request from someone in the room: you still decide, but say in "
+                "your notes what you did about it.")
 
     def ask(self) -> dict | None:
         """Blocking: the model's plan, or None."""
+        self.prompt = self._user()
         body = {"model": self.args.model, "max_tokens": 900, "temperature": 0.8,
                 "chat_template_kwargs": {"enable_thinking": False},
                 "response_format": {"type": "json_schema", "json_schema": {"name": "plan", "schema": PLAN_SCHEMA}},
-                "messages": [{"role": "system", "content": self.system}, {"role": "user", "content": self._user()}]}
+                "messages": [{"role": "system", "content": self.system}, {"role": "user", "content": self.prompt}]}
         request = urllib.request.Request(f"{self.args.api.rstrip('/')}/v1/chat/completions",
                                          json.dumps(body).encode(), {"Content-Type": "application/json"})
         try:
@@ -294,16 +317,19 @@ under, shown with the mixer. A limiter protects the speakers."""
 
     # -- the loop -----------------------------------------------------------------
 
-    def _publish_notes(self, took: float, notes: str) -> None:
-        """Adds this plan's notes, in full (self.notes is cut to 600 for the prompt), to
-        NOTES_FILE for the audio page. Best effort."""
+    def _publish_notes(self, took: float, notes: str, actions: list[str] | None = None) -> None:
+        """Adds this plan's notes, in full (self.notes is cut to 600 for the prompt), and
+        what its actions did to NOTES_FILE, for the audio page and its chat. Best effort."""
         notes = str(notes).strip()[:4000]
         if not notes:
             return
-        self.feed = (self.feed + [{"time": time.time(), "took": round(took), "notes": notes}])[-NOTES_KEPT:]
+        self.feed = (self.feed + [{"time": time.time(), "took": round(took), "notes": notes,
+                                   "actions": actions or []}])[-NOTES_KEPT:]
+        state = self.prompt.removesuffix("\nPlan the next stretch.")
         tmp = NOTES_FILE.with_suffix(".tmp")
         try:
-            tmp.write_text(json.dumps({"model": getattr(self.roller.args, "model", None), "notes": self.feed}))
+            tmp.write_text(json.dumps({"model": getattr(self.roller.args, "model", None), "api": self.args.api,
+                                       "state": state, "notes": self.feed}))
             tmp.replace(NOTES_FILE)
         except OSError:
             pass
@@ -323,7 +349,8 @@ under, shown with the mixer. A limiter protects the speakers."""
                 self.notes = plan.get("notes", "")[:600]
                 bars = min(max(int(plan.get("next_bars", DEFAULT_BARS)), 1), 16)
                 print(f"producer ({took:.0f}s): {self.notes}", flush=True)
-                self._publish_notes(took, plan.get("notes", ""))
+                self.chat_seen = self._chat_upto   # the chat it was shown has been answered
+                results = []
                 for action in plan.get("actions", [])[:12]:
                     try:
                         result = await self.apply(ws, action)
@@ -331,6 +358,8 @@ under, shown with the mixer. A limiter protects the speakers."""
                         result = f"{action.get('do')} {action.get('target')}: failed ({e})"
                     print(f"producer:   {result}", flush=True)
                     self.history = (self.history + [result])[-HISTORY:]
+                    results.append(result)
+                self._publish_notes(took, plan.get("notes", ""), results)
                 print(f"producer: next in {bars} bars", flush=True)
             await asyncio.sleep(bars * 240 / self.roller.bpm())
 

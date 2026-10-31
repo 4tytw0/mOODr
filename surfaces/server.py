@@ -21,6 +21,9 @@ POST /record      -> {"on": true|false}: starts or stops recording the mix to RE
                      (a WAV per take; stops itself after RECORD_MAX seconds)
 GET /recordings/<file> -> downloads a recording
 GET /producer     -> the producer's (Qwen's) last notes as JSON, newest last (503 before any)
+GET /chat         -> the page chat with the producer: {"messages": [...], "chat": allowed}
+POST /chat        -> {"text": ...}: a message to the producer; answers {"reply": ...}. Its next plan
+                     reads it too. This machine, NetBird peers and the home network only.
 GET /hexagram     -> the roller's current section as JSON: its lines (bottom first),
                      which of them change next, and the section (503 before a Roll)
 GET /acid         -> the 303 page (acid.html): the acid patch's sound controls
@@ -50,6 +53,7 @@ import socket
 import subprocess
 import threading
 import time
+import urllib.request
 import urllib.error
 import urllib.request
 
@@ -71,6 +75,18 @@ PANELS = {
 }
 HEXAGRAM = RUNTIME / "m00drc-hexagram.json"   # written by the roller each section
 PRODUCER = RUNTIME / "m00drc-producer.json"   # written by the roller's producer each plan
+CHAT = RUNTIME / "m00drc-chat.json"           # the page chat; the producer reads it each plan
+CHAT_KEPT, CHAT_CONTEXT = 40, 12               # messages kept / sent to the model per answer
+CHAT_SYSTEM = """You are the producer of a live, generative techno set called m00Dr: you steer \
+it every few bars with moves (hold, strip, take_out, bring_back, build, drop, sweep_out, push, \
+gate, wobble), by setting m00Dr's controls and sounds, and with samples. The human listening is \
+talking to you in a chat on the audio page, between your plans. Answer as yourself, in a few \
+sentences: explain your decisions honestly from your notes and what your actions did, below. \
+Nothing you say here happens: you can't act from this chat, only in your next plan, \
+which reads it. So don't narrate moves as if you're making them now ("I'm rolling the filter \
+down"); say what you did, and what you'll do next plan, if anything. Plain words, no stage \
+directions."""
+chat_lock = threading.Lock()
 
 # Recording: parec of the mix into a WAV, the same source the listeners hear.
 RECORDINGS = pathlib.Path.home() / "Recordings" / "m800Dr"
@@ -120,6 +136,52 @@ RIG_UNITS = ["m00dr-synth-links", "m00dr-sunvoxarp", "m00dr-sunvox303", "m00dr-s
 ROLLER = "m00drc-roller"
 # Who may switch the rig: this machine and NetBird peers, not everyone on the Wi-Fi.
 CONTROL_NETS = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "::1/128", "100.64.0.0/10", "fd7a:3ded:ef08::/48")]
+# Who may talk to the producer: those, plus the home network (as m00Dr's own web
+# remote already allows: anyone on the Wi-Fi can play it while that's on).
+CHAT_NETS = CONTROL_NETS + [ipaddress.ip_network(n) for n in ("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "fd00::/8")]
+
+
+def chat_messages() -> list:
+    try:
+        return json.loads(CHAT.read_text()).get("messages", [])
+    except (OSError, ValueError, AttributeError):
+        return []
+
+
+def chat_save(messages: list) -> None:
+    tmp = CHAT.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"messages": messages[-CHAT_KEPT:]}))
+    tmp.replace(CHAT)
+
+
+def chat_answer(text: str) -> str:
+    """Adds the human's message, asks the producer's model with its notes and actions
+    as context, adds and returns its answer. Blocks while the model is busy (a plan in
+    progress queues ahead: up to a couple of minutes)."""
+    try:
+        producer = json.loads(PRODUCER.read_text())
+    except (OSError, ValueError):
+        raise RuntimeError("the producer hasn't made a plan yet")
+    with chat_lock:
+        messages = chat_messages() + [{"role": "user", "text": text, "time": time.time()}]
+        chat_save(messages)
+    now = time.time()
+    plans = "\n\n".join(f"{(now - n['time']) / 60:.0f} min ago, you wrote: {n['notes']}\n"
+                         + ("What your actions did: " + "; ".join(n.get("actions", [])) if n.get("actions") else "(no actions)")
+                         for n in producer.get("notes", []))
+    system = (CHAT_SYSTEM + f"\n\nThe set as you saw it at your last plan:\n{producer.get('state', '(unknown)')}"
+              + f"\n\nYour recent plans, oldest first:\n{plans or '(none yet)'}")
+    history = [{"role": m["role"], "content": m["text"]} for m in messages[-CHAT_CONTEXT:]]
+    body = {"model": producer["model"], "max_tokens": 400, "temperature": 0.7,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "messages": [{"role": "system", "content": system}] + history}
+    request = urllib.request.Request(f"{producer.get('api', 'http://127.0.0.1:8080').rstrip('/')}/v1/chat/completions",
+                                     json.dumps(body).encode(), {"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=300) as response:
+        reply = json.load(response)["choices"][0]["message"]["content"].strip()
+    with chat_lock:
+        chat_save(chat_messages() + [{"role": "assistant", "text": reply, "time": time.time()}])
+    return reply
 M00DR_REMOTE = ("127.0.0.1", 8766)       # m00Dr's web remote (WebSocket)
 LLAMA_SWAP = "http://127.0.0.1:8080"
 WEBRTC_LISTENERS = "http://127.0.0.1:8809/listeners"
@@ -249,6 +311,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_body(json.dumps(record_state()).encode(), "application/json")
         elif self.path.startswith("/recordings/"):
             self.send_recording(self.path.removeprefix("/recordings/"))
+        elif self.path == "/chat":
+            self.send_body(json.dumps({"messages": chat_messages(), "chat": self.may_chat()}).encode(), "application/json")
         elif self.path == "/producer":
             try:
                 self.send_body(PRODUCER.read_bytes(), "application/json")
@@ -267,7 +331,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def may_chat(self) -> bool:
+        try:
+            ip = ipaddress.ip_address(self.client_address[0].removeprefix("::ffff:"))
+        except ValueError:
+            return False
+        return any(ip in net for net in CHAT_NETS)
+
+    def chat_post(self):
+        if not self.may_chat():
+            self.send_error(403, "the chat is for this machine, NetBird peers and the home network")
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            text = str(json.loads(self.rfile.read(length)).get("text", "")).strip()[:500] if 0 < length <= 4096 else ""
+        except (ValueError, AttributeError):
+            text = ""
+        if not text:
+            self.send_error(400, "say something")
+            return
+        try:
+            reply = chat_answer(text)
+        except Exception as e:   # the model busy, unloaded or erroring: say so, keep the message
+            self.send_body(json.dumps({"error": str(e)}).encode(), "application/json", status=502)
+            return
+        self.send_body(json.dumps({"reply": reply}).encode(), "application/json")
+
     def do_POST(self):
+        if self.path == "/chat":
+            self.chat_post()
+            return
         if self.path == "/webrtc/offer":
             self.webrtc_offer()
             return
@@ -319,8 +412,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (urllib.error.URLError, OSError):
             self.send_error(503, "webrtc.py not running")
 
-    def send_body(self, body, content_type):
-        self.send_response(200)
+    def send_body(self, body, content_type, status=200):
+        self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")

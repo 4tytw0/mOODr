@@ -51,6 +51,21 @@
   #pold { list-style:none; margin:0; padding:0; display:grid; gap:10px; color:var(--dim); font-size:13px;
           max-height:12em; overflow:auto; }
   #pold li { white-space:pre-wrap; overflow-wrap:anywhere; }
+  /* Talking to the producer: its next plan reads what you say here. */
+  #chat { display:grid; gap:8px; border-bottom:1px solid var(--line); padding-bottom:14px; }
+  #chat .head { color:var(--dim); font-size:12px; letter-spacing:.12em; }
+  #chatlog { list-style:none; margin:0; padding:0; display:grid; gap:8px; font-size:13px; max-height:16em; overflow:auto; }
+  #chatlog li { white-space:pre-wrap; overflow-wrap:anywhere; }
+  #chatlog li.user { color:var(--dim); }
+  #chatlog li.user::before { content:"you · "; color:var(--accent); }
+  #chatlog li.assistant::before { content:"producer · "; color:var(--accent); }
+  #chatform { display:flex; gap:8px; }
+  #chatin { flex:1; min-width:0; font:inherit; font-size:14px; padding:8px 10px; border-radius:6px;
+            border:1px solid var(--line); background:transparent; color:var(--fg); }
+  #chatform button { font:inherit; font-size:13px; padding:0 14px; border-radius:6px; border:1px solid var(--line);
+            background:transparent; color:var(--fg); cursor:pointer; }
+  #chatform button:disabled, #chatin:disabled { opacity:.45; cursor:default; }
+  #chatstatus { color:var(--dim); font-size:12px; min-height:1.3em; }
   #pold time, #pnow + .when { color:var(--dim); font-size:12px; }
 
   /* Scope: always a dark "screen", whatever the page theme. */
@@ -104,6 +119,13 @@
     <div class="head">PRODUCER <span id="pmeta"></span></div>
     <p id="pnow"></p>
     <ol id="pold"></ol>
+  </div>
+  <div id="chat">
+    <div class="head">TALK TO THE PRODUCER</div>
+    <ol id="chatlog"></ol>
+    <form id="chatform"><input id="chatin" maxlength="500" autocomplete="off"
+      placeholder="Ask why it did something, or tell it what you want"><button id="chatsend">Send</button></form>
+    <div id="chatstatus">It answers between plans; its next plan reads what you say.</div>
   </div>
   <iframe class="panel" id="mixer" title="Mixer" hidden></iframe>
   <iframe class="panel" id="acid" title="303" hidden></iframe>
@@ -467,6 +489,39 @@ async function producerPoll() {
     t.textContent = ago(n.time) + ' · '; li.append(t, n.notes); return li; }));
 }
 producerPoll(); setInterval(producerPoll, 5000);
+// The chat: the log is polled (so replies and other listeners' messages show up),
+// a message is POSTed and waits for the answer (a plan in progress goes first).
+let chatShown = '', chatWaiting = false;
+async function chatPoll() {
+  let d = null;
+  try { const r = await fetch('/chat', { cache: 'no-store' }); if (r.ok) d = await r.json(); } catch {}
+  if (!d) return;
+  if (!d.chat) { $('chatin').disabled = $('chatsend').disabled = true;
+    $('chatstatus').textContent = 'The chat works from this machine, NetBird and the home network.'; }
+  const key = JSON.stringify(d.messages.map(m => m.time));
+  if (key === chatShown) return;
+  chatShown = key;
+  const log = $('chatlog'), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+  log.replaceChildren(...d.messages.map(m => { const li = document.createElement('li');
+    li.className = m.role; li.textContent = m.text; return li; }));
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+$('chatform').onsubmit = async e => {
+  e.preventDefault();
+  const text = $('chatin').value.trim();
+  if (!text || chatWaiting) return;
+  chatWaiting = true; $('chatsend').disabled = true; $('chatin').value = '';
+  $('chatstatus').textContent = 'Thinking… (if it is mid-plan, that finishes first: up to a couple of minutes)';
+  setTimeout(chatPoll, 300);
+  try {
+    const r = await fetch('/chat', { method: 'POST', body: JSON.stringify({ text }) });
+    const d = await r.json().catch(() => ({}));
+    $('chatstatus').textContent = r.ok ? 'Its next plan will read this too.'
+      : `No answer: ${d.error || r.statusText}. Your message is kept; the next plan still reads it.`;
+  } catch { $('chatstatus').textContent = 'No answer: the server didn\'t respond.'; }
+  chatWaiting = false; $('chatsend').disabled = false; chatPoll();
+};
+chatPoll(); setInterval(chatPoll, 4000);
 let rigState = null;
 async function rigPoll() {
   try { rigState = await (await fetch('/rig')).json(); } catch { rigState = null; }
