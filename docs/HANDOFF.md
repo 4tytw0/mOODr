@@ -431,11 +431,11 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
 - **Library:** `~/samples` = the Mac's whole PRODUCTION/SAMPLES (19 GB, 17,215 samples catalogued); resync steps in
   `tools/sample_catalog.py`; the producer reloads the catalog when it changes. Library samples play through fx.py's
   live slots (notes 96+, `~/.local/state/m00drc/live-fx/`), prepared by `tools/prep_sample.py`.
-- **Back to the menu arranger:** set the unit's ExecStart to `--arrange model --model qwen3.6-35b-music20 --floor 0.15`.
+- **Back to the menu arranger:** set the unit's ExecStart to `--arrange model --model qwen3.6-35b-music175 --floor 0.15`.
 
 ## Start-up: the producer configuration (as of 2026-10-31)
 
-Qwen (`qwen3.6-35b-music20`) produces the set: the roller runs `--arrange producer`, dice lanes off. Nothing starts at
+Qwen (`qwen3.6-35b-music175`) produces the set: the roller runs `--arrange producer`, dice lanes off. Nothing starts at
 boot; everything below is on demand, on the desktop (`ssh cacheos`; the login shell is fish, so wrap POSIX snippets in
 `bash -c`). m00Dr is a GUI app: someone has to be logged in to Plasma (autologin doesn't work).
 
@@ -446,10 +446,10 @@ boot; everything below is on demand, on the desktop (`ssh cacheos`; the login sh
    desktop or NetBird), or `curl -s -X POST -d '{"on": true}' http://127.0.0.1:8808/rig`.
 3. **The producer:** the roller (`m00drc-roller`) follows when someone's here (an open player page or a listener; the
    idle watchdog stops it after 3 min with nobody). Without a listener: `systemctl --user start m00drc-roller`.
-   llama-swap loads music20 on its first plan (~10 s), then a plan takes ~80-110 s.
+   llama-swap loads music175 on its first plan (~10 s), then a plan takes ~80-110 s.
 4. **Check:**
    - `systemctl --user is-active m00dr m00dr-synth-links m00dr-fluidsynth m00dr-sunvox303 m00dr-sunvoxbass m00dr-sunvoxdrums m00dr-sunvoxkeys m00dr-breaks m00dr-fx m00drc-roller m800dr-mixer m800dr-audio m800dr-webrtc llama-swap`
-   - `curl -s 127.0.0.1:8080/running` shows `qwen3.6-35b-music20` once the producer has asked.
+   - `curl -s 127.0.0.1:8080/running` shows `qwen3.6-35b-music175` once the producer has asked.
    - `journalctl --user -u m00drc-roller -f | grep producer`: each plan's notes, every action with its result, and
      when it's asked next. `producer: no plan (...)` means a failed request; it retries after 4 bars.
    - The limiter: `limiter_db` in `$XDG_RUNTIME_DIR/m800dr-mixer.json` (0 = not touching the music).
@@ -476,9 +476,9 @@ Sononym must have analysed new files (open it on the Mac first) or the catalog l
 
 **Other modes** (the roller unit's ExecStart, `systemd/m00drc-roller.service`, copied to `~/.config/systemd/user/`,
 then `systemctl --user daemon-reload && systemctl --user restart m00drc-roller`):
-- producer: `--wait-for-play --arrange producer --model qwen3.6-35b-music20` (now)
-- menu arranger + library breaks + sound picks: `--wait-for-play --arrange model --model qwen3.6-35b-music20 --floor 0.15`
-- steering strength: `qwen3.6-35b-music05` / `-music10` / `-music20`, or plain `qwen3.6-35b` (localModel's llama-swap.yaml)
+- producer: `--wait-for-play --arrange producer --model qwen3.6-35b-music175` (now, since 2026-10-31; music20 before)
+- menu arranger + library breaks + sound picks: `--wait-for-play --arrange model --model qwen3.6-35b-music175 --floor 0.15`
+- steering strength: `qwen3.6-35b-music05` / `-music10` / `-music175` / `-music20`, or plain `qwen3.6-35b` (localModel's llama-swap.yaml)
 - dice only: `--wait-for-play --arrange dice`
 
 **All off** (the mix is put back as the roller found it, the model unloads):
