@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["radiant-voices>=2.0.1.2.1.4.0"]
+# ///
 """Generate three SunVox drum kits for m00Dr's drum part, and their note map.
 
 m00Dr's drums play four General MIDI keys: 36 kick, 38 snare, 42 closed hat,
@@ -24,7 +28,7 @@ layout every octave: the first 4 notes are bass drums, the next 3 hats, the
 last 5 snares, with the octave setting length and pitch (mapped by
 rendering every note).
 
-Run: uv run python -m m00drc.build_drumkits [out_dir]   # default ../synths
+Run: uv run voices/drums/build.py [out_dir]   # default ../synths
 """
 
 import json
@@ -38,7 +42,7 @@ from rv.modules.base.fm import BaseFm
 from rv.modules.base.generator import BaseGenerator as Gen
 from rv.modules.base.kicker import BaseKicker
 
-DEFAULT_OUT = Path(__file__).resolve().parent.parent.parent / "synths"
+DEFAULT_OUT = Path(__file__).resolve().parent
 KICK, SNARE, CLOSED_HAT, OPEN_HAT = 36, 38, 42, 46
 LIB_OFFSET = 23  # MIDI note = library note + LIB_OFFSET
 KICK_CLICK_RELEASE, KICK_CLICK_VOLUME = 6, 70   # the Machine kick's attack transient

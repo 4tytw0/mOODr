@@ -4,8 +4,8 @@
 # ///
 """m00Dr's acid, on SunVox: a headless SunVox library playing a 303-shaped patch.
 
-The patch is synths/acid303.sunvox (built by m00Drc/: `uv run python -m
-m00drc.build_project --acid`): Glide -> mono saw -> resonant 24 dB low-pass
+The patch is acid303.sunvox beside this file (built by `uv run
+voices/acid/build.py --acid`): Glide -> mono saw -> resonant 24 dB low-pass
 that a Velocity2Ctl kicks open on every note (further on accents) ->
 Distortion. Listens on ALSA sequencer
 client "m00Dr-SunVox303" (MIDI channel ACID_CHANNEL) and plays through pw-cat
@@ -31,11 +31,14 @@ The SunVox library is loaded by sunvoxlib.py (see there for where it lives).
 """
 import fcntl, json, os, pathlib, socket, subprocess, sys, threading, time
 import numpy as np
+import pathlib as _pathlib, sys as _sys
+VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
+_sys.path.insert(0, str(VOICE.parent / "_sunvox"))
 from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, find_module, load, open_lib
 
 SR, BLOCK = 48000, 256
 ACID_CHANNEL = 4                          # 0-based: m00Dr's acid part is MIDI ch5
-PROJECT = HERE / "synths" / "acid303.sunvox"
+PROJECT = VOICE / "acid303.sunvox"
 # The modules in PROJECT that take the notes: Glide plays them, Velocity2Ctl
 # kicks the filter open on each one (harder on accents).
 INPUT_MODULES = ("Acid glide ch5", "Acid accent ch5")
@@ -234,7 +237,7 @@ def main():
     threading.Thread(target=midi_loop, args=(open_midi(), synth), daemon=True).start()
     threading.Thread(target=control_loop, args=(synth,), daemon=True).start()
     threading.Thread(target=state_loop, args=(synth,), daemon=True).start()
-    # --target 0: left unlinked; synths/links.sh wires it into the mixer's acid strip.
+    # --target 0: left unlinked; mix/links.sh wires it into the mixer's acid strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",
                           "-P", "{ node.name=m00Dr-SunVox303 media.name=\"sunvox 303\" }", "-"], stdin=subprocess.PIPE)

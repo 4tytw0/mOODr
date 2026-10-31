@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["radiant-voices>=2.0.1.2.1.4.0"]
+# ///
 """Generate fuzzbass.sunvox: m00Dr's bass on SunVox, a reese-like saw pair and a
 sine sub mixed into a fuzz.
 
@@ -12,7 +16,7 @@ modules, and both go into the fuzz rather than a gentle drive:
                buzzing tone, the sub keeping it heavy
     -> Tone    24 dB low-pass, takes the fuzz's fizz off
 
-Run: uv run python -m m00drc.build_bass [out.sunvox]   # default ../synths/fuzzbass.sunvox
+Run: uv run voices/bass/build.py [out.sunvox]   # default: fuzzbass.sunvox beside this file
 """
 
 import sys
@@ -24,7 +28,7 @@ from rv.modules.base.distortion import BaseDistortion
 from rv.modules.base.filter import BaseFilter
 from rv.modules.base.generator import BaseGenerator as Gen
 
-DEFAULT_OUT = Path(__file__).resolve().parent.parent.parent / "synths" / "fuzzbass.sunvox"
+DEFAULT_OUT = Path(__file__).resolve().parent / "fuzzbass.sunvox"
 INPUT_MODULES = ("Saws", "Sub")
 # Osc2's detune, in 1/64 semitones (measured; SunVox stores it as 1000 + this,
 # and rv takes the signed value).

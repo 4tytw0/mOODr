@@ -14,7 +14,7 @@ top candidates, so each kit is a new combination. Some mixes ("driven",
 next to BREAKS_DIR. All presets are in bank 128 (drums); m00Dr picks one per
 Roll with a program change on its drum channel.
 
-    uv run tools/build_drumkit.py synths/gamedrums.sf2 [BREAKS_DIR] [--kits N] [--seed S]
+    uv run tools/build_drumkit.py voices/_fluidsynth/gamedrums.sf2 [BREAKS_DIR] [--kits N] [--seed S]
 
 BREAKS_DIR defaults to gamebreaks_raw: the type1/type2 versions are dulled
 (spectral centroid ~2 kHz against ~6 kHz raw), which leaves no hats to find.

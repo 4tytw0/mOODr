@@ -5,7 +5,7 @@
 """Drum breaks on fader 8: a break sliced into 16ths, played on m00Dr's clock
 and re-chopped as the progression goes on.
 
-The breaks are synths/breaks/NN.wav, listed in synths/breaks.json (built by
+The breaks are samples/NN.wav, listed in breaks.json (built by
 tools/build_breaks.py: 64 of the GAMEBREAKS breaks, one per hexagram, each a
 loop of 1, 2 or 4 bars). Listens on ALSA sequencer client "m00Dr-Breaks"
 and plays through pw-cat into the m800Dr Mixer's breaks strip, like
@@ -45,7 +45,7 @@ import numpy as np, soundfile as sf
 SR, BLOCK = 48000, 256
 BREAKS_CHANNEL = 7                        # 0-based: MIDI ch8
 HERE = Path(__file__).resolve().parent
-INDEX = HERE / "synths" / "breaks.json"
+INDEX = HERE / "breaks.json"
 LIVE, LIVE_FIRST = Path.home() / ".local/state/m00drc/live-breaks", 64   # the roller's cuts (see program)
 CHOP_LINES_CC, CHOP_CHANGING_CC = 20, 21
 SYNC_CC = 24                              # "a bar starts now": starts a stopped break
@@ -76,7 +76,7 @@ class Breaks:
         index = json.loads(INDEX.read_text())["breaks"]
         self.breaks = []
         for entry in index:
-            audio, rate = sf.read(INDEX.parent / "breaks" / entry["file"], dtype="float32", always_2d=True)
+            audio, rate = sf.read(INDEX.parent / "samples" / entry["file"], dtype="float32", always_2d=True)
             assert rate == SR, f"{entry['file']} is {rate} Hz"
             self.breaks.append((audio, entry["bars"], entry["name"]))
         self.fixed = len(self.breaks)
@@ -243,7 +243,7 @@ def demo(path, number=0):
 def main():
     breaks = Breaks()
     threading.Thread(target=midi_loop, args=(open_midi(), breaks), daemon=True).start()
-    # --target 0: left unlinked; synths/links.sh wires it into the mixer's breaks strip.
+    # --target 0: left unlinked; mix/links.sh wires it into the mixer's breaks strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",
                           "-P", "{ node.name=m00Dr-Breaks media.name=\"breaks\" }", "-"], stdin=subprocess.PIPE)

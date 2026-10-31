@@ -1,10 +1,11 @@
 [Unit]
+PartOf=m00dr.target
 Description=m00Dr: SunVox drum kits (ch6) via sunvoxdrums.py into the m800Dr Mixer's drums strip
 After=pipewire.service
 
 [Service]
-WorkingDirectory=/home/emin0r/code/m800Dr
-ExecStart=/usr/bin/uv run -q sunvoxdrums.py
+WorkingDirectory=%h/code/m00Dr
+ExecStart=/usr/bin/uv run -q voices/drums/player.py
 Restart=on-failure
 RestartSec=3
 

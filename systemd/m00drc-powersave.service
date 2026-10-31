@@ -6,9 +6,9 @@ PartOf=m00dr.service
 After=m00dr.service
 
 [Service]
-WorkingDirectory=/home/emin0r/code/m800Dr/m00Drc
+WorkingDirectory=%h/code/m00Dr
 # Exits when it can't reach m00Dr or the connection drops, so systemd retries.
-ExecStart=/usr/bin/uv run -q python -u -m m00drc.powersave
+ExecStart=/usr/bin/uv run -q python -u -m brain.powersave
 # However it ends (stop, crash, kill), leave power save on.
 ExecStopPost=-/usr/bin/sudo -n /usr/bin/iw dev wlan0 set power_save on
 Restart=always

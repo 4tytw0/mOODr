@@ -1,7 +1,7 @@
 # /// script
 # dependencies = ["numpy", "soundfile"]
 # ///
-"""Builds synths/chords.sf2: sustained multisampled patches for m00Dr's chords.
+"""Builds voices/_fluidsynth/chords.sf2: sustained multisampled patches for m00Dr's chords.
 
 Each preset is one multisample set from the "Strings Custom Kit" folder: every
 file is one note, keeps the loop points stored in its WAV `smpl` chunk (so a
@@ -10,7 +10,7 @@ pitch class comes from its name; the octave and fine tuning come from the
 detected pitch, since the sets don't agree on octave numbering. Files named
 -L/-R or (L)/(R) are panned hard left/right as a stereo pair.
 
-    uv run tools/build_chords.py synths/chords.sf2 [KIT_DIR]
+    uv run tools/build_chords.py voices/_fluidsynth/chords.sf2 [KIT_DIR]
 
 The ROMpler Chords and DX-7 folders aren't used: each of their files is a whole
 chord, so m00Dr's voicings would stack chords on chords.

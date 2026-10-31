@@ -16,8 +16,8 @@ how fast they beat. Stable chords pulse slowly (BEAT_MIN Hz), dissonant or low,
 muddy ones beat fast (up to BEAT_MAX Hz), gliding over BEAT_GLIDE as the
 progression moves.
 
-    uv run synths/reference/reese.py   # run (no longer a service: kept as the reference for its BPM-locked wobble)
-    uv run synths/reference/reese.py --demo x.wav   # render a short riff offline, for checking levels
+    uv run voices/reference/reese.py   # run (no longer a service: kept as the reference for its BPM-locked wobble)
+    uv run voices/reference/reese.py --demo x.wav   # render a short riff offline, for checking levels
 """
 import fcntl, subprocess, sys, threading
 import numpy as np
@@ -192,7 +192,7 @@ def demo(path):
 def main():
     synth = Reese()
     threading.Thread(target=midi_loop, args=(open_midi(), synth), daemon=True).start()
-    # --target 0: left unlinked; synths/links.sh wires it into the mixer's bass strip.
+    # --target 0: left unlinked; mix/links.sh wires it into the mixer's bass strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",
                           "-P", "{ node.name=m00Dr-Reese media.name=\"reese bass\" }", "-"], stdin=subprocess.PIPE)

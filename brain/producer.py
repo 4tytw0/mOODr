@@ -32,7 +32,7 @@ from .arrangement import BASS_CHANNEL, BASS_GATE_CC, GATES, WOBBLES
 
 MIXER = ("127.0.0.1", 9810)   # mixer.py's UDP control
 MIXER_LIVE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m800dr-mixer.json"
-REPO = pathlib.Path(__file__).resolve().parents[2]
+REPO = pathlib.Path(__file__).resolve().parents[1]
 SAMPLES = pathlib.Path.home() / "samples"
 PREP = REPO / "tools" / "prep_sample.py"
 LIVE_FX = pathlib.Path.home() / ".local/state/m00drc/live-fx"   # fx.py's live slots

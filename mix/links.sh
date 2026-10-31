@@ -11,7 +11,7 @@
 # Since 2026-10-31 FluidSynth only reaches the arp strip (ch3): chords and
 # drums are SunVox-only on the rig (ch1/ch4 still go out for hardware, PR #6). Open303 (ch5) was removed 2026-10-31.
 # SunVox (sunvoxbass.py) replaced reese.py on ch2; reese.py is kept in
-# synths/reference/ for its BPM-locked wobble (run it by hand, then swap the
+# voices/reference/ for its BPM-locked wobble (run it by hand, then swap the
 # m00Dr-SunVoxBass lines for the same ones with m00Dr-Reese).
 
 INTERVAL=${INTERVAL:-2}

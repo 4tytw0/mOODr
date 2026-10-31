@@ -184,7 +184,7 @@ DRUM_SOURCES = [SOUNDFONT_DRUMS, *(f"SunVox {name}" for name in SUNVOX_DRUM_KITS
 
 # Sounds for the chord and arp channels, as (name, bank, program), picked with bank
 # select (CC 0, GS style: the bank is CC 0's value) and a program change. On
-# the desktop these are FluidSynth's fonts (m800Dr synths/fluidsynth.cfg):
+# the desktop these are FluidSynth's fonts (voices/_fluidsynth/fluidsynth.cfg):
 # bank 0 GeneralUser GM, bank 1 gamebreaks.sf2 (stabs from the gamestabs
 # samples, and the phase_sine loop), bank 2 chords.sf2 (multisampled strings,
 # organ and guitar from the Strings Custom Kit, all looped so chords hold).

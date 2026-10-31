@@ -1,10 +1,11 @@
 [Unit]
+PartOf=m00dr.target
 Description=m00Dr: SunVox fuzz bass (ch2) via sunvoxbass.py into the m800Dr Mixer's bass strip
 After=pipewire.service
 
 [Service]
-WorkingDirectory=/home/emin0r/code/m800Dr
-ExecStart=/usr/bin/uv run -q sunvoxbass.py
+WorkingDirectory=%h/code/m00Dr
+ExecStart=/usr/bin/uv run -q voices/bass/player.py
 Restart=on-failure
 RestartSec=3
 

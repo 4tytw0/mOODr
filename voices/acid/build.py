@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["radiant-voices>=2.0.1.2.1.4.0"]
+# ///
 """Generate m00Drc.sunvox: one SunVox instrument per m00Dr voice.
 
 m00Dr sends each voice on its own MIDI channel (see moodr/playback.py), so
@@ -11,8 +15,8 @@ that happens to be selected in SunVox.
     Acid    ch5  Glide -> mono saw -> resonant LP that snaps open on every
                  note -> saturation with a light bit crush
 
-Run: uv run python -m m00drc.build_project [out.sunvox]
-     uv run python -m m00drc.build_project --acid [acid303.sunvox]   # ch5 voice only
+Run: uv run voices/acid/build.py [out.sunvox]
+     uv run voices/acid/build.py --acid [acid303.sunvox]   # ch5 voice only
 """
 
 import sys
@@ -24,7 +28,7 @@ from rv.modules.base.distortion import BaseDistortion
 from rv.modules.base.filter import BaseFilter
 from rv.modules.base.fm import BaseFm
 
-DEFAULT_OUT = Path(__file__).resolve().parent.parent / "m00Drc.sunvox"
+DEFAULT_OUT = Path(__file__).resolve().parent / "m00Drc.sunvox"
 DEFAULT_ACID_OUT = DEFAULT_OUT.with_name("acid303.sunvox")
 
 # m00Dr's channel map, 1-based as SunVox shows it.

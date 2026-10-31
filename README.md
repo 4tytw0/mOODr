@@ -1,3 +1,9 @@
+> **This repo is the whole m00Dr rig** since 2026-10-31 (m800Dr and m00Drc merged in, with history).
+> `composer/` m00Dr itself · `voices/<strip>/` one SunVox instrument per mixer strip (player, builder,
+> patches) · `mix/` mixer and graph links · `surfaces/` the :8808 page and stream · `brain/` roller and
+> Qwen producer · `tools/` offline sample work · `edges/` Mac bridge, `rig` command, M8 (parked) ·
+> `systemd/` units and `m00dr.target`. Old READMEs: `docs/m800Dr.md`, `docs/brain.md`, `docs/HANDOFF.md`.
+
 # m00Dr
 
 A MIDI chord-progression and acid-line generator. You pick a key and a scale; m00Dr

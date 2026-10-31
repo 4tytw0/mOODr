@@ -4,9 +4,9 @@
 # ///
 """m00Dr's drums on SunVox: three generated kits, picked by program change.
 
-The kits are synths/drumkit-*.sunvox, listed with their note map in
-synths/drumkits.json (both built by m00Drc: `uv run python -m
-m00drc.build_drumkits`). Each kit is loaded into its own SunVox slot. A
+The kits are drumkit-*.sunvox beside this file, listed with their note map in
+drumkits.json (both built by `uv run
+voices/drums/build.py`). Each kit is loaded into its own SunVox slot. A
 program change 0..2 on DRUM_CHANNEL picks the kit the next hits go to, and
 the old kit's tails ring out. Listens on ALSA sequencer client
 "m00Dr-SunVoxDrums" and plays through pw-cat into the m800Dr Mixer's drums
@@ -25,17 +25,20 @@ one (the kit's "chokes").
 """
 import fcntl, json, subprocess, sys, threading
 import numpy as np
+import pathlib as _pathlib, sys as _sys
+VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
+_sys.path.insert(0, str(VOICE.parent / "_sunvox"))
 from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, find_module, load, open_lib
 
 SR, BLOCK = 48000, 256
 DRUM_CHANNEL = 5                          # 0-based: m00Dr's SunVox drums are MIDI ch6
-KITS = HERE / "synths" / "drumkits.json"
+KITS = VOICE / "drumkits.json"
 VOLUME = 256                              # sv_volume per slot, 0..256
 
 
 class Kit:
     def __init__(self, sv, slot, spec):
-        path = HERE / "synths" / spec["file"]
+        path = VOICE / spec["file"]
         load(sv, slot, path)
         sv.sv_volume(slot, VOLUME)
         self.sv, self.slot, self.name = sv, slot, spec["name"]
@@ -134,7 +137,7 @@ def demo(out_dir):
 def main():
     drums = SunVoxDrums()
     threading.Thread(target=midi_loop, args=(open_midi(), drums), daemon=True).start()
-    # --target 0: left unlinked; synths/links.sh wires it into the mixer's drums strip.
+    # --target 0: left unlinked; mix/links.sh wires it into the mixer's drums strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",
                           "-P", "{ node.name=m00Dr-SunVoxDrums media.name=\"sunvox drums\" }", "-"], stdin=subprocess.PIPE)

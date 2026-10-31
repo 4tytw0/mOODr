@@ -4,8 +4,8 @@
 # ///
 """m00Dr's chords on SunVox: a DX7-style FM electric piano voiced like a Wurlitzer.
 
-The patch is synths/wurli.sunvox (built by m00Drc/: `uv run python -m
-m00drc.build_keys`): two FM layers, a 1:1 reed whose brightness decays fast
+The patch is wurli.sunvox beside this file (built by `uv run
+voices/chords/build.py`): two FM layers, a 1:1 reed whose brightness decays fast
 and a short 1:2 odd-harmonic bark, through tremolo, a little amp
 saturation, a low-pass and a small room.
 
@@ -25,11 +25,14 @@ into the m800Dr Mixer's chords strip, like reese.py.
 """
 import fcntl, subprocess, sys, threading
 import numpy as np
+import pathlib as _pathlib, sys as _sys
+VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
+_sys.path.insert(0, str(VOICE.parent / "_sunvox"))
 from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, ClockFollower, find_module, load, open_lib
 
 SR, BLOCK = 48000, 256
 KEYS_CHANNEL = 6                          # 0-based: m00Dr's SunVox chords are MIDI ch7
-PROJECT = HERE / "synths" / "wurli.sunvox"
+PROJECT = VOICE / "wurli.sunvox"
 INPUT_MODULES = ("Reed", "Bark")          # each note plays on both FM layers
 # The Bark layer's level (its C.Volume, 0..256) at velocity 0 and 127, set just
 # before each note so a hard hit barks. Matches m00Drc's build_keys.py.
@@ -177,7 +180,7 @@ def demo(path):
 def main():
     keys = SunVoxKeys()
     threading.Thread(target=midi_loop, args=(open_midi(), keys), daemon=True).start()
-    # --target 0: left unlinked; synths/links.sh wires it into the mixer's chords strip.
+    # --target 0: left unlinked; mix/links.sh wires it into the mixer's chords strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",
                           "-P", "{ node.name=m00Dr-SunVoxKeys media.name=\"sunvox keys\" }", "-"], stdin=subprocess.PIPE)

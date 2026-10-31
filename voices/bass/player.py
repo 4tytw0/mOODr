@@ -4,8 +4,8 @@
 # ///
 """m00Dr's bass on SunVox: a reese-like saw pair and a sine sub, mixed into a fuzz.
 
-The patch is synths/fuzzbass.sunvox (built by m00Drc/: `uv run python -m
-m00drc.build_bass`): a saw with its second oscillator detuned ~12 cents (the
+The patch is fuzzbass.sunvox beside this file (built by `uv run
+voices/bass/build.py`): a saw with its second oscillator detuned ~12 cents (the
 reese's beat) and a sine an octave below, both into hard-clipping fuzz, then
 a low-pass. Listens on ALSA sequencer client "m00Dr-SunVoxBass" (MIDI channel
 BASS_CHANNEL, m00Dr's bass part) and plays through pw-cat into the m800Dr
@@ -37,11 +37,14 @@ Two CCs on the bass channel, sent by m00Drc's arranger:
 """
 import fcntl, math, subprocess, sys, threading
 import numpy as np
+import pathlib as _pathlib, sys as _sys
+VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
+_sys.path.insert(0, str(VOICE.parent / "_sunvox"))
 from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, ClockFollower, find_module, load, open_lib
 
 SR, BLOCK = 48000, 256
 BASS_CHANNEL = 1                          # 0-based: m00Dr's bass part is MIDI ch2
-PROJECT = HERE / "synths" / "fuzzbass.sunvox"
+PROJECT = VOICE / "fuzzbass.sunvox"
 VOLUME = 256                              # sv_volume, 0..256
 # Module -> MIDI note to library note. Measured: played directly (no Glide in
 # front, unlike the acid), both generators sound MIDI n at library note n - 11.
@@ -224,7 +227,7 @@ def demo(path):
 def main():
     bass = SunVoxBass()
     threading.Thread(target=midi_loop, args=(open_midi(), bass), daemon=True).start()
-    # --target 0: left unlinked; synths/links.sh wires it into the mixer's bass strip.
+    # --target 0: left unlinked; mix/links.sh wires it into the mixer's bass strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",
                           "-P", "{ node.name=m00Dr-SunVoxBass media.name=\"sunvox bass\" }", "-"], stdin=subprocess.PIPE)

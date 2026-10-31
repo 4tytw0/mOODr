@@ -6,7 +6,7 @@
 
 A JACK client (PipeWire's libjack) "m800Dr-Mixer" with inputs <strip>_L/_R,
 a MIDI input "faders", a MIDI output "controls" and outputs out_L/_R.
-synths/links.sh wires the synths into it, any hardware MIDI controller into
+mix/links.sh wires the voices into it, any hardware MIDI controller into
 "faders", "controls" into m00Dr's control input, and out_L/_R into the
 m800dr_mix sink that server.py streams. Every CC that isn't a fader goes out
 on "controls" -- e.g. the knob that morphs m00Dr's drum pattern.

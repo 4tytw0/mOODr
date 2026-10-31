@@ -60,7 +60,7 @@ triggered it. The first roll waits the minimum after the roller starts, so
 restarts can't roll in quick succession.
 
 Knobs: the roller has an ALSA MIDI input, "m00Drc-Roller:knobs in", that
-m800Dr's synths/links.sh feeds from the mixer's "controls" output (every CC
+mix/links.sh feeds from the mixer's "controls" output (every CC
 from the Launch Control XL that isn't a fader). Knobs are absolute: the first
 turn takes over from the command-line value. Any MIDI channel.
 
@@ -77,9 +77,9 @@ access to MIDI clock.
 
 Needs m00Dr running with "Web remote" ticked (it listens on port 8766).
 
-    uv run python -m m00drc.roller                  # localhost, 4-bar cycle
-    uv run python -m m00drc.roller --seed 7 --bars 2 --shift 0.25
-    uv run python -m m00drc.roller --lanes roll,mode,acid.cutoff --dry-run
+    uv run python -m brain.roller                  # localhost, 4-bar cycle
+    uv run python -m brain.roller --seed 7 --bars 2 --shift 0.25
+    uv run python -m brain.roller --lanes roll,mode,acid.cutoff --dry-run
 """
 
 import argparse
@@ -112,13 +112,13 @@ SECTIONS = 8
 HEXAGRAM = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00drc-hexagram.json"
 
 # breaks.py's breaks with their transient maps (tools/transient_map.py), shown to the arranger.
-BREAKS_INDEX = pathlib.Path(__file__).resolve().parents[2] / "synths" / "breaks.json"
+BREAKS_INDEX = pathlib.Path(__file__).resolve().parents[1] / "voices" / "breaks" / "breaks.json"
 
 # Breaks from the sample library (m800Dr tools/sample_catalog.py and cut_breaks.py): on each
 # Roll, with --arrange model, the model picks between the Roll's own break and up to
 # LOOP_CHOICES loops cut fresh from SAMPLES; a pick goes to breaks.py's next live slot.
 SAMPLES = pathlib.Path.home() / "samples"
-CUT_BREAKS = pathlib.Path(__file__).resolve().parents[2] / "tools" / "cut_breaks.py"
+CUT_BREAKS = pathlib.Path(__file__).resolve().parents[1] / "tools" / "cut_breaks.py"
 LIVE_BREAKS = pathlib.Path.home() / ".local/state/m00drc/live-breaks"
 LIVE_FIRST, LIVE_SLOTS, LOOP_CHOICES = 64, 64, 5
 STRETCH = (0.75, 1.33)   # breaks.py's RATE_LIMITS: how far a loop's tempo can be bent to the set's

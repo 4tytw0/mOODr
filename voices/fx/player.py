@@ -21,8 +21,8 @@ Notes (FX_CHANNEL):
   96 and up     live samples: slot note-96, LIVE/NN.wav described in LIVE/index.json
                 ({"NN": {"name": ..., "loop": bool}}), read on note-on; m00Drc's
                 producer puts library samples there (tools/prep_sample.py)
-  84 and up     samples from synths/fx.json ({"samples": [{"note": 84, "file":
-                "rain.wav", "loop": false}]}, files in synths/fx/, 48 kHz): one-shots,
+  84 and up     samples from fx.json ({"samples": [{"note": 84, "file":
+                "rain.wav", "loop": false}]}, files in samples/, 48 kHz): one-shots,
                 or loops while held
 Velocity scales each sound's level. CC 123 (all notes off) fades everything out.
 
@@ -37,7 +37,7 @@ from scipy.signal import lfilter
 SR, BLOCK = 48000, 256
 FX_CHANNEL = 9                            # 0-based: MIDI ch10 (ch9 is the Launch Control XL's)
 HERE = Path(__file__).resolve().parent
-INDEX = HERE / "synths" / "fx.json"
+INDEX = HERE / "fx.json"
 LIVE, LIVE_NOTE = Path.home() / ".local/state/m00drc/live-fx", 96
 CLOCKS_PER_16TH = 6
 RISER_NOTES = {60: 2, 61: 4, 62: 8}       # note -> bars
@@ -140,7 +140,7 @@ class FX:
         self.samples = {}
         if INDEX.exists():
             for entry in json.loads(INDEX.read_text()).get("samples", []):
-                audio, rate = sf.read(INDEX.parent / "fx" / entry["file"], dtype="float32", always_2d=True)
+                audio, rate = sf.read(INDEX.parent / "samples" / entry["file"], dtype="float32", always_2d=True)
                 assert rate == SR, f"{entry['file']} is {rate} Hz"
                 audio = audio if audio.shape[1] == 2 else np.repeat(audio[:, :1], 2, axis=1)
                 self.samples[entry["note"]] = (audio, bool(entry.get("loop")))
@@ -275,7 +275,7 @@ def demo(path):
 def main():
     fx = FX()
     threading.Thread(target=midi_loop, args=(open_midi(), fx), daemon=True).start()
-    # --target 0: left unlinked; synths/links.sh wires it into the mixer's fx strip.
+    # --target 0: left unlinked; mix/links.sh wires it into the mixer's fx strip.
     p = subprocess.Popen(["pw-cat", "--playback", "--raw", "--format=f32", f"--rate={SR}", "--channels=2",
                           "--target=0", f"--latency={BLOCK}",
                           "-P", "{ node.name=m00Dr-FX media.name=\"fx\" }", "-"], stdin=subprocess.PIPE)

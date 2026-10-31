@@ -1,10 +1,11 @@
 [Unit]
+PartOf=m00dr.target
 Description=m00Dr: SunVox FM Wurlitzer (ch7) via sunvoxkeys.py into the m800Dr Mixer's chords strip
 After=pipewire.service
 
 [Service]
-WorkingDirectory=/home/emin0r/code/m800Dr
-ExecStart=/usr/bin/uv run -q sunvoxkeys.py
+WorkingDirectory=%h/code/m00Dr
+ExecStart=/usr/bin/uv run -q voices/chords/player.py
 Restart=on-failure
 RestartSec=3
 

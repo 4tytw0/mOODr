@@ -4,7 +4,7 @@ After=pipewire.service
 
 [Service]
 ExecStart=/usr/bin/pw-loopback -n m800dr-mix-m8 --capture-props='node.name=m800dr_mix_m8_in target.object=alsa_input.usb-DirtyWave_M8_9415630-02.analog-stereo node.dont-fallback=true audio.position=[FL,FR]' --playback-props='node.name=m800dr_mix_m8_out node.description="M8 -> m800Dr Mixer" node.autoconnect=false audio.position=[FL,FR]'
-# The playback side is left unlinked: synths/links.sh wires it into the
+# The playback side is left unlinked: mix/links.sh wires it into the
 # mixer's m8 strip.
 # pw-loopback exits 0 if the M8 node isn't there yet (boot race), so restart
 # on clean exits too.

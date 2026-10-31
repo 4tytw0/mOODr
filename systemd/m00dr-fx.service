@@ -1,10 +1,11 @@
 [Unit]
+PartOf=m00dr.target
 Description=m00Dr: FX (ch10) via fx.py: risers, downlifters, impact, atmosphere, samples, into the m800Dr Mixer's fx strip
 After=pipewire.service
 
 [Service]
-WorkingDirectory=/home/emin0r/code/m800Dr
-ExecStart=/usr/bin/uv run -q fx.py
+WorkingDirectory=%h/code/m00Dr
+ExecStart=/usr/bin/uv run -q voices/fx/player.py
 Restart=on-failure
 RestartSec=3
 

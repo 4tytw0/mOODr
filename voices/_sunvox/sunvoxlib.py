@@ -1,7 +1,7 @@
 """The SunVox library, loaded for offline rendering: shared by sunvox303.py
 and sunvoxdrums.py.
 
-The library itself isn't in git: synths/sunvox_lib/ holds sunvox.so (Linux
+The library itself isn't in git: sunvox_lib/ (beside this file) holds sunvox.so (Linux
 x86_64) or sunvox.dylib (macOS), from warmplace.ru/soft/sunvox
 (sunvox_lib-*.zip).
 """
@@ -10,7 +10,7 @@ from collections import deque
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-LIB = HERE / "synths" / "sunvox_lib" / ("sunvox.dylib" if sys.platform == "darwin" else "sunvox.so")
+LIB = HERE / "sunvox_lib" / ("sunvox.dylib" if sys.platform == "darwin" else "sunvox.so")
 
 SV_INIT_FLAG_NO_DEBUG_OUTPUT = 1 << 0
 SV_INIT_FLAG_USER_AUDIO_CALLBACK = 1 << 1

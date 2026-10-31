@@ -24,9 +24,9 @@ energy all present). The canonical breaks in PINNED come first (when they
 pass); the rest of the COUNT are picked round-robin across the packs, each
 pack's best-gridded first, so live breaks aren't crowded out by programmed
 loops (which always grid tighter). They're written in tempo order, resampled to 48 kHz at the same loudness, as
-synths/breaks/NN.wav with synths/breaks.json (name, pack, bars, tempo).
+voices/breaks/samples/NN.wav with voices/breaks/breaks.json (name, pack, bars, tempo).
 The audio is git-ignored (sampled breaks): build it on the machine that has
-the packs and copy synths/breaks/ over.
+the packs and copy voices/breaks/samples/ over.
 
     uv run tools/build_breaks.py [--games]
 """
@@ -60,7 +60,7 @@ PINNED = ["Amen, Brother (ver.1)", "Lyn Collins - Think (part1)", "Funky Preside
           "Use Me", "Fresh", "Funky Donkey (part1)"]
 GAMES = {"GAMEBREAKS": PRODUCTION / "SAMPLES/GAMEBREAKS/gamebreaks_raw"}
 HERE = pathlib.Path(__file__).resolve().parent.parent
-OUT_DIR, INDEX = HERE / "synths" / "breaks", HERE / "synths" / "breaks.json"
+OUT_DIR, INDEX = HERE / "voices" / "breaks" / "samples", HERE / "voices" / "breaks" / "breaks.json"
 BANDS = {name: butter(4, f, kind, fs=SR, output="sos") for name, f, kind in
          (("low", 150, "lowpass"), ("mid", (180, 1200), "bandpass"), ("high", 6000, "highpass"))}
 

@@ -1,7 +1,7 @@
 # /// script
 # dependencies = ["numpy", "scipy", "soundfile"]
 # ///
-"""Tags each break in synths/breaks.json with its transient map: per bar, two
+"""Tags each break in voices/breaks/breaks.json with its transient map: per bar, two
 bytes, one bit per 16th, set where a transient starts on that 16th.
 
 A 16th's bit is 1 when the strongest onset within GRID_TOLERANCE of a 16th

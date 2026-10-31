@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["radiant-voices>=2.0.1.2.1.4.0"]
+# ///
 """Generate wurli.sunvox: a DX7-style FM electric piano voiced like a Wurlitzer.
 
 For m00Dr's chords, played by m800Dr's sunvoxkeys.py. Two 2-operator FM
@@ -23,7 +27,7 @@ patch did this a note late: its change landed after the Bark note had started.)
 
 Notes go to all of INPUT_MODULES (sunvoxkeys.py sends each note to each).
 
-Run: uv run python -m m00drc.build_keys [out.sunvox]   # default ../synths/wurli.sunvox
+Run: uv run voices/chords/build.py [out.sunvox]   # default: wurli.sunvox beside this file
 """
 
 import sys
@@ -35,7 +39,7 @@ from rv.modules.base.filter import BaseFilter
 from rv.modules.base.fm import BaseFm
 from rv.modules.base.lfo import BaseLfo
 
-DEFAULT_OUT = Path(__file__).resolve().parent.parent.parent / "synths" / "wurli.sunvox"
+DEFAULT_OUT = Path(__file__).resolve().parent / "wurli.sunvox"
 INPUT_MODULES = ("Reed", "Bark")
 BARK_SOFT, BARK_HARD = 0, 90  # Bark carrier volume (0..256) at velocity 0 and 127, set by the player
 TREMOLO_HZ = 5.5
