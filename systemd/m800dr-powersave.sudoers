@@ -1,0 +1,4 @@
+# Lets m00drc-powersave.service switch the desktop's Wi-Fi power save, and
+# nothing else. Install with:
+#   sudo install -m 440 -o root -g root systemd/m800dr-powersave.sudoers /etc/sudoers.d/m800dr-powersave
+emin0r ALL=(root) NOPASSWD: /usr/bin/iw dev wlan0 set power_save on, /usr/bin/iw dev wlan0 set power_save off

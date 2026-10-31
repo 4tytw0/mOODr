@@ -1,0 +1,12 @@
+[Unit]
+Description=m00Dr: SunVox 303 acid (ch5) via sunvox303.py into the m800Dr Mixer
+After=pipewire.service
+
+[Service]
+WorkingDirectory=/home/emin0r/code/m800Dr
+ExecStart=/usr/bin/uv run -q sunvox303.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

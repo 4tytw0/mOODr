@@ -1,0 +1,12 @@
+[Unit]
+Description=m00Dr: SunVox drum kits (ch6) via sunvoxdrums.py into the m800Dr Mixer's drums strip
+After=pipewire.service
+
+[Service]
+WorkingDirectory=/home/emin0r/code/m800Dr
+ExecStart=/usr/bin/uv run -q sunvoxdrums.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

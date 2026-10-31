@@ -1,0 +1,18 @@
+[Unit]
+Description=m00Drc: Wi-Fi power save off while m00Dr plays, on while it's stopped
+# m00Dr lives with the Plasma session; this follows it, like the roller.
+# Needs systemd/m800dr-powersave.sudoers in /etc/sudoers.d.
+PartOf=m00dr.service
+After=m00dr.service
+
+[Service]
+WorkingDirectory=/home/emin0r/code/m800Dr/m00Drc
+# Exits when it can't reach m00Dr or the connection drops, so systemd retries.
+ExecStart=/usr/bin/uv run -q python -u -m m00drc.powersave
+# However it ends (stop, crash, kill), leave power save on.
+ExecStopPost=-/usr/bin/sudo -n /usr/bin/iw dev wlan0 set power_save on
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=m00dr.service
