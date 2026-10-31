@@ -41,13 +41,15 @@
   input[type=range] { width:100%; accent-color:var(--accent); }
   #status { color:var(--dim); font-size:13px; min-height:1.4em; }
   /* The producer's (Qwen's) notes: what it's thinking each plan, newest on top. */
-  #producer { border-top:1px solid var(--line); padding-top:14px; display:grid; gap:10px; }
+  /* The right column: the producer's notes on top, then the mixer or 303 panel. */
+  #side { display:grid; gap:18px; align-content:start; min-width:0; }
+  #producer { border-bottom:1px solid var(--line); padding-bottom:14px; display:grid; gap:10px; }
   #producer[hidden] { display:none; }
   #producer .head { color:var(--dim); font-size:12px; letter-spacing:.12em; }
   #producer .head span { letter-spacing:0; }
   #pnow { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
   #pold { list-style:none; margin:0; padding:0; display:grid; gap:10px; color:var(--dim); font-size:13px;
-          max-height:22em; overflow:auto; }
+          max-height:12em; overflow:auto; }
   #pold li { white-space:pre-wrap; overflow-wrap:anywhere; }
   #pold time, #pnow + .when { color:var(--dim); font-size:12px; }
 
@@ -96,14 +98,16 @@
   <label>Stream <span><button class="chip sel" id="via-webrtc" title="Opus over UDP: a lost packet is concealed instead of stalling the stream, and the browser's jitter buffer adapts to the network">WEBRTC</button> <button class="chip" id="via-raw" title="Raw PCM over HTTP: no codec, but a lost packet stalls the stream until it's resent">RAW</button></span></label>
   <label>Buffer <button class="chip sel" id="bufauto" title="Auto: keep the buffer just above what the network needs, growing after a dropout and shrinking while it's calm">AUTO</button> <b id="bufv">60 ms</b><input id="buf" type="range" min="10" max="300" step="5" value="60"></label>
   <div id="status">Stopped</div>
+  </section>
+  <div id="side">
   <div id="producer" hidden>
     <div class="head">PRODUCER <span id="pmeta"></span></div>
     <p id="pnow"></p>
     <ol id="pold"></ol>
   </div>
-  </section>
   <iframe class="panel" id="mixer" title="Mixer" hidden></iframe>
   <iframe class="panel" id="acid" title="303" hidden></iframe>
+  </div>
 </main>
 <script>
 const RATE = 48000, CH = 2, BYTES_PER_FRAME = CH * 2, MIN_FRAMES = 480; // schedule >=10 ms at a time
