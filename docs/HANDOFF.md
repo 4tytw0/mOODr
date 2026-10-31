@@ -5,8 +5,8 @@
 **Everything below the next heading is history from before 2026-10-31**: paths like `~/code/m800Dr`,
 `m00Drc/`, `synths/`, FluidSynth and Open303 are gone. Read `README.md` for the current layout.
 
-- **One repo:** this one (`~/code/m00Dr`, GitHub `4tytw0/mOODr`, branch `consolidate`; not merged
-  to `main` yet). m800Dr and m00Drc were merged in with history; the old checkouts are in
+- **One repo:** this one (`~/code/m00Dr`, GitHub `4tytw0/mOODr`, **`main`**; Phases 0 and 1 merged
+  in PR #7, 2026-10-31. The live checkout is on `main`). m800Dr and m00Drc were merged in with history; the old checkouts are in
   `~/code/_old/`. Layout: `composer/` `voices/<strip>/` `mix/` `surfaces/` `brain/` `tools/` `edges/`.
 - **Start/stop:** `rig up | status | log | down` from the Mac (`edges/mac/rig`, installed in the
   Mac's `~/.local/bin`), or `systemctl --user start|stop m00dr.target` here. Units install with
@@ -30,6 +30,24 @@
   keep `tools/build_chords.py` and `phase_sine.py`, the builders use them) · Phase 2 (headless
   composer) and Phase 3 (fewer processes) not started. The full plan is in Tyler's Code-ish vault,
   `_vault/m00Dr rig consolidation.md`.
+
+### Next session: Phases 2-4
+
+- **Phase 2, headless composer** (nice to have: the desktop logs in at boot, so a session is
+  always there). Today the Qt window *is* the state: `composer/moodr/app.py` holds every control
+  as a widget, `PlaybackEngine` (`playback.py`) reads them, and `web_remote.py` (which the
+  producer drives) works the window's widgets. The move is a plain state/controller object that
+  the engine reads and the web remote, the producer and (optionally) Qt all write. Start by
+  listing what `app.py` owns that isn't presentation; `playback.py`, `clock.py` and `oracle.py`
+  are already UI-free. 233 tests in `composer/tests` cover the engine.
+- **Phase 3, fewer processes.** One SunVox library session renders all its slots into one stereo
+  output, so strips must stay separate sessions: one process would need one library *copy* per
+  strip (first check that `sunvox.so` loaded under different names, or with `dlmopen`, gives
+  independent instances). Players share `voices/_sunvox/bank.py`; chords and bass have their own
+  tempo logic (tremolo, beat/wobble) to keep.
+- **Phase 4, the producer as a client.** It already steers through m00Dr's web remote and the
+  mixer's UDP control. Left: the "a fader you move caps it" rule lives in `mix/mixer.py` (fine), and
+  the roller is sometimes killed on stop (systemd timeout), so it never restores on stop.
 
 ## Before 2026-10-31
 
