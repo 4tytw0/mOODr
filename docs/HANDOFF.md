@@ -1,4 +1,37 @@
-# m800Dr / m00Dr on the desktop — handoff
+# m00Dr rig on the desktop — handoff
+
+## Start here (2026-10-31): one repo, all SunVox, a producer you can talk to
+
+**Everything below the next heading is history from before 2026-10-31**: paths like `~/code/m800Dr`,
+`m00Drc/`, `synths/`, FluidSynth and Open303 are gone. Read `README.md` for the current layout.
+
+- **One repo:** this one (`~/code/m00Dr`, GitHub `4tytw0/mOODr`, branch `consolidate`; not merged
+  to `main` yet). m800Dr and m00Drc were merged in with history; the old checkouts are in
+  `~/code/_old/`. Layout: `composer/` `voices/<strip>/` `mix/` `surfaces/` `brain/` `tools/` `edges/`.
+- **Start/stop:** `rig up | status | log | down` from the Mac (`edges/mac/rig`, installed in the
+  Mac's `~/.local/bin`), or `systemctl --user start|stop m00dr.target` here. Units install with
+  `cp systemd/*.service systemd/m00dr.target ~/.config/systemd/user/ && systemctl --user daemon-reload`.
+- **Voices:** one SunVox session per strip, patches by program change (`voices/_sunvox/bank.py`):
+  chords Wurli/OBX strings/Arco strings/Organ/Pad (ch7), bass Fuzz/Reese (ch2), arp 10 stabs +
+  Phase sine (ch3), acid 303 (ch5), drums Machine/Boom/Crunch (ch6), breaks (ch8), fx (ch10).
+  `uv run voices/<strip>/build.py` rebuilds a strip's patches; `player.py --demo out.wav` renders them.
+- **Producer:** `qwen3.6-35b-music175` (set by the localModel session). m00Dr's menus list only
+  SunVox patches (+ a bass menu) so its sound picks are real. Its prompt now says what's audible
+  per part, and actions on a part switched off in m00Dr come back flagged as having no effect.
+- **Audio page:** the producer's notes and a chat with it (`/producer`, `/chat`; files in
+  `$XDG_RUNTIME_DIR/m00drc-{producer,chat}.json`); its next plan reads the chat. On the Mac use
+  RAW: WebRTC never connects from Chrome there.
+- **Heard once** (14:00–14:25): all ran; the producer switched most parts off itself (a style the
+  ×0.175 vector seems to push; Tyler: leave it). Fixed since, not yet heard: the saved mix keeps
+  m00Dr's part toggles; the audible grounding.
+- **Open:** the roller is sometimes killed on stop (systemd timeout; the next start restores from
+  its save) · mixer strip labels show old channels (cosmetic) · FluidSynth leftovers to delete
+  (`voices/_fluidsynth/`, its unit, `tools/build_drumkit.py`, `build_gamebreaks.sh`, `build_sf2.py`;
+  keep `tools/build_chords.py` and `phase_sine.py`, the builders use them) · Phase 2 (headless
+  composer) and Phase 3 (fewer processes) not started. The full plan is in Tyler's Code-ish vault,
+  `_vault/m00Dr rig consolidation.md`.
+
+## Before 2026-10-31
 
 _Last updated 2026-10-24 (I Ching arcs, breaks on fader 8, controller transport, drums back on the grid, dropouts fixed, WebRTC stream; see "Done 2026-10-18/24"). **All m00Dr services were stopped on request at the end of 2026-10-24**; see "Resume here"._ This is the M8 rig, which now runs entirely on the Linux desktop
 (`Desktop`, 192.168.1.17, CachyOS, KDE Wayland) instead of the MacBook. The Dirtywave M8
