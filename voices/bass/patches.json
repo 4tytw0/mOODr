@@ -1,0 +1,22 @@
+{
+ "patches": [
+  {
+   "program": 0,
+   "name": "Fuzz",
+   "file": "fuzzbass.sunvox",
+   "inputs": [
+    "Saws",
+    "Sub"
+   ]
+  },
+  {
+   "program": 1,
+   "name": "Reese",
+   "file": "reese.sunvox",
+   "inputs": [
+    "Saws",
+    "Sub"
+   ]
+  }
+ ]
+}
