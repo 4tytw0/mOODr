@@ -18,6 +18,9 @@ playing it faster or slower (within RATE_LIMITS; beyond that the slice is
 cut short or leaves a gap, as a sampler's chopped break would).
 
 What plays comes from m00Drc's roller, on MIDI ch8 (BREAKS_CHANNEL):
+  * CC SYNC_CC on a bar line starts the break there if it isn't running: a
+    breaks.py restarted mid-set has missed m00Dr's Start, and the roller sends
+    it on every chord change (a bar line) so the break comes back in on the next bar.
   * a program change 64..127 picks one of the roller's own cuts from the
     sample library instead: live slot N-64, LIVE/NN.wav described in
     LIVE/index.json, read when the program change arrives.
@@ -45,6 +48,7 @@ HERE = Path(__file__).resolve().parent
 INDEX = HERE / "synths" / "breaks.json"
 LIVE, LIVE_FIRST = Path.home() / ".local/state/m00drc/live-breaks", 64   # the roller's cuts (see program)
 CHOP_LINES_CC, CHOP_CHANGING_CC = 20, 21
+SYNC_CC = 24                              # "a bar starts now": starts a stopped break
 CHOP_STEPS = (2, 4, 6, 10, 12, 14)        # the 16th each line's pair starts on, bottom line first
 CLOCKS_PER_16TH = 6                       # MIDI Beat Clock: 24 per beat
 RATE_LIMITS = (0.75, 1.33)                # how far a slice is sped up/slowed to fit the 16th
@@ -139,6 +143,15 @@ class Breaks:
         with self.lock:
             if cc == CHOP_LINES_CC: self.lines = value & 63
             elif cc == CHOP_CHANGING_CC: self.changing = value & 63
+            elif cc == SYNC_CC:
+                if self.count is None:
+                    # The bar's first pulse has just gone by: play its first 16th now and
+                    # count on from there, or every 16th would land a pulse late.
+                    self.pulse_times = []
+                    self._trigger(0)
+                    self.count = 1
+                    print("synced: started on a bar line without m00Dr's Start", flush=True)
+                return
             else: return
             self.order = chop(self.lines, self.changing)
 

@@ -151,7 +151,7 @@ def break_text(entry: dict) -> str:
 
 # m800Dr's breaks.py: its MIDI channel (1-based) and the CCs that carry a
 # chop's six lines (see breaks.chop).
-BREAKS_CHANNEL, CHOP_LINES_CC, CHOP_CHANGING_CC = 8, 20, 21
+BREAKS_CHANNEL, CHOP_LINES_CC, CHOP_CHANGING_CC, BREAKS_SYNC_CC = 8, 20, 21, 24
 # m800Dr's fx.py (risers, impact, atmosphere): its MIDI channel, 1-based.
 FX_CHANNEL = 10
 
@@ -419,6 +419,7 @@ class Roller:
         if self.args.dry_run or self.sound_out is None:
             return
         from alsa_midi import ProgramChangeEvent
+        await self._send_cc(BREAKS_CHANNEL, BREAKS_SYNC_CC, 127)   # a bar line: starts breaks.py if it missed Start
         if self.breaks_program != self.breaks_sent:
             await self.midi.event_output(ProgramChangeEvent(channel=BREAKS_CHANNEL - 1, value=self.breaks_program),
                                          port=self.sound_out)
