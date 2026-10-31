@@ -77,8 +77,19 @@ A drop only comes after a build. Move mostly one part at a time: take_out and br
 gradually. Strip, drop and sweep_out are big moments; push is rare emphasis, \
 for when a part really needs to hit harder. Builds should lead to drops, strips \
 should rebuild, and the last section before a new Roll suits a sweep_out. \
+The break line is the drum break playing now, a bar at a time: its 16ths as x \
+(a hit starts there) or . (none), and how many of the 16 hit. A busy break \
+already carries the rhythm, so other parts can make room; a sparse one leaves \
+space to fill. \
 Answer with exactly one word: hold, strip, take_out, bring_back, build, drop, \
 sweep_out or push."""
+
+PART_INSTRUCTIONS = """\
+You arrange a live generative techno set like a DJ working the mixer. The \
+next move is chosen; pick the part it acts on, from the ones listed. Weigh \
+the drum break: when it's busy, the breaks part carries the rhythm; when it's \
+sparse, other parts have room. Answer with exactly one word: the part."""
+PART_MOVES = ("take_out", "bring_back", "push")
 
 
 def mixer_faders() -> tuple[dict[str, float], float] | None:
@@ -131,6 +142,7 @@ class Arranger:
         self.fx = None                     # async fx(note, velocity) -> sends to fx.py; 0 = note off
         self.atmos = False
         self.position: tuple[int, int] | None = None   # (section, of n) in the arc, set by the roller
+        self.break_info: str | None = None   # the break playing and its transient map, set by the roller
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # -- what's possible now ------------------------------------------------------
@@ -167,7 +179,18 @@ class Arranger:
 
     def describe(self) -> str:
         return (f"in: {', '.join(self.parts_in()) or 'nothing'}; out: {', '.join(self.parts_out()) or 'nothing'}; "
-                f"arp {self.arp_rate}, drums busy {self.mutate}%, pump {self.sidechain:.2f}")
+                f"arp {self.arp_rate}, drums busy {self.mutate}%, pump {self.sidechain:.2f}"
+                + (f"\nBreak: {self.break_info}" if self.break_info else ""))
+
+    def part_choices(self, move: str) -> list[str]:
+        """The parts `move` may act on now (drums never go out on their own; push is tonal only)."""
+        if move == "take_out":
+            return [p for p in self.parts_in() if p != "drums"] or self.parts_in()
+        if move == "bring_back":
+            return self.parts_out()
+        if move == "push":
+            return [p for p in self.parts_in() if p in TONAL]
+        return []
 
     # -- choosing -----------------------------------------------------------------
 
@@ -187,6 +210,17 @@ class Arranger:
         # Its favourite isn't possible now: the rest of its odds are close to noise.
         self.wanted = top if top not in valid and odds[top] > 0.5 else None
         return valid if sum(valid.values()) > 0 else None
+
+    def model_part(self, api: str, model: str, move: str, history: list[str], now: str) -> str | None:
+        """Blocking. The part the model would have `move` act on, or None (the dice pick it)."""
+        choices = self.part_choices(move)
+        if len(choices) < 2:
+            return None
+        user = ("Sections so far:\n" + ("\n".join(history) or "(none yet)")
+                + f"\n\nNow: {now}\nThe arrangement: {self.describe()}\n"
+                f"The next move: {move}. Parts it can act on: {', '.join(choices)}.\nWhich part?")
+        odds = choice_odds(api, model, tuple(choices), PART_INSTRUCTIONS, user)
+        return max(odds, key=odds.get) if odds else None
 
     def roll(self, odds: dict[str, float], temperature: float, floor: float, rng: random.Random) -> str:
         """Rolls the odds over the moves valid now; `floor` spreads some chance over all of them."""
@@ -222,8 +256,12 @@ class Arranger:
         if self.fx is not None and not self.dry_run:
             await self.fx(note, velocity)
 
-    async def play(self, move: str, ws, bpm: float, rng: random.Random) -> str:
-        """Plays `move` out; returns what it did, for the log and the model's history."""
+    async def play(self, move: str, ws, bpm: float, rng: random.Random, part: str | None = None) -> str:
+        """Plays `move` out; returns what it did, for the log and the model's history.
+        `part` is the model's pick for a PART_MOVES move; without one (or if it
+        isn't possible) the dice pick."""
+        if part not in self.part_choices(move):
+            part = None
         beat_s = 60.0 / bpm
         self.section += 1
         self.last[move] = self.section
@@ -235,7 +273,7 @@ class Arranger:
             part, self.pushed = self.pushed, None
             await self._ramp({part: self.base[part]}, 2, beat_s)
         if move == "push":
-            part = rng.choice([p for p in self.parts_in() if p in TONAL])
+            part = part or rng.choice(self.part_choices("push"))
             self.pushed = part
             await self._ramp({part: min(PUSH_MAX, self.base[part] + PUSH_ABOVE)}, 2, beat_s)
             return f"push ({part} into the fuzz)"
@@ -248,11 +286,11 @@ class Arranger:
             await self._ramp({p: 0.0 for p in gone}, 8, beat_s)
             return f"strip ({', '.join(gone)} out)"
         if move == "take_out":
-            part = rng.choice([p for p in self.parts_in() if p != "drums"] or self.parts_in())
+            part = part or rng.choice(self.part_choices("take_out"))
             await self._ramp({part: 0.0}, 8, beat_s)
             return f"take_out ({part})"
         if move == "bring_back":
-            part = rng.choice(self.parts_out())
+            part = part or rng.choice(self.part_choices("bring_back"))
             await self._ramp({part: self.base[part]}, 8, beat_s)
             return f"bring_back ({part})"
         if move == "build":

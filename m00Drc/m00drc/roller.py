@@ -95,7 +95,7 @@ from dataclasses import dataclass
 
 import websockets
 
-from .arrangement import BASE, Arranger, save_base, starting_mix
+from .arrangement import BASE, PART_MOVES, Arranger, save_base, starting_mix
 from .weights import MOVES, ModelMover, turn
 
 # Draws are 7-bit, 0..INT_MAX: the range of a MIDI CC, so a sound lane sends
@@ -107,6 +107,16 @@ SECTIONS = 8
 
 # The section now playing, for anything that draws it (server.py serves it at /hexagram).
 HEXAGRAM = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00drc-hexagram.json"
+
+# breaks.py's breaks with their transient maps (tools/transient_map.py), shown to the arranger.
+BREAKS_INDEX = pathlib.Path(__file__).resolve().parents[2] / "synths" / "breaks.json"
+
+
+def break_text(entry: dict) -> str:
+    """A break for the arranger: name, bars and each bar's 16ths as x/. with its hit count."""
+    bars = [f"{int(tag, 16):016b}" for tag in entry.get("transients", [])]
+    grid = " | ".join(f"{b.replace('1', 'x').replace('0', '.')} {b.count('1')}/16" for b in bars)
+    return f"{entry['name']}, {entry['bars']} bar{'s' if entry['bars'] > 1 else ''}" + (f": {grid}" if grid else "")
 
 # m800Dr's breaks.py: its MIDI channel (1-based) and the CCs that carry a
 # chop's six lines (see breaks.chop).
@@ -313,6 +323,10 @@ class Roller:
         self.arc_task: asyncio.Task | None = None  # fills a model-weighted arc
         self.arranger: Arranger | None = None
         self.breaks_program = 0             # the break for the current Roll (see _send_breaks)
+        try:
+            self.breaks_index = json.loads(BREAKS_INDEX.read_text())["breaks"]
+        except (OSError, ValueError, KeyError):
+            self.breaks_index = []
         self.breaks_sent: int | None = None
         # Lane -> the last value it sent. A lane doesn't send the same value
         # twice in a row, so a section's int isn't re-sent every bar, and a
@@ -499,6 +513,8 @@ class Roller:
                 continue
             seen = (id(arc), k)
             self.arranger.position = (k, arc.count)
+            if self.breaks_program < len(self.breaks_index):
+                self.arranger.break_info = break_text(self.breaks_index[self.breaks_program])
             to_roll = max(0.0, self.next_roll - time.monotonic())
             now = f"section {k + 1} of {arc.count}, next Roll in {to_roll:.0f}s, {self._now_text()}"
             started = time.monotonic()
@@ -507,10 +523,12 @@ class Roller:
                                                history, now)
                 move = (self.arranger.roll(odds, self.args.temperature, self.args.floor, self.stream.rng) if odds
                         else self.arranger.dice(self.stream.rng)[0])
+                part = (await asyncio.to_thread(self.arranger.model_part, self.args.api, self.args.model,
+                                                move, history, now) if odds and move in PART_MOVES else None)
             else:
-                odds, move = None, self.arranger.dice(self.stream.rng)[0]
+                odds, move, part = None, self.arranger.dice(self.stream.rng)[0], None
             took = time.monotonic() - started
-            done = await self.arranger.play(move, ws, self.bpm(), self.stream.rng)
+            done = await self.arranger.play(move, ws, self.bpm(), self.stream.rng, part)
             history = (history + [f"section {k + 1}: {done}"])[-16:]
             if self.args.arrange == "model" and self.arranger.wanted:
                 print(f"arrange: the model wanted {self.arranger.wanted}, which isn't possible now", flush=True)
