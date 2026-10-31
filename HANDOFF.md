@@ -432,3 +432,54 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
   `tools/sample_catalog.py`; the producer reloads the catalog when it changes. Library samples play through fx.py's
   live slots (notes 96+, `~/.local/state/m00drc/live-fx/`), prepared by `tools/prep_sample.py`.
 - **Back to the menu arranger:** set the unit's ExecStart to `--arrange model --model qwen3.6-35b-music20 --floor 0.15`.
+
+## Start-up: the producer configuration (as of 2026-10-31)
+
+Qwen (`qwen3.6-35b-music20`) produces the set: the roller runs `--arrange producer`, dice lanes off. Nothing starts at
+boot; everything below is on demand, on the desktop (`ssh cacheos`; the login shell is fish, so wrap POSIX snippets in
+`bash -c`). m00Dr is a GUI app: someone has to be logged in to Plasma (autologin doesn't work).
+
+1. **Mixer, page, stream, model server:**
+   `systemctl --user start m800dr-mixer m800dr-audio m800dr-webrtc llama-swap`
+   Restarting `m800dr-mixer` later drops the stream for a second or two.
+2. **Rig on** (synths, breaks, fx, links, m00Dr, then Play): RIG on the page `http://192.168.1.17:8808` (only from the
+   desktop or NetBird), or `curl -s -X POST -d '{"on": true}' http://127.0.0.1:8808/rig`.
+3. **The producer:** the roller (`m00drc-roller`) follows when someone's here (an open player page or a listener; the
+   idle watchdog stops it after 3 min with nobody). Without a listener: `systemctl --user start m00drc-roller`.
+   llama-swap loads music20 on its first plan (~10 s), then a plan takes ~80-110 s.
+4. **Check:**
+   - `systemctl --user is-active m00dr m00dr-synth-links m00dr-fluidsynth m00dr-sunvox303 m00dr-sunvoxbass m00dr-sunvoxdrums m00dr-sunvoxkeys m00dr-breaks m00dr-fx m00drc-roller m800dr-mixer m800dr-audio m800dr-webrtc llama-swap`
+   - `curl -s 127.0.0.1:8080/running` shows `qwen3.6-35b-music20` once the producer has asked.
+   - `journalctl --user -u m00drc-roller -f | grep producer`: each plan's notes, every action with its result, and
+     when it's asked next. `producer: no plan (...)` means a failed request; it retries after 4 bars.
+   - The limiter: `limiter_db` in `$XDG_RUNTIME_DIR/m800dr-mixer.json` (0 = not touching the music).
+5. **Breaks silent after a restart mid-set:** breaks.py starts on the roller's bar-line sync (CC 24) at the next
+   chord change; one Stop/Play in m00Dr re-locks everything to the clock.
+6. **Blender (Mac, optional):** the hexagram in 3D. Open it with the iChing script running:
+   `open -a "$HOME/Library/Application Support/Steam/steamapps/common/Blender/Blender.app" --args "$HOME/Documents/Blender/iChing.blend" --python-text iChing`
+   It polls `http://192.168.1.17:8808/hexagram` every 2 s (macOS asks once to allow local network access). The
+   script's source is `tools/blender_iching.py`; paste it into the file's `iChing` text block if it's ever lost.
+
+**Your hands on it:** a fader you move by hand (Launch Control XL or the /mixer page) is that strip's ceiling for the
+producer until you move it again. The master limiter (-1 dBFS peak, -9 dBFS RMS, end of mixer.py) can't be reached
+by anything it sends. REC on the page records the mix to `~/Recordings/m800Dr/`.
+
+**The sample library** (`~/samples`, 19 GB, not in git): a copy of the Mac's `~/Documents/PRODUCTION/SAMPLES` plus a
+`sononym.db` snapshot. To resync after adding samples, on the Mac:
+
+    S=~/Documents/PRODUCTION/SAMPLES
+    sqlite3 -readonly $S/sononym.db ".backup /tmp/sononym.db"
+    rsync -a --exclude='*.asd' --exclude='sononym.db*' $S/ cacheos:samples/ && rsync -a /tmp/sononym.db cacheos:samples/
+
+then on the desktop `python3 ~/code/m800Dr/tools/sample_catalog.py`; the producer reloads the catalog by itself.
+Sononym must have analysed new files (open it on the Mac first) or the catalog leaves them out.
+
+**Other modes** (the roller unit's ExecStart, `systemd/m00drc-roller.service`, copied to `~/.config/systemd/user/`,
+then `systemctl --user daemon-reload && systemctl --user restart m00drc-roller`):
+- producer: `--wait-for-play --arrange producer --model qwen3.6-35b-music20` (now)
+- menu arranger + library breaks + sound picks: `--wait-for-play --arrange model --model qwen3.6-35b-music20 --floor 0.15`
+- steering strength: `qwen3.6-35b-music05` / `-music10` / `-music20`, or plain `qwen3.6-35b` (localModel's llama-swap.yaml)
+- dice only: `--wait-for-play --arrange dice`
+
+**All off** (the mix is put back as the roller found it, the model unloads):
+`systemctl --user stop m00drc-roller; systemctl --user stop 'm00dr*' 'm800dr*' m8-loopback llama-swap`
