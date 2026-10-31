@@ -6,7 +6,10 @@
       "pack": "Classic Jungle 1",
       "bars": 1,
       "bpm": 80.0,
-      "grid": 0.963
+      "grid": 0.963,
+      "transients": [
+        "C98A"
+      ]
     },
     {
       "file": "01.wav",
@@ -14,7 +17,11 @@
       "pack": "Classic Jungle 2",
       "bars": 2,
       "bpm": 80.0,
-      "grid": 0.941
+      "grid": 0.941,
+      "transients": [
+        "8622",
+        "2624"
+      ]
     },
     {
       "file": "02.wav",
@@ -22,7 +29,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 82.5,
-      "grid": 0.769
+      "grid": 0.769,
+      "transients": [
+        "4504",
+        "C51D"
+      ]
     },
     {
       "file": "03.wav",
@@ -30,7 +41,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 85.0,
-      "grid": 0.62
+      "grid": 0.62,
+      "transients": [
+        "94A8",
+        "D4A8"
+      ]
     },
     {
       "file": "04.wav",
@@ -38,7 +53,11 @@
       "pack": "Vintage Breaks 6",
       "bars": 2,
       "bpm": 86.0,
-      "grid": 0.942
+      "grid": 0.942,
+      "transients": [
+        "AA8D",
+        "A8AD"
+      ]
     },
     {
       "file": "05.wav",
@@ -46,7 +65,11 @@
       "pack": "Tape Breaks",
       "bars": 2,
       "bpm": 87.25,
-      "grid": 0.519
+      "grid": 0.519,
+      "transients": [
+        "5550",
+        "5455"
+      ]
     },
     {
       "file": "06.wav",
@@ -54,7 +77,10 @@
       "pack": "Classic Breaks",
       "bars": 1,
       "bpm": 92.25,
-      "grid": 0.53
+      "grid": 0.53,
+      "transients": [
+        "8466"
+      ]
     },
     {
       "file": "07.wav",
@@ -62,7 +88,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 92.25,
-      "grid": 0.788
+      "grid": 0.788,
+      "transients": [
+        "2A38",
+        "081A"
+      ]
     },
     {
       "file": "08.wav",
@@ -70,7 +100,10 @@
       "pack": "Classic Breaks",
       "bars": 1,
       "bpm": 96.25,
-      "grid": 0.814
+      "grid": 0.814,
+      "transients": [
+        "1E8D"
+      ]
     },
     {
       "file": "09.wav",
@@ -78,7 +111,10 @@
       "pack": "Classic Breaks",
       "bars": 1,
       "bpm": 96.25,
-      "grid": 0.721
+      "grid": 0.721,
+      "transients": [
+        "A008"
+      ]
     },
     {
       "file": "10.wav",
@@ -86,7 +122,13 @@
       "pack": "Classic Breaks",
       "bars": 4,
       "bpm": 98.25,
-      "grid": 0.596
+      "grid": 0.596,
+      "transients": [
+        "28B4",
+        "88B4",
+        "88B0",
+        "00C0"
+      ]
     },
     {
       "file": "11.wav",
@@ -94,7 +136,11 @@
       "pack": "Varispeed Breaks",
       "bars": 2,
       "bpm": 98.5,
-      "grid": 0.834
+      "grid": 0.834,
+      "transients": [
+        "4444",
+        "4544"
+      ]
     },
     {
       "file": "12.wav",
@@ -102,7 +148,10 @@
       "pack": "Varispeed Breaks",
       "bars": 1,
       "bpm": 100.0,
-      "grid": 0.888
+      "grid": 0.888,
+      "transients": [
+        "2755"
+      ]
     },
     {
       "file": "13.wav",
@@ -110,7 +159,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 100.0,
-      "grid": 0.753
+      "grid": 0.753,
+      "transients": [
+        "A421",
+        "A420"
+      ]
     },
     {
       "file": "14.wav",
@@ -118,7 +171,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 102.75,
-      "grid": 0.521
+      "grid": 0.521,
+      "transients": [
+        "0122",
+        "C136"
+      ]
     },
     {
       "file": "15.wav",
@@ -126,7 +183,11 @@
       "pack": "MPC Breaks",
       "bars": 2,
       "bpm": 105.0,
-      "grid": 0.93
+      "grid": 0.93,
+      "transients": [
+        "8818",
+        "081A"
+      ]
     },
     {
       "file": "16.wav",
@@ -134,7 +195,11 @@
       "pack": "MPC Breaks",
       "bars": 2,
       "bpm": 105.0,
-      "grid": 0.88
+      "grid": 0.88,
+      "transients": [
+        "8A20",
+        "8A22"
+      ]
     },
     {
       "file": "17.wav",
@@ -142,7 +207,11 @@
       "pack": "MPC Breaks",
       "bars": 2,
       "bpm": 105.25,
-      "grid": 0.974
+      "grid": 0.974,
+      "transients": [
+        "8A26",
+        "8A86"
+      ]
     },
     {
       "file": "18.wav",
@@ -150,7 +219,10 @@
       "pack": "Varispeed Breaks",
       "bars": 1,
       "bpm": 105.75,
-      "grid": 0.868
+      "grid": 0.868,
+      "transients": [
+        "1ADC"
+      ]
     },
     {
       "file": "19.wav",
@@ -158,7 +230,11 @@
       "pack": "Varispeed Breaks",
       "bars": 2,
       "bpm": 106.5,
-      "grid": 0.838
+      "grid": 0.838,
+      "transients": [
+        "8828",
+        "882A"
+      ]
     },
     {
       "file": "20.wav",
@@ -166,7 +242,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 108.25,
-      "grid": 0.791
+      "grid": 0.791,
+      "transients": [
+        "C2A4",
+        "A080"
+      ]
     },
     {
       "file": "21.wav",
@@ -174,7 +254,10 @@
       "pack": "MPC Breaks",
       "bars": 1,
       "bpm": 110.0,
-      "grid": 0.92
+      "grid": 0.92,
+      "transients": [
+        "90AA"
+      ]
     },
     {
       "file": "22.wav",
@@ -182,7 +265,11 @@
       "pack": "Vintage Breaks 6",
       "bars": 2,
       "bpm": 112.25,
-      "grid": 0.971
+      "grid": 0.971,
+      "transients": [
+        "8888",
+        "8888"
+      ]
     },
     {
       "file": "23.wav",
@@ -190,7 +277,11 @@
       "pack": "Tape Breaks",
       "bars": 2,
       "bpm": 112.25,
-      "grid": 0.59
+      "grid": 0.59,
+      "transients": [
+        "5210",
+        "806B"
+      ]
     },
     {
       "file": "24.wav",
@@ -198,7 +289,13 @@
       "pack": "Classic Breaks",
       "bars": 4,
       "bpm": 113.75,
-      "grid": 0.547
+      "grid": 0.547,
+      "transients": [
+        "0000",
+        "8B48",
+        "8908",
+        "88F8"
+      ]
     },
     {
       "file": "25.wav",
@@ -206,7 +303,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 113.75,
-      "grid": 0.706
+      "grid": 0.706,
+      "transients": [
+        "C8EB",
+        "2B28"
+      ]
     },
     {
       "file": "26.wav",
@@ -214,7 +315,10 @@
       "pack": "MPC Breaks",
       "bars": 1,
       "bpm": 114.75,
-      "grid": 0.951
+      "grid": 0.951,
+      "transients": [
+        "1753"
+      ]
     },
     {
       "file": "27.wav",
@@ -222,7 +326,10 @@
       "pack": "MPC Breaks",
       "bars": 1,
       "bpm": 115.0,
-      "grid": 0.903
+      "grid": 0.903,
+      "transients": [
+        "5757"
+      ]
     },
     {
       "file": "28.wav",
@@ -230,7 +337,13 @@
       "pack": "Classic Breaks",
       "bars": 4,
       "bpm": 117.75,
-      "grid": 0.842
+      "grid": 0.842,
+      "transients": [
+        "0888",
+        "8888",
+        "8888",
+        "8888"
+      ]
     },
     {
       "file": "29.wav",
@@ -238,7 +351,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 118.25,
-      "grid": 0.431
+      "grid": 0.431,
+      "transients": [
+        "8BB6",
+        "E02A"
+      ]
     },
     {
       "file": "30.wav",
@@ -246,7 +363,11 @@
       "pack": "Reworked Breaks",
       "bars": 2,
       "bpm": 123.0,
-      "grid": 0.936
+      "grid": 0.936,
+      "transients": [
+        "6B8B",
+        "8B8B"
+      ]
     },
     {
       "file": "31.wav",
@@ -254,7 +375,13 @@
       "pack": "Classic Breaks",
       "bars": 4,
       "bpm": 124.0,
-      "grid": 0.664
+      "grid": 0.664,
+      "transients": [
+        "80D2",
+        "62D6",
+        "F6D6",
+        "D6A3"
+      ]
     },
     {
       "file": "32.wav",
@@ -262,7 +389,11 @@
       "pack": "Vintage Breaks 6",
       "bars": 2,
       "bpm": 125.0,
-      "grid": 0.938
+      "grid": 0.938,
+      "transients": [
+        "8880",
+        "8880"
+      ]
     },
     {
       "file": "33.wav",
@@ -270,7 +401,10 @@
       "pack": "Classic Breaks",
       "bars": 1,
       "bpm": 126.25,
-      "grid": 0.579
+      "grid": 0.579,
+      "transients": [
+        "6402"
+      ]
     },
     {
       "file": "34.wav",
@@ -278,7 +412,11 @@
       "pack": "Vintage Breaks 6",
       "bars": 2,
       "bpm": 127.0,
-      "grid": 0.96
+      "grid": 0.96,
+      "transients": [
+        "8080",
+        "8080"
+      ]
     },
     {
       "file": "35.wav",
@@ -286,7 +424,13 @@
       "pack": "Vintage Breaks 6",
       "bars": 4,
       "bpm": 127.0,
-      "grid": 0.948
+      "grid": 0.948,
+      "transients": [
+        "8091",
+        "8094",
+        "8094",
+        "8091"
+      ]
     },
     {
       "file": "36.wav",
@@ -294,7 +438,11 @@
       "pack": "Tape Breaks",
       "bars": 2,
       "bpm": 128.25,
-      "grid": 0.762
+      "grid": 0.762,
+      "transients": [
+        "8A80",
+        "8A88"
+      ]
     },
     {
       "file": "37.wav",
@@ -302,7 +450,11 @@
       "pack": "Reworked Breaks",
       "bars": 2,
       "bpm": 130.75,
-      "grid": 0.897
+      "grid": 0.897,
+      "transients": [
+        "892E",
+        "A92E"
+      ]
     },
     {
       "file": "38.wav",
@@ -310,7 +462,10 @@
       "pack": "Varispeed Breaks",
       "bars": 1,
       "bpm": 133.25,
-      "grid": 0.88
+      "grid": 0.88,
+      "transients": [
+        "8808"
+      ]
     },
     {
       "file": "39.wav",
@@ -318,7 +473,11 @@
       "pack": "Reworked Breaks",
       "bars": 2,
       "bpm": 136.0,
-      "grid": 0.897
+      "grid": 0.897,
+      "transients": [
+        "B2AC",
+        "B30C"
+      ]
     },
     {
       "file": "40.wav",
@@ -326,7 +485,13 @@
       "pack": "Classic Breaks",
       "bars": 4,
       "bpm": 136.75,
-      "grid": 0.594
+      "grid": 0.594,
+      "transients": [
+        "E848",
+        "A020",
+        "0032",
+        "3960"
+      ]
     },
     {
       "file": "41.wav",
@@ -334,7 +499,11 @@
       "pack": "Classic Breaks",
       "bars": 2,
       "bpm": 136.75,
-      "grid": 0.444
+      "grid": 0.444,
+      "transients": [
+        "8018",
+        "198C"
+      ]
     },
     {
       "file": "42.wav",
@@ -342,7 +511,10 @@
       "pack": "Tape Breaks",
       "bars": 1,
       "bpm": 150.0,
-      "grid": 0.551
+      "grid": 0.551,
+      "transients": [
+        "8088"
+      ]
     },
     {
       "file": "43.wav",
@@ -350,7 +522,13 @@
       "pack": "Classic Breaks",
       "bars": 4,
       "bpm": 153.75,
-      "grid": 0.724
+      "grid": 0.724,
+      "transients": [
+        "A2A0",
+        "8000",
+        "0008",
+        "AA20"
+      ]
     },
     {
       "file": "44.wav",
@@ -358,7 +536,11 @@
       "pack": "Reworked Breaks",
       "bars": 2,
       "bpm": 154.25,
-      "grid": 0.912
+      "grid": 0.912,
+      "transients": [
+        "3B79",
+        "A978"
+      ]
     },
     {
       "file": "45.wav",
@@ -366,7 +548,11 @@
       "pack": "Classic Jungle 1",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.977
+      "grid": 0.977,
+      "transients": [
+        "2A88",
+        "2898"
+      ]
     },
     {
       "file": "46.wav",
@@ -374,7 +560,11 @@
       "pack": "Classic Jungle 2",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.949
+      "grid": 0.949,
+      "transients": [
+        "88AA",
+        "88E2"
+      ]
     },
     {
       "file": "47.wav",
@@ -382,7 +572,11 @@
       "pack": "Classic Jungle 1",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.971
+      "grid": 0.971,
+      "transients": [
+        "C882",
+        "00A8"
+      ]
     },
     {
       "file": "48.wav",
@@ -390,7 +584,11 @@
       "pack": "Classic Jungle 2",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.946
+      "grid": 0.946,
+      "transients": [
+        "8822",
+        "88AA"
+      ]
     },
     {
       "file": "49.wav",
@@ -398,7 +596,11 @@
       "pack": "Reworked Breaks",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.93
+      "grid": 0.93,
+      "transients": [
+        "8880",
+        "8A22"
+      ]
     },
     {
       "file": "50.wav",
@@ -406,7 +608,11 @@
       "pack": "Classic Jungle 1",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.967
+      "grid": 0.967,
+      "transients": [
+        "40A0",
+        "2212"
+      ]
     },
     {
       "file": "51.wav",
@@ -414,7 +620,11 @@
       "pack": "Classic Jungle 2",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.944
+      "grid": 0.944,
+      "transients": [
+        "A248",
+        "AA28"
+      ]
     },
     {
       "file": "52.wav",
@@ -422,7 +632,11 @@
       "pack": "Classic Jungle 2",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.943
+      "grid": 0.943,
+      "transients": [
+        "A220",
+        "A220"
+      ]
     },
     {
       "file": "53.wav",
@@ -430,7 +644,11 @@
       "pack": "Classic Jungle 1",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.959
+      "grid": 0.959,
+      "transients": [
+        "AA20",
+        "8A22"
+      ]
     },
     {
       "file": "54.wav",
@@ -438,7 +656,11 @@
       "pack": "Classic Jungle 1",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.955
+      "grid": 0.955,
+      "transients": [
+        "8A20",
+        "8AA0"
+      ]
     },
     {
       "file": "55.wav",
@@ -446,7 +668,11 @@
       "pack": "Vintage Breaks 6",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.937
+      "grid": 0.937,
+      "transients": [
+        "8080",
+        "8880"
+      ]
     },
     {
       "file": "56.wav",
@@ -454,7 +680,11 @@
       "pack": "Classic Jungle 2",
       "bars": 2,
       "bpm": 160.0,
-      "grid": 0.932
+      "grid": 0.932,
+      "transients": [
+        "0882",
+        "2202"
+      ]
     },
     {
       "file": "57.wav",
@@ -462,7 +692,10 @@
       "pack": "Tape Breaks",
       "bars": 1,
       "bpm": 173.25,
-      "grid": 0.521
+      "grid": 0.521,
+      "transients": [
+        "DF7F"
+      ]
     },
     {
       "file": "58.wav",
@@ -470,7 +703,11 @@
       "pack": "DnB Breaks",
       "bars": 2,
       "bpm": 174.0,
-      "grid": 0.993
+      "grid": 0.993,
+      "transients": [
+        "08E8",
+        "A8E8"
+      ]
     },
     {
       "file": "59.wav",
@@ -478,7 +715,11 @@
       "pack": "DnB Breaks",
       "bars": 2,
       "bpm": 174.0,
-      "grid": 0.988
+      "grid": 0.988,
+      "transients": [
+        "8808",
+        "8808"
+      ]
     },
     {
       "file": "60.wav",
@@ -486,7 +727,11 @@
       "pack": "DnB Breaks",
       "bars": 2,
       "bpm": 174.0,
-      "grid": 0.985
+      "grid": 0.985,
+      "transients": [
+        "A220",
+        "2220"
+      ]
     },
     {
       "file": "61.wav",
@@ -494,7 +739,11 @@
       "pack": "DnB Breaks",
       "bars": 2,
       "bpm": 174.0,
-      "grid": 0.983
+      "grid": 0.983,
+      "transients": [
+        "2660",
+        "2260"
+      ]
     },
     {
       "file": "62.wav",
@@ -502,7 +751,11 @@
       "pack": "DnB Breaks",
       "bars": 2,
       "bpm": 174.0,
-      "grid": 0.983
+      "grid": 0.983,
+      "transients": [
+        "A260",
+        "8644"
+      ]
     },
     {
       "file": "63.wav",
@@ -510,7 +763,11 @@
       "pack": "DnB Breaks",
       "bars": 2,
       "bpm": 174.0,
-      "grid": 0.98
+      "grid": 0.98,
+      "transients": [
+        "8128",
+        "8928"
+      ]
     }
   ]
 }
