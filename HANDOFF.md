@@ -397,3 +397,22 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
   view (could also drive JC303's knobs through Carla).
 - Other synths for m00Dr: Surge XT / Vital / Dexed (through Carla), SuperCollider/Pd, Web Audio
   synths fed by relayed MIDI, the Novation Circuit (m00Dr has bridge hooks).
+
+## Done 2026-10-30: Qwen picks breaks, drives the bass; REC; hexagram feed
+- **Hexagram feed** (45ad464): the roller writes each section's hexagram to `$XDG_RUNTIME_DIR/m00drc-hexagram.json`;
+  `GET /hexagram` serves it. `~/Documents/Blender/iChing.blend` (Mac) draws it live (its `iChing` text block).
+- **Transient maps** (3fe2296): `tools/transient_map.py` tags each break in `breaks.json` with `"transients"`, one
+  4-hex-digit word per bar (bit per 16th, first 16th on top; half the 90th-percentile step's onset counts).
+- **Arranger sees the break** (2af7046): its map is in every prompt; the model picks the part for take_out/bring_back/push.
+  Roller unit runs `qwen3.6-35b-music20` (localModel's steered Qwen, see its HANDOFF).
+- **REC** (ad754de): `POST /record` records the mix (parec, 24-bit) to `~/Recordings/m800Dr/`, 3 h cap; `↓ WAV` link.
+  parec needs `--latency-msec=20` or the last ~2 s of a take are lost.
+- **Sample library** (9f88557): `~/samples` = rsync of the Mac's `PRODUCTION/SAMPLES/{Drums,GAMEBREAKS}` + a
+  `sononym.db` snapshot (resync steps in `tools/sample_catalog.py`); `catalog.json` from it. Each Roll the roller cuts
+  up to 5 loops near the tempo (`tools/cut_breaks.py`, ~4 s) and the model picks one or the Roll's own (shuffled; it
+  kept the own twice when it was always option a). Picks go to breaks.py live slots (program 64-127,
+  `~/.local/state/m00drc/live-breaks/`).
+- **Bass gate/wobble** (9f88557): sunvoxbass CC 22 wobble (5 speeds), CC 23 gate (8 patterns, 0 legato), CC 121 reset.
+  Arranger moves `gate`/`wobble` (cooldown 3); links.sh wires roller sound out -> bass.
+- **Not done:** drum kits composed from the library's hits (catalog has 4849 categorised hits; FluidSynth needs an
+  sf2 per kit — the gamedrums builder could be reused).
