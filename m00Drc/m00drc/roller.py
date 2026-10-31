@@ -85,6 +85,8 @@ Needs m00Dr running with "Web remote" ticked (it listens on port 8766).
 import argparse
 import asyncio
 import json
+import os
+import pathlib
 import random
 import signal
 import time
@@ -102,6 +104,9 @@ INT_MAX = 127
 
 # A Roll's arc: this many sections, evenly over the time to the next Roll.
 SECTIONS = 8
+
+# The section now playing, for anything that draws it (server.py serves it at /hexagram).
+HEXAGRAM = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00drc-hexagram.json"
 
 # m800Dr's breaks.py: its MIDI channel (1-based) and the CCs that carry a
 # chop's six lines (see breaks.chop).
@@ -184,6 +189,23 @@ def hexagram_int(lines: list[bool]) -> int:
 def hexagram_text(lines: list[bool]) -> str:
     """Six lines bottom first, drawn top line first, the way it's read."""
     return "".join("⚊" if yang else "⚋" for yang in reversed(lines))
+
+
+def publish_hexagram(sections: list[list[bool]], k: int) -> None:
+    """Writes section k's hexagram to HEXAGRAM: its lines bottom first, which of
+    them turn in the next section (all False if that isn't rolled yet), and where
+    it sits in the arc."""
+    lines = sections[k]
+    after = sections[k + 1] if k + 1 < len(sections) else lines
+    data = {"lines": lines, "changing": [a != b for a, b in zip(lines, after)],
+            "binary": sum(1 << i for i, yang in enumerate(lines) if yang),
+            "text": hexagram_text(lines), "section": k + 1, "of": SECTIONS}
+    tmp = HEXAGRAM.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(data))
+        tmp.replace(HEXAGRAM)
+    except OSError:
+        pass
 
 
 def cast_lines(cast: list[int]) -> list[bool]:
@@ -541,6 +563,8 @@ class Roller:
                     self.stream.advance(value)
                     cycle += 1
                     print(f"c{cycle:<3} section {section + 1}/{SECTIONS}: int {value}", flush=True)
+                    if not self.args.dry_run:
+                        publish_hexagram(self.arc.sections, section)
                     await self._send_breaks()
                 position = step
             else:

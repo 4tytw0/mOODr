@@ -16,6 +16,8 @@ POST /rig         -> {"on": true|false}: starts the m00Dr side of the rig (synth
                      m00Dr, then Play) or stops it (Stop, the roller, the synths,
                      the model). Only from this machine and NetBird peers.
 POST /presence    -> {"id": ...}: an open player page, every PRESENCE_EVERY s
+GET /hexagram     -> the roller's current section as JSON: its lines (bottom first),
+                     which of them change next, and the section (503 before a Roll)
 GET /acid         -> the 303 page (acid.html): the acid patch's sound controls
 GET /acid/state   -> sunvox303.py's live state as JSON (503 if it isn't running)
 POST /acid/control -> a JSON knob move, forwarded to sunvox303.py's UDP control
@@ -61,6 +63,7 @@ PANELS = {
     "acid": (pathlib.Path(__file__).with_name("acid.html"), ("127.0.0.1", 9811),
              RUNTIME / "m800dr-acid.json", "sunvox303 not running"),
 }
+HEXAGRAM = RUNTIME / "m00drc-hexagram.json"   # written by the roller each section
 
 
 # The m00Dr side of the rig, started and stopped as a whole. The mixer, this
@@ -195,6 +198,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(503, missing)
         elif self.path == "/stream":
             self.stream()
+        elif self.path == "/hexagram":
+            try:
+                self.send_body(HEXAGRAM.read_bytes(), "application/json")
+            except OSError:
+                self.send_error(503, "no hexagram yet")
         elif self.path == "/rig":
             self.send_body(json.dumps({
                 "on": active("m00dr"), "roller": active(ROLLER), "busy": rig_busy.locked(),
