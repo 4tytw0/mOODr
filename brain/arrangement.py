@@ -42,6 +42,9 @@ from .weights import choice_odds, flatten, with_floor
 
 MOVES = ("hold", "strip", "take_out", "bring_back", "build", "drop", "sweep_out", "push", "gate", "wobble")
 PARTS = ("chords", "bass", "arp", "acid", "drums", "breaks")
+# m00Dr's part on/off toggles (web remote ids). The producer can switch them; the
+# saved mix keeps them, so a restore (or the next run, after a crash) puts them back.
+PART_TOGGLES = ("chords", "bass", "arp", "drums", "acid")
 CORE = ("drums", "bass")          # what strip keeps
 TONAL = ("chords", "bass", "arp", "acid")
 ARP_RATES = ("1/4", "1/8", "1/16")
@@ -130,7 +133,7 @@ def starting_mix(controls: dict, keep: bool) -> tuple[dict[str, float], float, d
     mix = mixer_faders()
     if mix is None:
         return None
-    controls = {k: controls[k] for k in ("arpRate", "drumMutate") if k in controls}
+    controls = {k: controls[k] for k in ("arpRate", "drumMutate", *PART_TOGGLES) if k in controls}
     if keep:
         save_base(mix[0], mix[1], controls)
     return mix[0], mix[1], controls
@@ -150,6 +153,8 @@ class Arranger:
         self.arp_rate0 = (controls.get("arpRate") or {}).get("value", "1/8")
         self.mutate0 = int((controls.get("drumMutate") or {}).get("value", 0))
         self.arp_rate, self.mutate = self.arp_rate0, self.mutate0
+        # m00Dr's part toggles as they were (saves from before 2026-10-31 don't have them)
+        self.toggles0 = {k: bool((controls.get(k) or {}).get("value")) for k in PART_TOGGLES if k in controls}
         self.dry_run = dry_run
         self.wanted: str | None = None   # the model's favourite, when it wasn't a valid move
         self.section = 0                   # moves played so far
@@ -369,7 +374,7 @@ class Arranger:
         return "hold"
 
     async def restore(self, ws) -> None:
-        """Puts the mix and m00Dr's arp rate and drums back as they were."""
+        """Puts the mix and m00Dr's arp rate, drums and part toggles back as they were."""
         self.pushed = None
         if self.atmos:
             try:
@@ -389,6 +394,8 @@ class Arranger:
         try:
             await self._set_m00dr(ws, "arpRate", self.arp_rate0)
             await self._set_m00dr(ws, "drumMutate", self.mutate0)
+            for part, on in self.toggles0.items():
+                await self._set_m00dr(ws, part, on)
         except Exception:
             pass   # m00Dr already gone: nothing to put back there
         self.level = dict(self.base)
