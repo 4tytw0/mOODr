@@ -414,5 +414,7 @@ From Novation's programmer's reference (launch-control-xl-programmers-reference-
   `~/.local/state/m00drc/live-breaks/`).
 - **Bass gate/wobble** (9f88557): sunvoxbass CC 22 wobble (5 speeds), CC 23 gate (8 patterns, 0 legato), CC 121 reset.
   Arranger moves `gate`/`wobble` (cooldown 3); links.sh wires roller sound out -> bass.
+- **Sound picks** (762f91c): each Roll the model picks chordSound, arpSound, arpPattern and drumSource from
+  what's playing + 5 shuffled menu options (letters); logged as `sounds:`. The 303 knobs stay on the dice lanes.
 - **Not done:** drum kits composed from the library's hits (catalog has 4849 categorised hits; FluidSynth needs an
   sf2 per kit — the gamedrums builder could be reused).
