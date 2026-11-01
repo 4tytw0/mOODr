@@ -69,7 +69,8 @@ REQUESTS_SHOWN = 8
 # into the next plan's prompt. "m00Dr/<path>" or "samples/<path>"; a folder lists its files.
 READ_ROOTS = {"m00Dr": REPO, "samples": SAMPLES}
 READS_PER_PLAN, READ_CHARS, READ_TOTAL = 2, 6000, 9000
-# Asking Claude: a headless Claude Code on the desktop that can only read (Read, Grep, Glob)
+# Asking Claude: a headless Claude Code on the desktop that can only read (Read, Grep, Glob;
+# --strict-mcp-config also drops the account's connectors, which --tools alone leaves on)
 # the repo and the sample library, sent the voices' live state; its answer comes back in a
 # later plan. On the human's account, so capped. Logged to CLAUDE_LOG for the human.
 CLAUDE_PER_HOUR, CLAUDE_TIMEOUT = 4, 300
@@ -780,7 +781,8 @@ under, shown with the mixer. A limiter protects the speakers."""
                 answer = "(dry run: not asked)"
             else:
                 proc = await asyncio.create_subprocess_exec(
-                    "claude", "-p", prompt, "--tools", "Read", "Grep", "Glob", "--add-dir", str(SAMPLES),
+                    "claude", "-p", prompt, "--tools", "Read", "Grep", "Glob", "--strict-mcp-config",
+                    "--add-dir", str(SAMPLES),
                     "--append-system-prompt", CLAUDE_BRIEF, "--output-format", "json",
                     cwd=str(REPO), stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
