@@ -315,8 +315,10 @@ class Arranger:
         elif move in ("strip", "drop", "sweep_out"):
             self.built_since = False
         if self.pushed:   # last section's push eases back first
-            part, self.pushed = self.pushed, None
-            await self._ramp({part: self.base[part]}, 2, beat_s)
+            # Its own name: `part` is this section's target (a gate after a push of the bass
+            # used to get "bass" as its pattern, and the error stopped the arranger).
+            pushed, self.pushed = self.pushed, None
+            await self._ramp({pushed: self.base[pushed]}, 2, beat_s)
         if move == "gate":
             self.gate = part or rng.choice(self.part_choices("gate"))
             await self._bass(BASS_GATE_CC, list(GATES).index(self.gate))

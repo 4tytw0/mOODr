@@ -29,7 +29,9 @@ Two CCs on the bass channel, sent by m00Drc's arranger:
   * GATE_BITS_CCS carry a gate pattern of the sender's own, 6 + 5 + 5 bits
     (bits 15-10, 9-5, 4-0), applied when the last of the three arrives.
   * WOBBLE_RATE_CC sets the swell rate directly: 2 ** (value / 16) / 8 swells
-    per beat (0 = 1/8, 48 = 1, 96 and up = WOBBLE_MAX).
+    per beat, snapped to the nearest power of two (0 = 1/8, 48 = 1, 96 and up =
+    WOBBLE_MAX). The swell is phase-locked to the clock: each beat, osc2's detune
+    step is re-picked so its drift (the step's rounding) cancels out.
   CC 121 (reset all controllers) puts both back.
 
     uv run sunvoxbass.py                 # run (the m00dr-sunvoxbass user service does this)
@@ -73,6 +75,8 @@ GATES = (None,                      # 0: legato
          0xB6DB,                    # 6: gallop
          0x8A28)                    # 7: broken (a two-step kick line)
 CLOCKS_PER_16TH = 6
+CLOCKS_PER_BEAT = 24
+OSC2_UNITS = 64 * 12   # osc2 detune steps per octave (1/64 semitone)
 
 
 class SunVoxBass:
@@ -96,18 +100,43 @@ class SunVoxBass:
         self.lock = threading.Lock()  # ONE_THREAD: events and rendering must not overlap
         self.stack = []               # held notes, last = sounding
         self.wobble = 1.0             # times BEAT_PER_BEAT (WOBBLE_CC)
+        # The swell's phase lock: osc2 moves in 1/64-semitone steps, so the beat rate a
+        # step gives is a little off and the swell would drift off the beat over a held
+        # note. phase_err is how far ahead it is (in swells) since the note started;
+        # each beat the next step is picked to cancel it (see _relock).
+        self.note_freq, self.units, self.phase_err = None, 0, 0.0
         self.gate = None              # 16-bit pattern (GATE_CC), None = legato
         self.gated_off = False        # the gate has the held note silenced
         self.gate_bits = [0, 0, 0]    # GATE_BITS_CCS as they arrive
         self.buf = np.zeros((BLOCK, 2), dtype="<f4")
 
-    def _detune(self, note):
-        """Sets osc2 so the saws beat BEAT_PER_BEAT times per beat at `note`."""
-        freq = 440 * 2 ** ((note - 69) / 12)
-        beat_hz = self.bpm / 60 * BEAT_PER_BEAT * self.wobble
-        units = min(1000, round(64 * 12 * math.log2(1 + beat_hz / freq)))
+    def _beat_hz(self):
+        return self.bpm / 60 * BEAT_PER_BEAT * self.wobble
+
+    def _set_units(self, beat_hz):
+        """osc2's nearest step to beating at beat_hz on the sounding note."""
+        units = round(OSC2_UNITS * math.log2(1 + max(beat_hz, 0.0) / self.note_freq))
+        self.units = min(1000, max(0, units))
         _, _, saws, osc2 = self.patches[self.slot]
-        self.sv.sv_set_module_ctl_value(self.slot, saws, osc2, 1000 + units, 0)
+        self.sv.sv_set_module_ctl_value(self.slot, saws, osc2, 1000 + self.units, 0)
+
+    def _actual_hz(self):
+        return self.note_freq * (2 ** (self.units / OSC2_UNITS) - 1)
+
+    def _detune(self, note):
+        """Sets osc2 so the saws beat BEAT_PER_BEAT times per beat at `note`; the swell
+        starts in phase with the note, so the lock starts over."""
+        self.note_freq, self.phase_err = 440 * 2 ** ((note - 69) / 12), 0.0
+        self._set_units(self._beat_hz())
+
+    def _relock(self):
+        """Once a beat: add the beat just gone's drift, then pick the step that cancels it
+        over the next beat (it alternates between the two steps around the target)."""
+        if self.note_freq is None or not self.stack:
+            return
+        beat_s = 60 / self.bpm
+        self.phase_err += (self._actual_hz() - self._beat_hz()) * beat_s
+        self._set_units(self._beat_hz() - self.phase_err / beat_s)
 
     def _set_tempo(self, bpm):
         if round(bpm, 1) != round(self.bpm, 1):
@@ -122,6 +151,8 @@ class SunVoxBass:
         with self.lock:
             self.clock.tick(now)
             pulse = self.clock.count - 1
+            if pulse % CLOCKS_PER_BEAT == 0:
+                self._relock()
             if self.gate is None or pulse % CLOCKS_PER_16TH or not self.stack:
                 return
             if self.gate >> (15 - pulse // CLOCKS_PER_16TH % 16) & 1:
@@ -150,7 +181,9 @@ class SunVoxBass:
                         self._play(self.stack[-1], self.vel)
                     self.gated_off = False
             elif cc == WOBBLE_RATE_CC:
-                self.wobble = min(WOBBLE_MAX, 2 ** (value / 16) / 8)
+                # Musical rates only: the nearest power of two (1/8 .. WOBBLE_MAX swells a beat),
+                # so a lane gliding the rate steps between subdivisions instead of off the grid.
+                self.wobble = min(WOBBLE_MAX, 2 ** round(value / 16) / 8)
                 if self.stack: self._detune(self.stack[-1])
             elif cc == 121:
                 self.wobble, self.gate = 1.0, None

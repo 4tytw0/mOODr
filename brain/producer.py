@@ -50,6 +50,7 @@ ACID_CCS = {"cutoff": 74, "resonance": 71, "decay": 75, "accent": 76, "glide": 5
 ACID_ALIASES = {"filter": "cutoff", "res": "resonance", "env": "decay", "slide": "glide", "distortion": "drive", "volume": "level", "amp": "level", "gain": "level", "echo": "delay", "wet": "delay", "delay time": "time", "delaytime": "time", "fb": "feedback", "dirt": "grit", "crush": "grit"}
 RAMP_STEPS_PER_BEAT = 8
 HISTORY = 16                  # action results kept for the next prompt
+GATE_SHARE, GATE_WINDOW = 40, 600   # the bass: gated about this % of the time, over this many s
 UNLOAD_AFTER = 30             # s with m00Dr stopped before the producer's model is unloaded (frees the GPU)
 # The producer's notes for the audio page (server.py serves this as /producer): the
 # last NOTES_KEPT, newest last, each {"time": epoch s, "took": s, "notes": text}.
@@ -220,6 +221,7 @@ class Producer:
         self.history: list[str] = []
         self.ramps: dict[str, asyncio.Task] = {}
         self.bass = {"gate": "legato", "wobble": "1 swell a beat"}
+        self.gate_log: list[tuple[float, bool]] = [(time.monotonic(), False)]   # (since, gated)
         self.acid: dict[str, int] = {}
         self.fx_next = 0
         self.playing: list[tuple[int, str]] = []    # live fx notes held or sounding: (note, name)
@@ -279,7 +281,10 @@ fader move takes; 0 = at once; 0 where it doesn't apply):
 0..1 (0.8 is unity; above it the strip distorts into fuzz; 0 is silent)
 - sidechain: value 0..1, how the kick ducks everything but the drums and breaks: up \
 to 0.5 is mix glue (to 6 dB, quick), above it an effect (to 30 dB at 1, a slow obvious pump)
-- bass: target gate, value legato, a pattern ({', '.join(g for g in GATES if g != 'legato')}) \
+- bass: the bass plays in phases: long held (legato) stretches, and gated sections, \
+about {GATE_SHARE}% of the time overall. You decide when a phase starts and ends (several \
+bars at least, not a new pattern every plan); you're shown the running share.
+  target gate, value legato, a pattern ({', '.join(g for g in GATES if g != 'legato')}) \
 or four hex digits for 16 steps, first step on top (8A28 = x...x.x...x.x...), x = the \
 note re-attacks; or target wobble, value swells per beat (0.125..8)
 - acid: target {', '.join(ACID_CCS)}, value 0..127 (the 303's knobs); beats = how long it glides there
@@ -340,7 +345,7 @@ under, shown with the mixer. A limiter protects the speakers."""
                 f"{sum(1 for t in self.rolls if time.monotonic() - t < 600)} Rolls in the last 10 minutes.\n"
                 f"m00Dr: {values}\nChord progression slots:\n{slots}\n{mix}\n"
                 f"What's audible now: {audible}. Moves on a SILENT part change nothing anyone hears.\n"
-                f"Bass: gate {self.bass['gate']}, wobble {self.bass['wobble']}. "
+                f"Bass: gate {self.bass['gate']}, wobble {self.bass['wobble']}; {self._gate_text()}. "
                 f"303 knobs you've set: {self.acid or 'none yet'}.\nBreak playing: {brk}\n"
                 f"Samples sounding: {', '.join(n for _, n in self.playing) or 'none'}\n"
                 f"Automation running: {self._lanes_text()}\n"
@@ -598,6 +603,7 @@ under, shown with the mixer. A limiter protects the speakers."""
             if name in GATES:
                 await self._cc(BASS_CHANNEL, BASS_GATE_CC, list(GATES).index(name))
                 self.bass["gate"] = name
+                self._log_gate(name != "legato")
                 return f"bass gate {name}"
             if re.fullmatch(r"(0x)?[0-9a-f]{1,4}", name):
                 bits = int(name.removeprefix("0x"), 16)
@@ -605,6 +611,7 @@ under, shown with the mixer. A limiter protects the speakers."""
                     await self._cc(BASS_CHANNEL, cc, part)
                 steps = f"{bits:016b}".replace("1", "x").replace("0", ".")
                 self.bass["gate"] = f"{bits:04X} {steps}"
+                self._log_gate(True)
                 return f"bass gate {bits:04X} {steps}"
             return f"bass gate {value!r}: not a pattern name or four hex digits"
         if target == "wobble":
@@ -634,6 +641,28 @@ under, shown with the mixer. A limiter protects the speakers."""
             return f"acid {target} {start} -> {v} over {beats:g} beats"
         await self._send_lane(key, v)
         return f"acid {target} = {v}"
+
+    # -- the bass's phases --------------------------------------------------------
+
+    def _log_gate(self, gated: bool) -> None:
+        if gated != self.gate_log[-1][1]:
+            self.gate_log.append((time.monotonic(), gated))
+        self.gate_log = self.gate_log[-64:]
+
+    def _gate_text(self) -> str:
+        """How the bass has spent the last GATE_WINDOW: legato or gated, and for how long now."""
+        now = time.monotonic()
+        start = now - GATE_WINDOW
+        gated = 0.0
+        for (t0, g), (t1, _) in zip(self.gate_log, self.gate_log[1:] + [(now, None)]):
+            if g:
+                gated += max(0.0, t1 - max(t0, start))
+        span = min(GATE_WINDOW, now - self.started)
+        share = 100 * gated / span if span > 0 else 0
+        current, since = self.gate_log[-1][1], now - self.gate_log[-1][0]
+        bars = since / (240 / self.roller.bpm())
+        return (f"gated {share:.0f}% of the last {span / 60:.0f} min (aim about {GATE_SHARE}%); "
+                f"{'gated' if current else 'legato'} for the last {bars:.0f} bars")
 
     # -- requests -----------------------------------------------------------------
 
