@@ -37,7 +37,7 @@ measured lag (the kick's low end, after the note, in the drums strip). The amoun
 characters (sidechain_curve):
   0 .. 0.5   mix glue: the duck deepens to 6 dB, recovering in 150 ms;
   0.5 .. 1   an effect: on to 40 dB, a longer hold (to 100 ms) and a slower
-             release (to 450 ms), building quickly past 0.5 (SIDECHAIN_FX_SHAPE):
+             release (to 450 ms), easing out so it builds quickly past 0.5:
              the music all but vanishes on the kick and swells back in between.
 Everything in between is interpolated, so the knob sweeps from glue into pump.
 
@@ -77,7 +77,6 @@ KICK_ONSET = 0.05         # low-end level that marks the kick's audio arriving
 # this long after a kick, its body, before the release)
 SIDECHAIN_GLUE = (0.5, 6.0, 0.15, 0.03)   # the top of the mix-glue range
 SIDECHAIN_FX = (1.0, 40.0, 0.45, 0.10)    # all the way: near silence on the kick, a slow swell back
-SIDECHAIN_FX_SHAPE = 0.6  # < 1: the effect builds quickly past the glue range, not only at the top
 SIDECHAIN_SMOOTH = 0.002  # s, rounds off the instant attack so the duck doesn't click
 
 # Master limiter (see the docstring): no control reaches these.
@@ -130,7 +129,8 @@ def sidechain_curve(amount):
     glue_at, glue_db, glue_rel, glue_hold = SIDECHAIN_GLUE
     if a <= glue_at:
         return glue_db * a / glue_at, glue_rel, glue_hold
-    t = ((a - glue_at) / (SIDECHAIN_FX[0] - glue_at)) ** SIDECHAIN_FX_SHAPE
+    t = (a - glue_at) / (SIDECHAIN_FX[0] - glue_at)
+    t = 1 - (1 - t) ** 2   # ease-out: builds quickly past the glue range, but without a jump at 0.5
     return tuple(g + (f - g) * t for g, f in zip(SIDECHAIN_GLUE[1:], SIDECHAIN_FX[1:]))
 
 
