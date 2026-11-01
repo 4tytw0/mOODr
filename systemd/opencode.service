@@ -1,0 +1,19 @@
+[Unit]
+PartOf=m00dr.target
+Description=OpenCode server (port 4096): a coding agent on Ornith via llama-swap, in ~/code/m00Dr-oc
+After=llama-swap.service
+Wants=llama-swap.service
+
+[Service]
+# Its own worktree (branch opencode), never the live checkout; `oc` on the Mac attaches.
+WorkingDirectory=%h/code/m00Dr-oc
+Environment=OPENCODE_MODEL=ornith-35b-dsp10
+ExecStartPre=/bin/sh -c 'test -d %h/code/m00Dr-oc || git -C %h/code/m00Dr worktree add -B opencode %h/code/m00Dr-oc main'
+ExecStart=%h/.local/bin/opencode serve --hostname 127.0.0.1 --port 4096
+# Load the model as the rig comes up (the producer's, so neither swaps the other out).
+ExecStartPost=-/bin/sh -c 'curl -s -m 300 http://127.0.0.1:8080/v1/chat/completions -H "Content-Type: application/json" -d "{\"model\":\"$OPENCODE_MODEL\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" >/dev/null &'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
