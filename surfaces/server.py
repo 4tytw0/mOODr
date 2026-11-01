@@ -28,6 +28,7 @@ GET /requests     -> the producer's requests for improvements: {"requests": [...
 POST /requests    -> {"id": n, "status": "approved"|"rejected"}: the human's answer to one. This
                      machine, NetBird peers and the home network only (as the chat). Claude builds
                      approved ones in a coding session and marks them done.
+GET /system       -> the desktop's resources: CPU %, RAM, GPU busy %, VRAM, temperatures, the model
 GET /hexagram     -> the roller's current section as JSON: its lines (bottom first),
                      which of them change next, and the section (503 before a Roll)
 GET /acid         -> the 303 page (acid.html): the acid patch's sound controls
@@ -148,6 +149,43 @@ CHAT_NETS = CONTROL_NETS + [ipaddress.ip_network(n) for n in ("192.168.0.0/16", 
 
 
 REQUESTS = pathlib.Path.home() / ".local/state/m00drc/requests.json"   # brain/producer.py writes them
+
+# -- the desktop's resources, for the page's monitor ----------------------------
+GPU = pathlib.Path("/sys/class/drm/card1/device")   # the amdgpu card
+_cpu_last = [None]   # (busy, total) jiffies at the last read
+
+
+def _read(path, default=None):
+    try:
+        return pathlib.Path(path).read_text().strip()
+    except OSError:
+        return default
+
+
+def _hwmon_temp(name):
+    """The first temperature (deg C) of the hwmon device called `name`, or None."""
+    for d in pathlib.Path("/sys/class/hwmon").glob("hwmon*"):
+        if _read(d / "name") == name and _read(d / "temp1_input"):
+            return round(int(_read(d / "temp1_input")) / 1000)
+    return None
+
+
+def system_stats() -> dict:
+    """CPU busy % since the last call, RAM, GPU busy %, VRAM, temperatures, the loaded model."""
+    fields = [int(x) for x in (_read("/proc/stat", "cpu 0").splitlines()[0].split()[1:])]
+    idle, total = fields[3] + (fields[4] if len(fields) > 4 else 0), sum(fields)
+    cpu = None
+    if _cpu_last[0] and total > _cpu_last[0][1]:
+        cpu = round(100 * (1 - (idle - _cpu_last[0][0]) / (total - _cpu_last[0][1])))
+    _cpu_last[0] = (idle, total)
+    mem = {line.split(":")[0]: int(line.split()[1]) for line in _read("/proc/meminfo", "").splitlines() if line}
+    gib = lambda kib: round(kib / 1048576, 1)
+    vram = lambda f: round(int(_read(GPU / f, "0")) / 2 ** 30, 1)
+    return {"cpu": cpu, "cpu_temp": _hwmon_temp("coretemp"),
+            "ram_used": gib(mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)), "ram_total": gib(mem.get("MemTotal", 0)),
+            "gpu": int(_read(GPU / "gpu_busy_percent", "0")), "gpu_temp": _hwmon_temp("amdgpu"),
+            "vram_used": vram("mem_info_vram_used"), "vram_total": vram("mem_info_vram_total"),
+            "models": models_loaded()}
 
 
 def requests_list() -> list:
@@ -353,6 +391,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_recording(self.path.removeprefix("/recordings/"))
         elif self.path == "/chat":
             self.send_body(json.dumps({"messages": chat_messages(), "chat": self.may_chat()}).encode(), "application/json")
+        elif self.path == "/system":
+            self.send_body(json.dumps(system_stats()).encode(), "application/json")
         elif self.path == "/requests":
             self.send_body(json.dumps({"requests": requests_list(), "may": self.may_chat()}).encode(), "application/json")
         elif self.path == "/producer":

@@ -50,6 +50,7 @@ ACID_CCS = {"cutoff": 74, "resonance": 71, "decay": 75, "accent": 76, "glide": 5
 ACID_ALIASES = {"filter": "cutoff", "res": "resonance", "env": "decay", "slide": "glide", "distortion": "drive", "volume": "level", "amp": "level", "gain": "level", "echo": "delay", "wet": "delay", "delay time": "time", "delaytime": "time", "fb": "feedback", "dirt": "grit", "crush": "grit"}
 RAMP_STEPS_PER_BEAT = 8
 HISTORY = 16                  # action results kept for the next prompt
+UNLOAD_AFTER = 30             # s with m00Dr stopped before the producer's model is unloaded (frees the GPU)
 # The producer's notes for the audio page (server.py serves this as /producer): the
 # last NOTES_KEPT, newest last, each {"time": epoch s, "took": s, "notes": text}.
 NOTES_FILE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00drc-producer.json"
@@ -440,17 +441,40 @@ under, shown with the mixer. A limiter protects the speakers."""
         except OSError:
             pass
 
+    def _unload_model(self) -> None:
+        """Blocking: unloads llama-swap's model if it's this producer's (not one someone is chatting with)."""
+        base = self.args.api.rstrip("/")
+        try:
+            with urllib.request.urlopen(f"{base}/running", timeout=5) as r:
+                running = [m["model"] for m in json.load(r).get("running", [])]
+            if self.args.model in running and not self.args.dry_run:
+                urllib.request.urlopen(f"{base}/unload", timeout=30).read()
+                print(f"producer: m00Dr stopped, {self.args.model} unloaded", flush=True)
+        except (OSError, ValueError):
+            pass
+
     async def run(self, ws) -> None:
         print(f"producer: on, {len(self.library.get('samples', []))} library samples", flush=True)
+        stopped_since = None
         while True:
             if not self.roller.state.get("playing"):
+                # Paused with the transport: no plans, the lanes hold (see _run_lanes), and
+                # after UNLOAD_AFTER the model is unloaded. Play reloads it with the next plan.
+                stopped_since = stopped_since or time.monotonic()
+                if stopped_since > 0 and time.monotonic() - stopped_since > UNLOAD_AFTER:
+                    await asyncio.to_thread(self._unload_model)
+                    stopped_since = -1.0   # done for this stop
                 await asyncio.sleep(1)
                 continue
+            stopped_since = None
             self._refresh_library()
             started = time.monotonic()
             plan = await asyncio.to_thread(self.ask)
             took = time.monotonic() - started
             bars = DEFAULT_BARS
+            if plan and not self.roller.state.get("playing"):
+                print("producer: m00Dr stopped while planning; plan discarded", flush=True)
+                continue
             if plan:
                 self.notes = plan.get("notes", "")[:600]
                 bars = min(max(int(plan.get("next_bars", DEFAULT_BARS)), 1), 16)
@@ -719,6 +743,8 @@ under, shown with the mixer. A limiter protects the speakers."""
             await asyncio.sleep(60 / self.roller.bpm() / LANE_TICKS_PER_BEAT)
             now = time.monotonic()
             beats_passed, last = (now - last) * self.roller.bpm() / 60, now
+            if not self.roller.state.get("playing"):
+                continue   # paused with the transport: the lanes hold where they are
             for key, lane in list(self.lanes.items()):
                 pts, n = lane["points"], len(lane["points"])
                 lane["pos"] += beats_passed / lane["beats"]

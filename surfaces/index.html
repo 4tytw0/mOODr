@@ -40,6 +40,11 @@
   label b { color:var(--fg); font-weight:normal; }
   input[type=range] { width:100%; accent-color:var(--accent); }
   #status { color:var(--dim); font-size:13px; min-height:1.4em; }
+  /* The desktop's resources (GET /system); a reading over 90% turns the accent colour. */
+  #sys { color:var(--dim); font-size:12px; letter-spacing:.04em; display:flex; flex-wrap:wrap; gap:4px 14px;
+         font-variant-numeric:tabular-nums; }
+  #sys b { color:var(--fg); font-weight:normal; }
+  #sys .hot b { color:var(--accent); }
   /* The producer's (Qwen's) notes: what it's thinking each plan, newest on top. */
   /* The right column: the producer's notes on top, then the mixer or 303 panel. */
   #side { display:grid; gap:18px; align-content:start; min-width:0; }
@@ -108,8 +113,9 @@
     h1 { grid-column:1; grid-row:1; padding:16px 16px 14px; }
     /* The player: compact controls in two columns at the bottom; the scope takes all the rest. */
     #player { grid-column:1; grid-row:2 / 4; overflow:auto; padding:0 16px 16px; gap:12px 16px;
-              grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); grid-template-rows:minmax(220px, 1fr);
-              grid-template-areas:"scope scope" "go go" "meter meter" "vol buf" "stream status"; }
+              grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); grid-template-rows:auto minmax(220px, 1fr);
+              grid-template-areas:"sys sys" "scope scope" "go go" "meter meter" "vol buf" "stream status"; }
+    #sys { grid-area:sys; }
     #scope { grid-area:scope; aspect-ratio:auto; min-height:0; }
     #go { grid-area:go; padding:10px; font-size:15px; }
     #player .meter { grid-area:meter; }
@@ -142,6 +148,7 @@
     <button class="nav" id="tab-acid" title="Show or hide the 303's sound controls beside the scope (the audio keeps playing)">303</button>
     <button class="nav" id="tab-mixer" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER</button></span></h1>
   <section id="player">
+  <div id="sys" title="The desktop: CPU, memory, graphics card, and the model loaded"></div>
   <div id="scope">
     <canvas id="grid"></canvas>
     <canvas id="trace"></canvas>
@@ -579,6 +586,23 @@ async function reqPoll() {
 }
 $('reqbtn').onclick = () => { $('reqs').hidden = !$('reqs').hidden; };
 reqPoll(); setInterval(reqPoll, 10000);
+
+// The desktop's resources, every 2 s.
+async function sysPoll() {
+  let d;
+  try { const r = await fetch('/system', { cache: 'no-store' }); if (r.ok) d = await r.json(); } catch {}
+  if (!d) return;
+  const item = (label, text, pct) => `<span class="${pct > 90 ? 'hot' : ''}">${label} <b>${text}</b></span>`;
+  const deg = t => t == null ? '' : ` ${t}°`;
+  $('sys').innerHTML = [
+    item('CPU', `${d.cpu ?? '–'}%${deg(d.cpu_temp)}`, d.cpu),
+    item('RAM', `${d.ram_used}/${d.ram_total} GB`, 100 * d.ram_used / d.ram_total),
+    item('GPU', `${d.gpu}%${deg(d.gpu_temp)}`, d.gpu),
+    item('VRAM', `${d.vram_used}/${d.vram_total} GB`, 100 * d.vram_used / d.vram_total),
+    item('MODEL', d.models.length ? d.models.join(', ') : 'none', 0),
+  ].join('');
+}
+sysPoll(); setInterval(sysPoll, 2000);
 // The chat: the log is polled (so replies and other listeners' messages show up),
 // a message is POSTed and waits for the answer (a plan in progress goes first).
 let chatShown = '', chatWaiting = false;
