@@ -270,7 +270,8 @@ fader move takes; 0 = at once; 0 where it doesn't apply):
    slot0..slot3: the chord progression's four slots, from the options listed each time
 - fader: target a mixer strip (chords, bass, arp, fx, acid, drums, breaks), value \
 0..1 (0.8 is unity; above it the strip distorts into fuzz; 0 is silent)
-- sidechain: value 0..1, how hard the kick ducks the tonal parts
+- sidechain: value 0..1, how the kick ducks everything but the drums and breaks: up \
+to 0.5 is mix glue (to 6 dB, quick), above it an effect (to 30 dB at 1, a slow obvious pump)
 - bass: target gate, value legato, a pattern ({', '.join(g for g in GATES if g != 'legato')}) \
 or four hex digits for 16 steps, first step on top (8A28 = x...x.x...x.x...), x = the \
 note re-attacks; or target wobble, value swells per beat (0.125..8)

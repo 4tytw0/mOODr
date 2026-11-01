@@ -28,10 +28,14 @@ fader is plain volume, reaching unity at KNEE; above it the strip blends into
 an asymmetric tanh fuzz that gets harder the higher the fader goes.
 
 Sidechain: the drums strip's low end (mostly the kick), after its fader,
-ducks the tonal strips and the fx (SIDECHAIN_DUCKED) -- instant attack, SIDECHAIN_RELEASE
-recovery, down by up to SIDECHAIN amount (0-1 of their level) on a full-level
-kick. The amount moves on CC SIDECHAIN_CC, the /mixer page's slider, or
-{"sidechain": 0..1} on CONTROL. The breaks aren't ducked: they're drums too.
+ducks every strip but the drums and the breaks (SIDECHAIN_DUCKED), with an
+instant attack. The amount (0..1: CC SIDECHAIN_CC, the /mixer page's slider,
+{"sidechain": 0..1} on CONTROL, the roller) is one control with two
+characters (sidechain_curve):
+  0 .. 0.5   mix glue: the duck deepens to 6 dB, recovering in 150 ms;
+  0.5 .. 1   an effect: on to 30 dB and a slower release (to 300 ms), so
+             the music dips hard on the kick and audibly swells back.
+Everything in between is interpolated, so the knob sweeps from glue into pump.
 
 Fader positions and the sidechain amount survive restarts (SAVED); the live
 state, with meters, is in LIVE for server.py's /mixer page.
@@ -59,11 +63,12 @@ DC_POLE = 0.9987      # DC blocker (~10 Hz): the bias leaves an offset behind
 
 SIDECHAIN_KEY = "drums"
 SIDECHAIN_DUCKED = ("chords", "bass", "arp", "acid", "fx")
-SIDECHAIN_DEFAULT = 0.6   # full duck = 1 - 0.6 = 0.4x, about -8 dB
+SIDECHAIN_DEFAULT = 0.5   # the top of the glue range: 6 dB
 SIDECHAIN_CC = 35         # Launch Control XL middle knob, drums column 7 (factory layout, assumed)
 SIDECHAIN_LPF = 150.0     # Hz: key on the kick, not the hats
-SIDECHAIN_FULL = 0.25     # key level (after the low-pass) that ducks by the full amount
-SIDECHAIN_RELEASE = 0.15  # s, exponential recovery: the pump
+# sidechain_curve's corners: (amount, depth dB, release s, key level that ducks fully)
+SIDECHAIN_GLUE = (0.5, 6.0, 0.15, 0.25)   # the top of the mix-glue range
+SIDECHAIN_FX = (1.0, 30.0, 0.30, 0.45)    # all the way: a deep dip that swells back, for effect
 SIDECHAIN_SMOOTH = 0.002  # s, rounds off the instant attack so the duck doesn't click
 
 # Master limiter (see the docstring): no control reaches these.
@@ -109,32 +114,46 @@ class Strip:
         return x * g
 
 
+def sidechain_curve(amount):
+    """The amount (0..1) -> (depth dB, release s, key level that ducks fully): linear
+    from nothing to SIDECHAIN_GLUE, then from there to SIDECHAIN_FX."""
+    a = min(max(amount, 0.0), 1.0)
+    glue_at, glue_db, glue_rel, glue_full = SIDECHAIN_GLUE
+    if a <= glue_at:
+        return glue_db * a / glue_at, glue_rel, glue_full
+    t = (a - glue_at) / (SIDECHAIN_FX[0] - glue_at)
+    return tuple(g + (f - g) * t for g, f in zip(SIDECHAIN_GLUE[1:], SIDECHAIN_FX[1:]))
+
+
 class Sidechain:
     """Gain curve for the ducked strips, from the key strip's output."""
 
     def __init__(self, sr, amount):
-        self.amount = amount
+        self.amount, self.sr = amount, sr
         self.b, self.a = butter(2, SIDECHAIN_LPF, fs=sr)
         self.zi = np.zeros(2)
-        self.r = np.exp(-1 / (SIDECHAIN_RELEASE * sr))
         self.env = 0.0
         self.p = np.exp(-1 / (SIDECHAIN_SMOOTH * sr))
         self.szi = np.array([self.p])   # smoother starts settled at unity gain
-        self.decay = {}   # block size -> (r^k, r^-k), k = 1..n
+        self.decay = {}   # (block size, release) -> (r^k, r^-k), k = 1..n
         self.min_gain = 1.0   # deepest duck since the state was last written
 
     def gain(self, key):
         n = key.shape[1]
-        if n not in self.decay:
-            k = np.arange(1, n + 1)
-            self.decay[n] = (self.r ** k, self.r ** -k)
-        down, up = self.decay[n]
+        depth_db, release, full = sidechain_curve(self.amount)
+        if (n, release) not in self.decay:
+            if len(self.decay) > 64:   # the knob sweeps through many releases
+                self.decay.clear()
+            r, k = np.exp(-1 / (release * self.sr)), np.arange(1, n + 1)
+            self.decay[(n, release)] = (r ** k, r ** -k)
+        down, up = self.decay[(n, release)]
         low, self.zi = lfilter(self.b, self.a, key.mean(0), zi=self.zi)
         # Peak envelope with instant attack and exponential release, vectorised:
         # env[n] = r^n * max(env_in, max over k<=n of |x[k]| * r^-k).
         env = down * np.maximum.accumulate(np.maximum(np.abs(low) * up, self.env))
         self.env = float(env[-1])
-        g = 1 - self.amount * np.minimum(env / SIDECHAIN_FULL, 1.0)
+        # In dB, so the duck sounds even across its depth: 0 dB at no kick, -depth at a full one.
+        g = 10 ** (-depth_db / 20 * np.minimum(env / full, 1.0))
         g, self.szi = lfilter([1 - self.p], [1, -self.p], g, zi=self.szi)
         self.min_gain = min(self.min_gain, float(g.min()))
         return g
