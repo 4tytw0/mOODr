@@ -65,6 +65,24 @@ CHAT_FILE = NOTES_FILE.with_name("m00drc-chat.json")
 REQUESTS_FILE = pathlib.Path.home() / ".local/state/m00drc/requests.json"
 REQUESTS_PER_HOUR = 3
 REQUESTS_SHOWN = 8
+# Reading while producing: files from the rig's repo and the sample library, read-only,
+# into the next plan's prompt. "m00Dr/<path>" or "samples/<path>"; a folder lists its files.
+READ_ROOTS = {"m00Dr": REPO, "samples": SAMPLES}
+READS_PER_PLAN, READ_CHARS, READ_TOTAL = 2, 6000, 9000
+# Asking Claude: a headless Claude Code on the desktop that can only read (Read, Grep, Glob)
+# the repo and the sample library, sent the voices' live state; its answer comes back in a
+# later plan. On the human's account, so capped. Logged to CLAUDE_LOG for the human.
+CLAUDE_PER_HOUR, CLAUDE_TIMEOUT = 4, 300
+CLAUDE_LOG = pathlib.Path.home() / ".local/state/m00drc/claude-asks.jsonl"
+LIVE_STATE = {"303": "m800dr-acid.json", "mixer": "m800dr-mixer.json"}   # in XDG_RUNTIME_DIR
+CLAUDE_BRIEF = (
+    "You're answering the producer of the m00Dr rig: a local model (Ornith) running a live "
+    "generative techno set, which can't read code well itself. You can only read and search: "
+    "the rig's repo (the working directory: composer/ is m00Dr, voices/ the SunVox voices, "
+    "mix/ the mixer, brain/ the producer and roller, docs/) and the sample library (~/samples, "
+    "with catalog.json). Answer in under 200 words, plainly, with the exact control names and "
+    "values it can use. If what it wants needs a code or patch change, say so as a proposal it "
+    "can file with its request action; the human approves those. Never claim you changed anything.")
 # What can be heard: each part's m00Dr on/off toggle (web remote id; None: no toggle)
 # and its mixer strip. The prompt says which parts are silent and why, and actions on
 # a part that's switched off are flagged in the feedback: the model kept tuning parts
@@ -98,9 +116,9 @@ PLAN_SCHEMA = {
             "type": "object",
             "properties": {
                 "do": {"enum": ["set", "fader", "sidechain", "bass", "acid", "automate", "break", "sample", "fx",
-                                "roll", "request"]},
+                                "roll", "request", "read", "ask_claude"]},
                 "target": {"type": "string", "maxLength": 60},
-                "value": {"type": "string", "maxLength": 120},
+                "value": {"type": "string", "maxLength": 400},
                 "beats": {"type": "number"}},
             "required": ["do", "target", "value", "beats"]}},
         "next_bars": {"type": "integer", "minimum": 1, "maximum": 16}},
@@ -230,6 +248,10 @@ class Producer:
         self.library, self.catalog_mtime = {}, None
         self.resolver = Resolver([])
         self.rolls: list[float] = []      # when it Rolled, for the prompt
+        self.reads: list[str] = []        # files read this plan, for the next prompt
+        self.claude_asks: list[float] = []       # when it asked, for the hourly cap
+        self.claude_answers: list[str] = []      # answers not yet shown
+        self.claude_pending: dict[str, asyncio.Task] = {}
         self.die = random.Random()        # gates each plan (not the roller's seeded stream)
         self.needs = getattr(self.args, "producer_needs", 5)
         self.lanes: dict[str, dict] = {}  # automation, by lane key ("acid cutoff", "fader chords", ...)
@@ -307,6 +329,15 @@ or off for atmos, otherwise ""
 (a control, a module or effect on a voice, a sound, a change to how you're asked). The \
 human approves or rejects it, and Claude builds approved ones between sets. Your requests \
 and their status are listed each time: don't repeat one. At most {REQUESTS_PER_HOUR} an hour.
+- read: target a path: m00Dr/<path> for the rig's code and docs (m00Dr/voices/acid/player.py, \
+m00Dr/docs/HANDOFF.md, m00Dr/voices/drums/drumkits.json...) or samples/<path> for the sample \
+library (a folder lists its files; samples/catalog.json is big: give a word); value "" or a \
+word to find (you get the lines around it). The text is in your next plan. Read-only, at \
+most {READS_PER_PLAN} per plan.
+- ask_claude: target a short topic, value your question, for Claude: a coding agent that can \
+read the rig's code, the sample library and the voices' live state, but change nothing. Its \
+answer arrives in a later plan (a minute or two). Ask what your own reads can't answer: how \
+a voice works, what a sound would take, why something sounds wrong. At most {CLAUDE_PER_HOUR} an hour.
 Library packs: {', '.join(packs)}. Search with one to three plain words (kick, clap, vox, \
 amen, jungle, pad, riser, noise...); every result tells you what it searched for.
 The roller's dice move m00Dr and the 303 every bar on their own. You modify what they \
@@ -350,6 +381,7 @@ under, shown with the mixer. A limiter protects the speakers."""
                 f"Samples sounding: {', '.join(n for _, n in self.playing) or 'none'}\n"
                 f"Automation running: {self._lanes_text()}\n"
                 f"Your requests: {self._requests_text()}\n"
+                + self._reads_text() + self._claude_text() +
                 f"Your notes: {self.notes or '(none yet: this is the start of the set)'}\n"
                 f"What your last actions did:\n" + ("\n".join(self.history) or "(nothing yet)")
                 + self._chat_text() + "\nPlan the next stretch.")
@@ -663,6 +695,118 @@ under, shown with the mixer. A limiter protects the speakers."""
         bars = since / (240 / self.roller.bpm())
         return (f"gated {share:.0f}% of the last {span / 60:.0f} min (aim about {GATE_SHARE}%); "
                 f"{'gated' if current else 'legato'} for the last {bars:.0f} bars")
+
+    # -- reading and asking -------------------------------------------------------
+
+    def _reads_text(self) -> str:
+        if not self.reads:
+            return ""
+        text, self.reads = "\n".join(self.reads), []
+        return f"Files you read last plan:\n{text[:READ_TOTAL]}\n"
+
+    def _claude_text(self) -> str:
+        pending = ", ".join(self.claude_pending) or "none"
+        out = ""
+        if self.claude_answers:
+            out = "Claude answered:\n" + "\n".join(self.claude_answers) + "\n"
+            self.claude_answers = []
+        return out + f"Questions to Claude still out: {pending}\n"
+
+    async def _read(self, ws, target, value, beats):
+        if len(self.reads) >= READS_PER_PLAN:
+            return f"read {target!r}: {READS_PER_PLAN} reads per plan already"
+        root_name, _, rel = str(target).strip().lstrip("/").partition("/")
+        root = READ_ROOTS.get(root_name) or next((r for n, r in READ_ROOTS.items() if n.lower() == root_name.lower()), None)
+        if root is None:
+            return f"read {target!r}: start the path with m00Dr/ or samples/"
+        path = (root / rel).resolve()
+        if path != root.resolve() and root.resolve() not in path.parents:
+            return f"read {target!r}: outside {root_name}/"
+        if path.is_dir():
+            names = sorted(p.name + ("/" if p.is_dir() else "") for p in path.iterdir() if not p.name.startswith("."))
+            body = ", ".join(names[:200]) + (f" ... ({len(names)} in all)" if len(names) > 200 else "")
+        elif path.is_file():
+            try:
+                text = path.read_text(errors="replace")
+            except OSError as e:
+                return f"read {target!r}: {e}"
+            word = str(value).strip()
+            if word:
+                lines = text.splitlines()
+                hits = [i for i, line in enumerate(lines) if word.lower() in line.lower()]
+                if not hits:
+                    return f"read {target!r}: no line has {word!r}"
+                body = "\n...\n".join("\n".join(lines[max(0, i - 6):i + 12]) for i in hits[:4])
+            else:
+                body = text
+            if len(body) > READ_CHARS:
+                body = body[:READ_CHARS] + f"\n... (cut at {READ_CHARS} of {len(body)} chars: read again with a word to find)"
+        else:
+            return f"read {target!r}: no such file or folder"
+        self.reads.append(f"--- {root_name}/{rel}{' (around ' + repr(value) + ')' if value else ''}\n{body}")
+        return f"read {root_name}/{rel}: {len(body)} chars, in your next plan"
+
+    def _live_state(self) -> str:
+        run = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+        parts = []
+        for name, f in LIVE_STATE.items():
+            try:
+                parts.append(f"{name}: {(run / f).read_text()[:3000]}")
+            except OSError:
+                pass
+        return "\n".join(parts)
+
+    async def _ask_claude(self, ws, target, value, beats):
+        topic, question = str(target).strip()[:60] or "question", str(value).strip()
+        if not question:
+            return "ask_claude: put the question in value"
+        self.claude_asks = [t for t in self.claude_asks if time.time() - t < 3600]
+        if len(self.claude_asks) >= CLAUDE_PER_HOUR:
+            return f"ask_claude {topic!r}: {CLAUDE_PER_HOUR} questions in the last hour already"
+        if topic in self.claude_pending:
+            return f"ask_claude {topic!r}: already waiting on that one"
+        if not shutil.which("claude"):
+            return "ask_claude: Claude Code isn't installed on this machine"
+        self.claude_asks.append(time.time())
+        prompt = (f"The producer asks ({topic}): {question}\n\nThe set right now:\n"
+                  f"{self.prompt[:4000]}\n\nThe voices' live state:\n{self._live_state()}")
+        self.claude_pending[topic] = asyncio.create_task(self._claude(topic, question, prompt))
+        return f"ask_claude {topic!r}: asked; the answer comes in a later plan"
+
+    async def _claude(self, topic: str, question: str, prompt: str) -> None:
+        started, answer, cost = time.time(), None, None
+        try:
+            if self.args.dry_run:
+                answer = "(dry run: not asked)"
+            else:
+                proc = await asyncio.create_subprocess_exec(
+                    "claude", "-p", prompt, "--tools", "Read", "Grep", "Glob", "--add-dir", str(SAMPLES),
+                    "--append-system-prompt", CLAUDE_BRIEF, "--output-format", "json",
+                    cwd=str(REPO), stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                try:
+                    out, err = await asyncio.wait_for(proc.communicate(), CLAUDE_TIMEOUT)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    out, err = b"", b"timed out"
+                items = json.loads(out or b"[]")
+                items = items if isinstance(items, list) else [items]
+                result = next((x for x in reversed(items) if isinstance(x, dict) and x.get("type") == "result"), {})
+                answer, cost = result.get("result") or err.decode(errors="replace")[-300:] or "no answer", result.get("total_cost_usd")
+                if result.get("is_error"):
+                    answer = f"(couldn't ask: {answer})"
+        except (OSError, ValueError) as e:
+            answer = f"(couldn't ask: {e})"
+        self.claude_answers.append(f"[{topic}] {str(answer)[:2500]}")
+        print(f"producer: Claude answered {topic!r} in {time.time() - started:.0f}s: {str(answer)[:200]}", flush=True)
+        try:
+            CLAUDE_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with CLAUDE_LOG.open("a") as f:
+                f.write(json.dumps({"time": started, "took": round(time.time() - started), "topic": topic,
+                                    "question": question, "answer": answer, "cost_usd": cost}) + "\n")
+        except OSError:
+            pass
+        self.claude_pending.pop(topic, None)
 
     # -- requests -----------------------------------------------------------------
 
