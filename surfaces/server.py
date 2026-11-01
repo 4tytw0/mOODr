@@ -24,6 +24,10 @@ GET /producer     -> the producer's (Qwen's) last notes as JSON, newest last (50
 GET /chat         -> the page chat with the producer: {"messages": [...], "chat": allowed}
 POST /chat        -> {"text": ...}: a message to the producer; answers {"reply": ...}. Its next plan
                      reads it too. This machine, NetBird peers and the home network only.
+GET /requests     -> the producer's requests for improvements: {"requests": [...], "may": allowed}
+POST /requests    -> {"id": n, "status": "approved"|"rejected"}: the human's answer to one. This
+                     machine, NetBird peers and the home network only (as the chat). Claude builds
+                     approved ones in a coding session and marks them done.
 GET /hexagram     -> the roller's current section as JSON: its lines (bottom first),
                      which of them change next, and the section (503 before a Roll)
 GET /acid         -> the 303 page (acid.html): the acid patch's sound controls
@@ -141,6 +145,16 @@ CONTROL_NETS = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "::1/128", "100
 # Who may talk to the producer: those, plus the home network (as m00Dr's own web
 # remote already allows: anyone on the Wi-Fi can play it while that's on).
 CHAT_NETS = CONTROL_NETS + [ipaddress.ip_network(n) for n in ("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "fd00::/8")]
+
+
+REQUESTS = pathlib.Path.home() / ".local/state/m00drc/requests.json"   # brain/producer.py writes them
+
+
+def requests_list() -> list:
+    try:
+        return json.loads(REQUESTS.read_text()).get("requests", [])
+    except (OSError, ValueError, AttributeError):
+        return []
 
 
 def chat_messages() -> list:
@@ -339,6 +353,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_recording(self.path.removeprefix("/recordings/"))
         elif self.path == "/chat":
             self.send_body(json.dumps({"messages": chat_messages(), "chat": self.may_chat()}).encode(), "application/json")
+        elif self.path == "/requests":
+            self.send_body(json.dumps({"requests": requests_list(), "may": self.may_chat()}).encode(), "application/json")
         elif self.path == "/producer":
             try:
                 self.send_body(PRODUCER.read_bytes(), "application/json")
@@ -383,9 +399,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         self.send_body(json.dumps({"reply": reply}).encode(), "application/json")
 
+    def requests_post(self):
+        if not self.may_chat():
+            self.send_error(403, "requests are answered from this machine, NetBird peers and the home network")
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 256 else {}
+            rid, status = int(body.get("id")), body.get("status")
+        except (ValueError, TypeError, AttributeError):
+            rid, status = None, None
+        if status not in ("approved", "rejected", "pending"):
+            self.send_error(400, "status: approved, rejected or pending")
+            return
+        requests = requests_list()
+        hit = next((r for r in requests if r.get("id") == rid), None)
+        if hit is None or hit.get("status") == "done":
+            self.send_error(404, "no such open request")
+            return
+        hit["status"], hit["answered"] = status, time.time()
+        tmp = REQUESTS.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"requests": requests}, indent=1))
+        tmp.replace(REQUESTS)
+        self.send_body(json.dumps(hit).encode(), "application/json")
+
     def do_POST(self):
         if self.path == "/chat":
             self.chat_post()
+            return
+        if self.path == "/requests":
+            self.requests_post()
             return
         if self.path == "/webrtc/offer":
             self.webrtc_offer()

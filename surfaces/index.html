@@ -47,6 +47,18 @@
   #producer[hidden] { display:none; }
   #producer .head { color:var(--dim); font-size:12px; letter-spacing:.12em; }
   #producer .head span { letter-spacing:0; }
+  /* The producer's requests for improvements: you approve or reject; Claude builds approved ones. */
+  #reqbtn { font:inherit; font-size:12px; letter-spacing:.12em; padding:0 0 0 10px; border:0; background:none;
+            color:var(--accent); cursor:pointer; }
+  #reqbtn[hidden], #reqs[hidden] { display:none; }
+  #reqs { list-style:none; margin:0; padding:0; display:grid; gap:10px; font-size:13px; }
+  #reqs li { display:grid; gap:4px; border-left:2px solid var(--line); padding-left:8px; }
+  #reqs li.pending { border-color:var(--accent); }
+  #reqs .why { color:var(--dim); white-space:pre-wrap; overflow-wrap:anywhere; }
+  #reqs .st { color:var(--dim); font-size:12px; }
+  #reqs .acts { display:flex; gap:6px; }
+  #reqs .acts button { font:inherit; font-size:11px; letter-spacing:.12em; padding:4px 8px; border:1px solid var(--line);
+                       border-radius:4px; background:transparent; color:var(--fg); cursor:pointer; }
   #pnow { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
   #pold { list-style:none; margin:0; padding:0; display:grid; gap:10px; color:var(--dim); font-size:13px;
           max-height:12em; overflow:auto; }
@@ -151,7 +163,9 @@
   </section>
   <div id="side">
   <div id="producer" hidden>
-    <div class="head">PRODUCER <span id="pmeta"></span></div>
+    <div class="head">PRODUCER <span id="pmeta"></span><button id="reqbtn" hidden
+      title="What the producer has asked for. Approve and Claude builds it in a coding session."></button></div>
+    <ol id="reqs" hidden></ol>
     <p id="pnow"></p>
     <ol id="pold"></ol>
   </div>
@@ -529,6 +543,42 @@ async function producerPoll() {
     t.textContent = ago(n.time) + ' · '; li.append(t, n.notes); return li; }));
 }
 producerPoll(); setInterval(producerPoll, 5000);
+
+// The producer's requests: a count by its name; open it to approve or reject each pending one.
+let reqShown = '';
+async function reqPoll() {
+  let d;
+  try { const r = await fetch('/requests', { cache: 'no-store' }); if (r.ok) d = await r.json(); } catch {}
+  if (!d) return;
+  const open = d.requests.filter(q => q.status === 'pending' || q.status === 'approved');
+  const pending = open.filter(q => q.status === 'pending').length;
+  $('reqbtn').hidden = !d.requests.length;
+  $('reqbtn').textContent = pending ? `REQUESTS ${pending}` : 'REQUESTS';
+  const key = JSON.stringify([d.requests, d.may]);
+  if (key === reqShown) return;
+  reqShown = key;
+  const list = [...open, ...d.requests.filter(q => q.status === 'done' || q.status === 'rejected').slice(-3)];
+  $('reqs').replaceChildren(...list.map(q => {
+    const li = document.createElement('li'); li.className = q.status;
+    const t = document.createElement('div'); t.textContent = `#${q.id} ${q.title}`;
+    const w = document.createElement('div'); w.className = 'why'; w.textContent = q.why;
+    const s = document.createElement('div'); s.className = 'st';
+    s.textContent = `${q.status} · bar ${q.bar} · ${ago(q.time)}` + (q.note ? ` · ${q.note}` : '');
+    li.append(t, w, s);
+    if (q.status === 'pending' && d.may) {
+      const acts = document.createElement('div'); acts.className = 'acts';
+      for (const [label, status] of [['APPROVE', 'approved'], ['REJECT', 'rejected']]) {
+        const b = document.createElement('button'); b.textContent = label;
+        b.onclick = async () => { await fetch('/requests', { method: 'POST', body: JSON.stringify({ id: q.id, status }) }); reqPoll(); };
+        acts.append(b);
+      }
+      li.append(acts);
+    }
+    return li;
+  }));
+}
+$('reqbtn').onclick = () => { $('reqs').hidden = !$('reqs').hidden; };
+reqPoll(); setInterval(reqPoll, 10000);
 // The chat: the log is polled (so replies and other listeners' messages show up),
 // a message is POSTed and waits for the answer (a plan in progress goes first).
 let chatShown = '', chatWaiting = false;

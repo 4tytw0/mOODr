@@ -57,6 +57,12 @@ NOTES_KEPT = 8
 # The page chat (surfaces/server.py writes it): what the human listening said, and what
 # you answered there. Messages since the last plan go into the next plan's prompt.
 CHAT_FILE = NOTES_FILE.with_name("m00drc-chat.json")
+# Requests for improvements: the model asks for what it doesn't have; the human approves
+# them on the audio page (server.py's /requests) and Claude builds approved ones in a
+# coding session, then marks them done. Kept across reboots, outside git.
+REQUESTS_FILE = pathlib.Path.home() / ".local/state/m00drc/requests.json"
+REQUESTS_PER_HOUR = 3
+REQUESTS_SHOWN = 8
 # What can be heard: each part's m00Dr on/off toggle (web remote id; None: no toggle)
 # and its mixer strip. The prompt says which parts are silent and why, and actions on
 # a part that's switched off are flagged in the feedback: the model kept tuning parts
@@ -90,7 +96,7 @@ PLAN_SCHEMA = {
             "type": "object",
             "properties": {
                 "do": {"enum": ["set", "fader", "sidechain", "bass", "acid", "automate", "break", "sample", "fx",
-                                "roll"]},
+                                "roll", "request"]},
                 "target": {"type": "string", "maxLength": 60},
                 "value": {"type": "string", "maxLength": 120},
                 "beats": {"type": "number"}},
@@ -291,6 +297,10 @@ fixed, value 0..63 (the built-in breaks)
 - fx: target riser2, riser4, riser8 (bars), down2, down4, impact or atmos; value on \
 or off for atmos, otherwise ""
 - roll: a new chord progression (m00Dr's Roll button); target and value ""
+- request: ask for something you don't have: target a short title, value why you need it \
+(a control, a module or effect on a voice, a sound, a change to how you're asked). The \
+human approves or rejects it, and Claude builds approved ones between sets. Your requests \
+and their status are listed each time: don't repeat one. At most {REQUESTS_PER_HOUR} an hour.
 Library packs: {', '.join(packs)}. Search with one to three plain words (kick, clap, vox, \
 amen, jungle, pad, riser, noise...); every result tells you what it searched for.
 The roller's dice move m00Dr and the 303 every bar on their own. You modify what they \
@@ -333,6 +343,7 @@ under, shown with the mixer. A limiter protects the speakers."""
                 f"303 knobs you've set: {self.acid or 'none yet'}.\nBreak playing: {brk}\n"
                 f"Samples sounding: {', '.join(n for _, n in self.playing) or 'none'}\n"
                 f"Automation running: {self._lanes_text()}\n"
+                f"Your requests: {self._requests_text()}\n"
                 f"Your notes: {self.notes or '(none yet: this is the start of the set)'}\n"
                 f"What your last actions did:\n" + ("\n".join(self.history) or "(nothing yet)")
                 + self._chat_text() + "\nPlan the next stretch.")
@@ -599,6 +610,45 @@ under, shown with the mixer. A limiter protects the speakers."""
             return f"acid {target} {start} -> {v} over {beats:g} beats"
         await self._send_lane(key, v)
         return f"acid {target} = {v}"
+
+    # -- requests -----------------------------------------------------------------
+
+    @staticmethod
+    def _requests() -> list[dict]:
+        try:
+            return json.loads(REQUESTS_FILE.read_text()).get("requests", [])
+        except (OSError, ValueError, AttributeError):
+            return []
+
+    def _requests_text(self) -> str:
+        shown = [r for r in self._requests() if r["status"] in ("pending", "approved")]
+        shown += [r for r in self._requests() if r["status"] in ("done", "rejected")][-3:]
+        if not shown:
+            return "none yet"
+        return "; ".join(f"#{r['id']} {r['title']} ({r['status']}{': ' + r['note'] if r.get('note') else ''})"
+                         for r in shown[-REQUESTS_SHOWN:])
+
+    async def _request(self, ws, target, value, beats):
+        title, why = str(target).strip()[:60], str(value).strip()[:200]
+        if not title:
+            return "request: give it a short title (target) and why (value)"
+        requests = self._requests()
+        hour = [r for r in requests if time.time() - r["time"] < 3600]
+        if len(hour) >= REQUESTS_PER_HOUR:
+            return f"request {title!r}: {REQUESTS_PER_HOUR} requests in the last hour already; ask later"
+        for r in requests:
+            if r["status"] in ("pending", "approved") and difflib.SequenceMatcher(
+                    None, norm(r["title"]), norm(title)).ratio() > 0.75:
+                return f"request {title!r}: already asked as #{r['id']} {r['title']!r} ({r['status']})"
+        entry = {"id": max((r["id"] for r in requests), default=0) + 1, "time": time.time(),
+                 "bar": round((time.monotonic() - self.started) / (240 / self.roller.bpm())),
+                 "model": self.args.model, "title": title, "why": why, "status": "pending"}
+        if not self.args.dry_run:
+            REQUESTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = REQUESTS_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"requests": requests + [entry]}, indent=1))
+            tmp.replace(REQUESTS_FILE)
+        return f"request #{entry['id']} {title!r}: filed, waiting for the human"
 
     # -- automation ---------------------------------------------------------------
 
