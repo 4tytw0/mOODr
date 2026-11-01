@@ -39,6 +39,15 @@
   .embed body { display:block; min-height:0; padding:0; }
   .embed h1 { display:none; }
   .embed main { max-width:none; }
+  /* Fit (the audio server's strip above the chat): one row of knobs, dials shrunk to the width. */
+  .fit main { gap:10px; }
+  .fit #knobs { grid-template-columns:repeat(auto-fit, minmax(64px, 1fr)); gap:6px; }
+  .fit .knob { padding:6px 3px; gap:2px; min-width:0; }
+  .fit .name { font-size:11px; letter-spacing:.02em; }
+  .fit .name, .fit .ch, .fit .val { max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fit .ch, .fit .val { font-size:10px; }
+  .fit #bar, .fit #status { font-size:11px; }
+  .fit .dial { width:min(76px, 100%); height:auto; aspect-ratio:1; }
 </style>
 </head>
 <body>
@@ -53,6 +62,9 @@
 const $ = id => document.getElementById(id);
 if (location.search.includes('embed')) {
   document.documentElement.classList.add('embed');
+  addEventListener('message', e => {   // the audio server page: fit the strip above its chat, or not
+    if (e.source === parent && e.data && 'fit' in e.data) document.documentElement.classList.toggle('fit', !!e.data.fit);
+  });
   new ResizeObserver(() => parent.postMessage({ acidHeight: document.querySelector('main').scrollHeight + 4 }, '*'))
     .observe(document.querySelector('main'));
 }

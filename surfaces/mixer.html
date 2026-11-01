@@ -64,6 +64,17 @@
     .embed #strips { grid-template-columns:repeat(3, minmax(0, 1fr)); }
     .embed .tracks { height:240px; }
   }
+  /* Fit (the audio server's strip above the chat): one row of strips, faders as tall as the panel allows. */
+  .fit, .fit body { overflow-y:auto; }
+  .fit body { height:100vh; }
+  .fit main { min-height:100%; display:flex; flex-direction:column; gap:8px; }
+  .fit #sidechain { gap:0; font-size:12px; }
+  .fit #strips { flex:1 0 auto; grid-template-columns:repeat(auto-fit, minmax(0, 1fr)); gap:6px; }
+  .fit .strip { grid-template-rows:auto auto minmax(70px, 1fr) auto auto auto; gap:2px; padding:6px 3px; }
+  .fit .name { font-size:12px; letter-spacing:.04em; }
+  .fit .ch, .fit .db, .fit .drv, .fit .sc { font-size:10px; letter-spacing:0; }
+  .fit .tracks { height:auto; }
+  .fit #status { font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style>
 </head>
 <body>
@@ -78,6 +89,9 @@
 const $ = id => document.getElementById(id);
 if (location.search.includes('embed')) {
   document.documentElement.classList.add('embed');
+  addEventListener('message', e => {   // the audio server page: fit the strip above its chat, or not
+    if (e.source === parent && e.data && 'fit' in e.data) document.documentElement.classList.toggle('fit', !!e.data.fit);
+  });
   const main = document.querySelector('main');
   new ResizeObserver(() => parent.postMessage({ mixerHeight: Math.ceil(main.getBoundingClientRect().height) + 2 }, '*'))
     .observe(main);
