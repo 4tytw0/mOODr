@@ -34,7 +34,7 @@ import numpy as np
 import pathlib as _pathlib, sys as _sys
 VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
 _sys.path.insert(0, str(VOICE.parent / "_sunvox"))
-from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, find_module, load, open_lib
+from sunvoxlib import HERE, NOTECMD_ALL_NOTES_OFF, NOTECMD_NOTE_OFF, ClockFollower, find_module, load, open_lib
 
 SR, BLOCK = 48000, 256
 ACID_CHANNEL = 4                          # 0-based: m00Dr's acid part is MIDI ch5
@@ -63,11 +63,23 @@ SOUND_CCS = {
     79: ("Acid level", "Volume", 128, 512),            # master level: -6 dB to +6 dB, starts at unity
     80: ("Acid delay", "Wet", 0, 200),                 # echo mix, starts off
     81: ("Acid delay", "Feedback", 0, 230),            # echo repeats, kept short of runaway
-    82: ("Acid delay", "Delay", 60, 750),              # echo delay time, ms
+    82: ("Acid delay", "Delay", 60, 750),              # echo delay time: a note ratio (DELAY_RATIOS), in ms
+    # The producer's requests #1-#3 (CCs MIDI leaves undefined):
+    102: ("Acid tube follow", "OUT max", 0, 32768),    # tube: how much the drive follows the envelope
+    103: ("Acid spark", "Volume", 0, 200),             # spark: distorted highs (above 150 Hz) mixed in
+    104: ("Acid low", "Gain", 4384, 22384),            # low: the band below 150 Hz, -12..+6 dB (raw: 16384 = 0 dB, 1000 a dB)
+    105: ("Acid plate", "Wet", 0, 160),                # verb: the plate's wet level
+    106: ("Acid shimmer", "Volume", 0, 200),           # shimmer: the octave-up reverb tail
 }
+# The delay time is a note ratio of m00Dr's clock, not free milliseconds: CC 82 picks one
+# of these (beats; 1/16, 1/8, dotted 1/8, 1/4, dotted 1/4, 1/2), turned into ms at the
+# tempo, and re-timed when the tempo changes.
+DELAY_CC, DELAY_RATIOS, DELAY_NAMES = 82, (0.25, 0.5, 0.75, 1.0, 1.5, 2.0), ("1/16", "1/8", "1/8.", "1/4", "1/4.", "1/2")
+DEFAULT_BPM, DELAY_MAX_MS = 120.0, 3000
 SOUND_GLIDE = 0.5                         # s, time constant for easing to a new CC value
 # What the 303 page calls each one.
-SOUND_LABELS = {74: "Cutoff", 71: "Resonance", 75: "Decay", 76: "Accent", 5: "Glide", 77: "Drive", 78: "Grit", 79: "Level", 80: "Delay", 81: "Feedback", 82: "Time"}
+SOUND_LABELS = {74: "Cutoff", 71: "Resonance", 75: "Decay", 76: "Accent", 5: "Glide", 77: "Drive", 78: "Grit", 79: "Level",
+                80: "Delay", 81: "Feedback", 82: "Time", 102: "Tube", 103: "Spark", 104: "Low", 105: "Verb", 106: "Shimmer"}
 
 CONTROL = ("127.0.0.1", 9811)             # the 303 page, via server.py (mixer.py has 9810)
 LIVE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m800dr-acid.json"
@@ -92,6 +104,8 @@ class SunVox303:
             value = min(max(round((now - lo) / (hi - lo) * 127), 0), 127)
             self.sound[cc] = [mod, ctl, lo, hi, now, now, value, False, value]
         self.ease = 1 - np.exp(-BLOCK / (SOUND_GLIDE * SR))
+        self.bpm = DEFAULT_BPM
+        self.clock = ClockFollower(on_tempo=self._set_tempo)   # for the delay's note ratios
         self.lock = threading.Lock()  # ONE_THREAD: events and rendering must not overlap
         self.tracks = {}              # held MIDI note -> SunVox track
         self.next_track = 0
@@ -125,7 +139,25 @@ class SunVox303:
 
     def _set(self, entry, value):
         entry[6] = value
-        entry[5] = entry[2] + (entry[3] - entry[2]) * value / 127
+        if entry is self.sound.get(DELAY_CC):   # a note ratio at the clock's tempo
+            ratio = DELAY_RATIOS[min(value * len(DELAY_RATIOS) // 128, len(DELAY_RATIOS) - 1)]
+            entry[5] = min(DELAY_MAX_MS, ratio * 60000 / self.bpm)
+        else:
+            entry[5] = entry[2] + (entry[3] - entry[2]) * value / 127
+
+    def _set_tempo(self, bpm):
+        self.bpm = bpm
+        entry = self.sound.get(DELAY_CC)
+        if entry is not None:
+            self._set(entry, entry[6])
+
+    def clock_start(self):
+        with self.lock:
+            self.clock.start()
+
+    def clock_tick(self):
+        with self.lock:
+            self.clock.tick()
 
     def control(self, cc, value):
         """A 7-bit CC from MIDI: set that controller's target, unless the 303
@@ -177,9 +209,11 @@ def open_midi():
 
 
 def midi_loop(client, synth):
-    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent
+    from alsa_midi import NoteOnEvent, NoteOffEvent, ControlChangeEvent, ClockEvent, StartEvent
     while True:
         ev = client.event_input()
+        if isinstance(ev, ClockEvent): synth.clock_tick(); continue     # the tempo, for the delay
+        if isinstance(ev, StartEvent): synth.clock_start(); continue
         if getattr(ev, "channel", None) != ACID_CHANNEL: continue
         if isinstance(ev, NoteOnEvent):
             synth.note_on(ev.note, ev.velocity) if ev.velocity else synth.note_off(ev.note)

@@ -46,8 +46,9 @@ FX_CHANNEL = 10
 FX_NOTES = {"riser2": 60, "riser4": 61, "riser8": 62, "down2": 64, "down4": 65, "impact": 67, "atmos": 72}
 GATE_BITS_CCS, WOBBLE_RATE_CC = (25, 26, 27), 28        # sunvoxbass.py
 ACID_CHANNEL = 5
-ACID_CCS = {"cutoff": 74, "resonance": 71, "decay": 75, "accent": 76, "glide": 5, "drive": 77, "grit": 78, "level": 79, "delay": 80, "feedback": 81, "time": 82}
-ACID_ALIASES = {"filter": "cutoff", "res": "resonance", "env": "decay", "slide": "glide", "distortion": "drive", "volume": "level", "amp": "level", "gain": "level", "echo": "delay", "wet": "delay", "delay time": "time", "delaytime": "time", "fb": "feedback", "dirt": "grit", "crush": "grit"}
+ACID_CCS = {"cutoff": 74, "resonance": 71, "decay": 75, "accent": 76, "glide": 5, "drive": 77, "grit": 78, "level": 79, "delay": 80, "feedback": 81, "time": 82,
+            "tube": 102, "spark": 103, "low": 104, "verb": 105, "shimmer": 106}
+ACID_ALIASES = {"filter": "cutoff", "res": "resonance", "env": "decay", "slide": "glide", "distortion": "drive", "volume": "level", "amp": "level", "gain": "level", "echo": "delay", "wet": "delay", "delay time": "time", "delaytime": "time", "fb": "feedback", "dirt": "grit", "crush": "grit", "saturation": "tube", "tube emu": "tube", "highs": "spark", "multiband": "spark", "sub": "low", "low end": "low", "reverb": "verb", "plate": "verb", "spring": "verb"}
 RAMP_STEPS_PER_BEAT = 8
 HISTORY = 16                  # action results kept for the next prompt
 GATE_SHARE, GATE_WINDOW = 40, 600   # the bass: gated about this % of the time, over this many s
@@ -310,7 +311,11 @@ bars at least, not a new pattern every plan); you're shown the running share.
   target gate, value legato, a pattern ({', '.join(g for g in GATES if g != 'legato')}) \
 or four hex digits for 16 steps, first step on top (8A28 = x...x.x...x.x...), x = the \
 note re-attacks; or target wobble, value swells per beat (0.125..8)
-- acid: target {', '.join(ACID_CCS)}, value 0..127 (the 303's knobs); beats = how long it glides there
+- acid: target {', '.join(ACID_CCS)}, value 0..127 (the 303's knobs); beats = how long it glides there. \
+tube: saturation that follows the 303's envelope (accents bite harder); spark: distorted \
+highs above 150 Hz mixed in, the sub untouched; low: the band below 150 Hz, -12 dB at 0, flat \
+near 85, +6 dB at 127; verb: a plate reverb; shimmer: an octave-up reverb tail; time: the \
+delay as a note ratio of the tempo (0 1/16, 22 1/8, 43 dotted 1/8, 64 1/4, 85 dotted 1/4, 107 1/2)
 - automate: target acid <knob>, fader <strip>, sidechain or bass wobble; value a lane of 2..16 \
 numbers separated by spaces, in that control's range (acid 0..127, fader and sidechain 0..1, wobble \
 0.125..8); beats = the length of each step (4 = one value a bar). The lane loops, gliding from each \

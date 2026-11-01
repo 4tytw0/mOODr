@@ -28,6 +28,7 @@ from rv.modules.base.distortion import BaseDistortion
 from rv.modules.base.filter import BaseFilter
 from rv.modules.base.fm import BaseFm
 from rv.modules.base.echo import BaseEcho
+from rv.modules.base.filterpro import BaseFilterPro
 
 DEFAULT_OUT = Path(__file__).resolve().parent / "m00Drc.sunvox"
 DEFAULT_ACID_OUT = DEFAULT_OUT.with_name("acid303.sunvox")
@@ -41,6 +42,8 @@ CHORD_CH, BASS_CH, ARP_CH, ACID_CH = 1, 2, 3, 5
 ACID_CUTOFF, ACID_RESONANCE, ACID_RESPONSE = 400, 1250, 3
 ACID_IMPULSE_MIN, ACID_IMPULSE_MAX = 2500, 6000
 IMPULSE_CTL = 7  # the Filter's Impulse controller, 1-based
+POWER_CTL = 3    # a Distortion's Power controller, 1-based (Volume, Type, Power, ...)
+SPLIT_HZ = 150   # the multiband split: below it the sub, above it the "spark"
 
 
 def listen(module, channel: int):
@@ -109,7 +112,45 @@ def add_acid(project: Project, out, x: int, y: int):
     delay = project.new_module(
         m.Echo, name="Acid delay", x=x + 1200, y=y,
         dry=256, wet=0, feedback=96, delay_unit=BaseEcho.DelayUnit.ms, delay=375)
-    glide >> acid >> squelch >> drive >> grit >> level >> delay >> out
+    # Requested by the producer (#1 tube): saturation after the drive (before it, the
+    # drive's own saturation swallowed it) whose Power follows the 303's envelope, so
+    # swells and accents bite harder. A Sound2Ctl reads the filter's output and writes
+    # the tube's Power; its OUT max is the depth (CC "Tube"), 0 by default, and a
+    # Distortion at power 0 passes unchanged.
+    tube = project.new_module(
+        m.Distortion, name="Acid tube", x=x + 500, y=y + 150, volume=128,
+        type=BaseDistortion.Type.saturation3, power=0)   # measured: the most highs without clipping
+    follow = project.new_module(
+        m.Sound2Ctl, name="Acid tube follow", x=x + 500, y=y + 300,
+        gain=1024, smooth=96, out_min=0, out_max=0, out_controller=POWER_CTL)   # full gain: the filter's output is quiet
+    # (#2 multiband) The low band's level: a low shelf below SPLIT_HZ on the main
+    # path (gain 0 = flat). The spark: a parallel path that high-passes the drive's
+    # output at SPLIT_HZ (24 dB, so the sub never reaches it), distorts it and mixes
+    # it back in; its volume is the CC, 0 by default (silent).
+    low = project.new_module(
+        m.FilterPro, name="Acid low", x=x + 700, y=y + 150,
+        type=BaseFilterPro.Type.low_shelf, freq=SPLIT_HZ, gain=0)
+    spark_hp = project.new_module(
+        m.FilterPro, name="Acid spark band", x=x + 700, y=y + 300,
+        type=BaseFilterPro.Type.hp, freq=SPLIT_HZ, roll_off=BaseFilterPro.RollOff._24db)
+    spark = project.new_module(
+        m.Distortion, name="Acid spark", x=x + 900, y=y + 300, volume=0,
+        type=BaseDistortion.Type.saturation5, power=200)
+    # (#3 plate) A plate-like reverb after the delay: small, bright, dense; wet is the
+    # CC ("Verb"), 0 by default. The shimmer: an octave up into its own fully wet
+    # reverb, so the pitched copy is only ever heard as tail; its volume is the CC.
+    plate = project.new_module(
+        m.Reverb, name="Acid plate", x=x + 1400, y=y, dry=256, wet=0,
+        feedback=230, damp=60, room_size=20, stereo_width=256)
+    shimmer = project.new_module(
+        m.PitchShifter, name="Acid shimmer", x=x + 1400, y=y + 150, volume=0, pitch=120)
+    shimmer_verb = project.new_module(
+        m.Reverb, name="Acid shimmer verb", x=x + 1600, y=y + 150, dry=0, wet=256,
+        feedback=245, damp=40, room_size=48, stereo_width=256)
+    glide >> acid >> squelch >> drive >> tube >> low >> grit >> level >> delay >> plate >> out
+    squelch >> follow >> tube
+    drive >> spark_hp >> spark >> grit
+    delay >> shimmer >> shimmer_verb >> out
     kick >> squelch
     return glide
 
