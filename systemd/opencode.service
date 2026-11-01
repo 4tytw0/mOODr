@@ -6,7 +6,8 @@ Wants=llama-swap.service
 
 [Service]
 # Its own worktree (branch opencode), never the live checkout; `oc` on the Mac attaches.
-WorkingDirectory=%h/code/m00Dr-oc
+# "-": the first start makes the worktree (ExecStartPre), which runs before it exists.
+WorkingDirectory=-%h/code/m00Dr-oc
 Environment=OPENCODE_MODEL=ornith-35b-dsp10
 ExecStartPre=/bin/sh -c 'test -d %h/code/m00Dr-oc || git -C %h/code/m00Dr worktree add -B opencode %h/code/m00Dr-oc main'
 ExecStart=%h/.local/bin/opencode serve --hostname 127.0.0.1 --port 4096
