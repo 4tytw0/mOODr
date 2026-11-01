@@ -174,11 +174,11 @@ DRUM_KITS = 32
 
 # Where the drums play: the soundfont kits above on DRUM_CHANNEL, or one of
 # the SunVox kits (m800Dr's sunvoxdrums.py, built by m00Drc) on
-# SUNVOX_DRUM_CHANNEL, picked by a program change 0..2 in this order. A
+# SUNVOX_DRUM_CHANNEL, picked by a program change 0..3 in this order. A
 # separate channel means only one of the two synths hears the drums, with no
 # re-routing: FluidSynth only takes ch4, sunvoxdrums.py only ch6.
 SUNVOX_DRUM_CHANNEL = 5  # MIDI channel 6
-SUNVOX_DRUM_KITS = ["Machine", "Boom", "Crunch"]
+SUNVOX_DRUM_KITS = ["Machine", "Boom", "Crunch", "909"]
 SOUNDFONT_DRUMS = "Soundfont"
 # The menu offers the SunVox kits only: the rig has no soundfont synth since
 # 2026-10-31 (m00Dr's voices are all SunVox), and the producer picks from this menu.

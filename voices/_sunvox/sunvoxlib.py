@@ -29,6 +29,8 @@ def open_lib(sample_rate: int):
     sv.sv_audio_callback.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_uint32]
     sv.sv_get_ticks.restype = ctypes.c_uint32
     sv.sv_get_module_ctl_name.restype = ctypes.c_char_p
+    sv.sv_sampler_load.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+    sv.sv_sampler_par.argtypes = [ctypes.c_int] * 6
     flags = (SV_INIT_FLAG_NO_DEBUG_OUTPUT | SV_INIT_FLAG_USER_AUDIO_CALLBACK
              | SV_INIT_FLAG_AUDIO_FLOAT32 | SV_INIT_FLAG_ONE_THREAD)
     if sv.sv_init(None, sample_rate, 2, flags) < 0:

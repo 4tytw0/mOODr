@@ -116,6 +116,47 @@
           "46"
         ]
       }
+    },
+    {
+      "name": "909",
+      "file": "drumkit-909.sunvox",
+      "voices": {
+        "36": [
+          [
+            "909 Kick",
+            61
+          ]
+        ],
+        "38": [
+          [
+            "909 Snare",
+            61
+          ]
+        ],
+        "42": [
+          [
+            "909 Hat",
+            61
+          ]
+        ],
+        "46": [
+          [
+            "909 Open hat",
+            61
+          ]
+        ]
+      },
+      "chokes": {
+        "42": [
+          "46"
+        ]
+      },
+      "samples": {
+        "909 Kick": "Random mass/genevoice_gm64pro/36 909Kick.wav",
+        "909 Snare": "Random mass/genevoice_gm64pro/38 909Snare.wav",
+        "909 Hat": "Random mass/genevoice_gm64pro/42 Cl HH 909.wav",
+        "909 Open hat": "Random mass/genevoice_gm64pro/46 HH Opn 909.wav"
+      }
     }
   ]
 }

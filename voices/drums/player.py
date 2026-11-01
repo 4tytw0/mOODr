@@ -7,7 +7,7 @@
 The kits are drumkit-*.sunvox beside this file, listed with their note map in
 drumkits.json (both built by `uv run
 voices/drums/build.py`). Each kit is loaded into its own SunVox slot. A
-program change 0..2 on DRUM_CHANNEL picks the kit the next hits go to, and
+program change 0..3 on DRUM_CHANNEL picks the kit the next hits go to, and
 the old kit's tails ring out. Listens on ALSA sequencer client
 "m00Dr-SunVoxDrums" and plays through pw-cat into the m800Dr Mixer's drums
 strip, like reese.py.
@@ -23,7 +23,7 @@ one (the kit's "chokes").
     uv run sunvoxdrums.py                    # run (the m00dr-sunvoxdrums user service does this)
     uv run sunvoxdrums.py --demo out_dir/    # render a short groove per kit, for listening
 """
-import fcntl, json, subprocess, sys, threading
+import fcntl, json, os, subprocess, sys, threading
 import numpy as np
 import pathlib as _pathlib, sys as _sys
 VOICE = _pathlib.Path(__file__).resolve().parent   # this voice's folder: its patches live here
@@ -34,6 +34,19 @@ SR, BLOCK = 48000, 256
 DRUM_CHANNEL = 5                          # 0-based: m00Dr's SunVox drums are MIDI ch6
 KITS = VOICE / "drumkits.json"
 VOLUME = 256                              # sv_volume per slot, 0..256
+SAMPLER_LOOP_TYPE = 2                     # sv_sampler_par's parameter id for the loop type
+SAMPLES = _pathlib.Path.home() / "samples"  # the sample library, for kits whose samples aren't in git
+
+
+def plain_wav(wav):
+    """A copy of `wav` with only its format and audio (in the runtime dir): SunVox's loader
+    rejects some WAVs over extra chunks, e.g. a sampler loop ("smpl") after the data."""
+    import wave
+    out = _pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m00dr-samples" / wav.name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(wav)) as src, wave.open(str(out), "wb") as dst:
+        dst.setparams(src.getparams()); dst.writeframes(src.readframes(src.getnframes()))
+    return out
 
 
 class Kit:
@@ -46,6 +59,18 @@ class Kit:
         # One SunVox track per module, so a module's next hit retriggers it.
         self.track = {module: i for i, module in enumerate(modules)}
         self.number = {module: find_module(sv, slot, module, path) for module in modules}
+        # Kits built from samples outside git (see build.py's 909): load each into its Sampler.
+        # A missing file leaves that voice silent rather than stopping the drums.
+        for module, rel in spec.get("samples", {}).items():
+            wav = SAMPLES / rel
+            mod = self.number[module] - 1   # find_module gives the number + 1 that events take
+            if not wav.exists() or (sv.sv_sampler_load(slot, mod, str(wav).encode(), -1) < 0
+                                    and sv.sv_sampler_load(slot, mod, str(plain_wav(wav)).encode(), -1) < 0):
+                print(f"kit {spec['name']}: no sample for {module} ({wav})", flush=True)
+            else:
+                # One-shots: these GM-kit WAVs carry sampler loop points (a "smpl" chunk)
+                # that SunVox honours, so a hit would ring on forever. Loop type 0 = none.
+                sv.sv_sampler_par(slot, mod, 0, SAMPLER_LOOP_TYPE, 0, 1)
         self.voices = {int(key): hits for key, hits in spec["voices"].items()}
         self.chokes = {int(key): [int(k) for k in keys] for key, keys in spec.get("chokes", {}).items()}
 

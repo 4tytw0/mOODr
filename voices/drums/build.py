@@ -15,6 +15,10 @@ SunVox library note. m800Dr's sunvoxdrums.py loads the kits and plays them.
              hats.
     Crunch   SunVox's DrumSynth through a bitcrusher and a low-pass:
              lo-fi breaks.
+    909      the real thing: a TR-909's kick, snare and hats, one Sampler
+             each. The samples aren't in git (no license, like the breaks):
+             the kit file holds empty Samplers, and drumkits.json's "samples"
+             tells the player which WAV from ~/samples to load into each.
 
 Every kit plays through a compressor on its way out (drum_bus), about 2:1
 above -10 dB with a 3 ms attack: it pulls the kick and snare bodies down
@@ -171,9 +175,37 @@ def crunch() -> tuple[Project, dict]:
     }
 
 
+# The 909 kit's samples, relative to ~/samples (the "Random mass" pack's GM kit).
+SAMPLES_909 = {
+    "909 Kick": "Random mass/genevoice_gm64pro/36 909Kick.wav",
+    "909 Snare": "Random mass/genevoice_gm64pro/38 909Snare.wav",
+    "909 Hat": "Random mass/genevoice_gm64pro/42 Cl HH 909.wav",
+    "909 Open hat": "Random mass/genevoice_gm64pro/46 HH Opn 909.wav",
+}
+# A Sampler plays a sample at its own pitch on C5, library note 61 (1 = C0).
+SAMPLE_NOTE = 61
+
+
+def nine09() -> tuple[Project, dict]:
+    p = Project()
+    p.name = "m00Drc kit: 909"
+    p.output.x, p.output.y = 1500, 512
+    out = drum_bus(p)
+    for i, name in enumerate(SAMPLES_909):
+        p.new_module(m.Sampler, name=name, x=300, y=150 + 150 * i) >> out
+    return p, {
+        KICK: [("909 Kick", SAMPLE_NOTE)],
+        SNARE: [("909 Snare", SAMPLE_NOTE)],
+        CLOSED_HAT: [("909 Hat", SAMPLE_NOTE)],
+        OPEN_HAT: [("909 Open hat", SAMPLE_NOTE)],
+    }
+
+
 KITS = [("Machine", "drumkit-machine.sunvox", machine),
         ("Boom", "drumkit-boom.sunvox", boom),
-        ("Crunch", "drumkit-crunch.sunvox", crunch)]
+        ("Crunch", "drumkit-crunch.sunvox", crunch),
+        ("909", "drumkit-909.sunvox", nine09)]
+KIT_SAMPLES = {"909": SAMPLES_909}
 
 
 def main(argv: list[str]) -> int:
@@ -186,7 +218,8 @@ def main(argv: list[str]) -> int:
         kits.append({"name": name, "file": filename,
                      "voices": {str(key): [list(v) for v in hits] for key, hits in voices.items()},
                      # A closed hat cuts an open one off, as on a real hi-hat.
-                     "chokes": {str(CLOSED_HAT): [str(OPEN_HAT)]}})
+                     "chokes": {str(CLOSED_HAT): [str(OPEN_HAT)]}}
+                    | ({"samples": KIT_SAMPLES[name]} if name in KIT_SAMPLES else {}))
         print(f"wrote {out_dir / filename}")
     (out_dir / "drumkits.json").write_text(json.dumps({"kits": kits}, indent=2) + "\n")
     print(f"wrote {out_dir / 'drumkits.json'}")
