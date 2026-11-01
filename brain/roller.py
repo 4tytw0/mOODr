@@ -338,8 +338,6 @@ def to_message(lane: Lane, value: int, control: dict | None) -> dict | None:
 class Roller:
     def __init__(self, args):
         self.args = args
-        if args.arrange == "producer":   # the producer has m00Dr and the 303: no dice lanes
-            args.lanes = []
         self.producer: Producer | None = None
         self.bars, self.shift, self.active = args.bars, args.shift, len(args.lanes)
         self.lanes = make_lanes(args.lanes, self.shift)
@@ -827,6 +825,9 @@ def parse_args(argv=None):
                         "(0 keeps the model's odds; 0.2 gives each of 5 options at least 4%%)")
     p.add_argument("--arrange", choices=("off", "dice", "model", "producer"), default="off",
                    help="an arrangement move per section (faders, arp rate, drums), chosen by dice or the model")
+    p.add_argument("--producer-needs", type=int, default=5, choices=range(1, 7), metavar="1..6",
+                   help="--arrange producer: the dice lanes move the set, and each of the producer's plans "
+                        "lands only when a d6 rolls at least this (5: 1 in 3; 1: always)")
     p.add_argument("--dry-run", action="store_true", help="print, don't send")
     p.add_argument("--no-midi", action="store_true",
                    help="no ALSA MIDI (knobs in, sound CCs out); it is Linux only")

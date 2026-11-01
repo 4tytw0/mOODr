@@ -13,6 +13,11 @@ The limits are the human's: a fader they've moved by hand is that strip's
 ceiling (held in mixer.py, which also clamps these moves), and mixer.py's
 master limiter, which nothing here can reach. The dice lanes are off in this
 mode; the model also decides when to Roll.
+
+The roller's dice lanes keep moving m00Dr and the 303 every bar; the producer
+modifies that. Each plan lands only when a d6 rolls --producer-needs or more
+(5: 1 in 3); otherwise the dice keep the set, and the model is told so. The
+automation lanes of a plan that landed keep running until replaced.
 """
 import asyncio
 import difflib
@@ -216,6 +221,8 @@ class Producer:
         self.library, self.catalog_mtime = {}, None
         self.resolver = Resolver([])
         self.rolls: list[float] = []      # when it Rolled, for the prompt
+        self.die = random.Random()        # gates each plan (not the roller's seeded stream)
+        self.needs = getattr(self.args, "producer_needs", 5)
         self.lanes: dict[str, dict] = {}  # automation, by lane key ("acid cutoff", "fader chords", ...)
         self.lane_task: asyncio.Task | None = None
         try:
@@ -285,6 +292,11 @@ or off for atmos, otherwise ""
 - roll: a new chord progression (m00Dr's Roll button); target and value ""
 Library packs: {', '.join(packs)}. Search with one to three plain words (kick, clap, vox, \
 amen, jungle, pad, riser, noise...); every result tells you what it searched for.
+The roller's dice move m00Dr and the 303 every bar on their own. You modify what they \
+do, but only when your die comes up: each plan lands only on a d6 roll of {self.needs}+ \
+({7 - self.needs} in 6); otherwise the dice keep the set and you're told so next time. So \
+make each plan count, and put the movement you want in automation lanes: they keep \
+running after a plan lands, until you replace them.
 Only your actions change the set: your notes are for you, and nothing in them happens \
 unless an action does it.
 The human can override you: a fader they've moved has a ceiling your moves stay \
@@ -431,6 +443,16 @@ under, shown with the mixer. A limiter protects the speakers."""
                 self.notes = plan.get("notes", "")[:600]
                 bars = min(max(int(plan.get("next_bars", DEFAULT_BARS)), 1), 16)
                 print(f"producer ({took:.0f}s): {self.notes}", flush=True)
+                roll = self.die.randint(1, 6)
+                if roll < self.needs:
+                    print(f"producer: rolled {roll}, needs {self.needs}: the dice keep the set", flush=True)
+                    self.history = (self.history + [f"your last plan didn't land: your die rolled {roll}, "
+                                                    f"it needed {self.needs}+; the dice kept the set"])[-HISTORY:]
+                    self._publish_notes(took, plan.get("notes", ""),
+                                        [f"not applied: rolled {roll}, needs {self.needs}+"])
+                    await asyncio.sleep(bars * 240 / self.roller.bpm())
+                    continue
+                print(f"producer: rolled {roll}: the plan lands", flush=True)
                 self.chat_seen = self._chat_upto   # the chat it was shown has been answered
                 results = []
                 for action in plan.get("actions", [])[:12]:
