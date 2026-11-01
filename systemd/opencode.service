@@ -9,6 +9,8 @@ Wants=llama-swap.service
 # "-": the first start makes the worktree (ExecStartPre), which runs before it exists.
 WorkingDirectory=-%h/code/m00Dr-oc
 Environment=OPENCODE_MODEL=ornith-35b-dsp10
+# The server wants a password; clients (oc) read the same file. Not in git: 0600, made once.
+EnvironmentFile=%h/.config/opencode/server.env
 ExecStartPre=/bin/sh -c 'test -d %h/code/m00Dr-oc || git -C %h/code/m00Dr worktree add -B opencode %h/code/m00Dr-oc main'
 ExecStart=%h/.local/bin/opencode serve --hostname 127.0.0.1 --port 4096
 # Load the model as the rig comes up (the producer's, so neither swaps the other out).
