@@ -13,7 +13,7 @@ WorkingDirectory=%h/code/m00Dr
 # llama-swap on 127.0.0.1:8080; the I Ching arcs stay on the dice. If the model
 # can't answer, that section's move is rolled with the dice. On stop the mix is
 # put back as it was.
-ExecStart=/usr/bin/uv run -q python -u -m brain.roller --wait-for-play --arrange producer --model qwen3.6-35b-music175
+ExecStart=/usr/bin/uv run -q python -u -m brain.roller --wait-for-play --arrange producer --model ornith-35b-dsp10
 Restart=always
 RestartSec=5
 
