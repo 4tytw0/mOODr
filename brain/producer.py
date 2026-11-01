@@ -825,12 +825,17 @@ under, shown with the mixer. A limiter protects the speakers."""
             return []
 
     def _requests_text(self) -> str:
-        shown = [r for r in self._requests() if r["status"] in ("pending", "approved")]
+        shown = [r for r in self._requests() if r["status"] in ("pending", "approved", "in_progress")]
         shown += [r for r in self._requests() if r["status"] in ("done", "rejected")][-3:]
         if not shown:
             return "none yet"
-        return "; ".join(f"#{r['id']} {r['title']} ({r['status']}{': ' + r['note'] if r.get('note') else ''})"
-                         for r in shown[-REQUESTS_SHOWN:])
+        def status(r):
+            if r["status"] == "in_progress":
+                return f"being built by {r.get('agent', 'an agent')}, step {r.get('step', 1)} of {len(r.get('plan', []))}"
+            if r["status"] == "approved":
+                return "approved, no agent on it yet"
+            return r["status"] + (": " + r["note"] if r.get("note") else "")
+        return "; ".join(f"#{r['id']} {r['title']} ({status(r)})" for r in shown[-REQUESTS_SHOWN:])
 
     async def _request(self, ws, target, value, beats):
         title, why = str(target).strip()[:60], str(value).strip()[:200]
@@ -841,7 +846,7 @@ under, shown with the mixer. A limiter protects the speakers."""
         if len(hour) >= REQUESTS_PER_HOUR:
             return f"request {title!r}: {REQUESTS_PER_HOUR} requests in the last hour already; ask later"
         for r in requests:
-            if r["status"] in ("pending", "approved") and difflib.SequenceMatcher(
+            if r["status"] in ("pending", "approved", "in_progress") and difflib.SequenceMatcher(
                     None, norm(r["title"]), norm(title)).ratio() > 0.75:
                 return f"request {title!r}: already asked as #{r['id']} {r['title']!r} ({r['status']})"
         entry = {"id": max((r["id"] for r in requests), default=0) + 1, "time": time.time(),

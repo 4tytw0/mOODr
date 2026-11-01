@@ -454,8 +454,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         requests = requests_list()
         hit = next((r for r in requests if r.get("id") == rid), None)
-        if hit is None or hit.get("status") == "done":
-            self.send_error(404, "no such open request")
+        if hit is None or hit.get("status") in ("done", "in_progress"):
+            self.send_error(404 if hit is None else 409, "no such open request" if hit is None
+                            else "an agent is building that one")
             return
         hit["status"], hit["answered"] = status, time.time()
         tmp = REQUESTS.with_suffix(".tmp")

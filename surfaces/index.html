@@ -52,18 +52,33 @@
   #producer[hidden] { display:none; }
   #producer .head { color:var(--dim); font-size:12px; letter-spacing:.12em; }
   #producer .head span { letter-spacing:0; }
-  /* The producer's requests for improvements: you approve or reject; Claude builds approved ones. */
-  #reqbtn { font:inherit; font-size:12px; letter-spacing:.12em; padding:0 0 0 10px; border:0; background:none;
-            color:var(--accent); cursor:pointer; }
-  #reqbtn[hidden], #reqs[hidden] { display:none; }
-  #reqs { list-style:none; margin:0; padding:0; display:grid; gap:10px; font-size:13px; }
-  #reqs li { display:grid; gap:4px; border-left:2px solid var(--line); padding-left:8px; }
-  #reqs li.pending { border-color:var(--accent); }
-  #reqs .why { color:var(--dim); white-space:pre-wrap; overflow-wrap:anywhere; }
-  #reqs .st { color:var(--dim); font-size:12px; }
-  #reqs .acts { display:flex; gap:6px; }
-  #reqs .acts button { font:inherit; font-size:11px; letter-spacing:.12em; padding:4px 8px; border:1px solid var(--line);
-                       border-radius:4px; background:transparent; color:var(--fg); cursor:pointer; }
+  /* REQUESTS: what the producer asked for, who's building it and how far they've got. */
+  #reqmenu { position:fixed; z-index:20; top:56px; left:16px; width:min(460px, calc(100vw - 32px));
+             max-height:min(70vh, calc(100vh - 120px)); overflow:auto; padding:14px; display:grid; gap:12px; align-content:start;
+             background:var(--bg); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.25); }
+  #reqmenu[hidden] { display:none; }
+  #reqmenu .head { color:var(--dim); font-size:12px; letter-spacing:.12em; display:flex; }
+  #reqmenu .head span { flex:1; }
+  #reqmenu .head button { font:inherit; font-size:12px; border:0; background:none; color:var(--dim); cursor:pointer; padding:0; }
+  #reqlist { list-style:none; margin:0; padding:0; display:grid; gap:12px; font-size:13px; }
+  #reqlist li { display:grid; gap:5px; border-left:2px solid var(--line); padding-left:10px; }
+  #reqlist li.pending, #reqlist li.approved { border-color:var(--accent); }
+  #reqlist li.in_progress { border-color:var(--ok); }
+  #reqlist .title { display:flex; gap:8px; align-items:baseline; }
+  #reqlist .title b { font-weight:normal; flex:1; }
+  #reqlist .chip { font-size:10px; letter-spacing:.12em; padding:2px 6px; border:1px solid var(--line); border-radius:4px;
+                   color:var(--dim); white-space:nowrap; }
+  #reqlist li.pending .chip, #reqlist li.approved .chip { color:var(--accent); border-color:var(--accent); }
+  #reqlist li.in_progress .chip { color:var(--ok); border-color:var(--ok); }
+  #reqlist .why { color:var(--dim); white-space:pre-wrap; overflow-wrap:anywhere; }
+  #reqlist .st { font-size:12px; }
+  #reqlist .meta { color:var(--dim); font-size:11px; }
+  #reqlist ol.plan { list-style:none; margin:0; padding:0; display:grid; gap:2px; font-size:12px; }
+  #reqlist ol.plan li { border:0; padding:0; display:block; color:var(--dim); }
+  #reqlist ol.plan li.now { color:var(--fg); }
+  #reqlist .acts { display:flex; gap:6px; }
+  #reqlist .acts button { font:inherit; font-size:11px; letter-spacing:.12em; padding:4px 8px; border:1px solid var(--line);
+                          border-radius:4px; background:transparent; color:var(--fg); cursor:pointer; }
   #pnow { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
   #pold { list-style:none; margin:0; padding:0; display:grid; gap:10px; color:var(--dim); font-size:13px;
           max-height:12em; overflow:auto; }
@@ -140,11 +155,16 @@
 </style>
 </head>
 <body>
+<div id="reqmenu" hidden>
+  <div class="head"><span>REQUESTS · approve or reject; an agent builds approved ones</span><button id="reqclose">✕</button></div>
+  <ol id="reqlist"></ol>
+</div>
 <main>
   <h1>AUDIO <span>●</span> SERVER <span class="tabs">
     <button class="nav" id="rig" title="The rig: synths and m00Dr on or off">RIG …</button>
     <button class="nav" id="rec" title="Record the mix to a WAV on the desktop">REC ○</button>
     <a class="nav" id="recfile" hidden download>↓ WAV</a>
+    <button class="nav" id="tab-req" title="What the producer has asked for, who's building it, and how far they've got">REQ</button>
     <button class="nav" id="tab-acid" title="Show or hide the 303's sound controls beside the scope (the audio keeps playing)">303</button>
     <button class="nav" id="tab-mixer" title="Show or hide the mixer beside the scope (the audio keeps playing)">MIXER</button></span></h1>
   <section id="player">
@@ -170,9 +190,7 @@
   </section>
   <div id="side">
   <div id="producer" hidden>
-    <div class="head">PRODUCER <span id="pmeta"></span><button id="reqbtn" hidden
-      title="What the producer has asked for. Approve and Claude builds it in a coding session."></button></div>
-    <ol id="reqs" hidden></ol>
+    <div class="head">PRODUCER <span id="pmeta"></span></div>
     <p id="pnow"></p>
     <ol id="pold"></ol>
   </div>
@@ -551,41 +569,66 @@ async function producerPoll() {
 }
 producerPoll(); setInterval(producerPoll, 5000);
 
-// The producer's requests: a count by its name; open it to approve or reject each pending one.
+// REQUESTS menu: what the producer asked for and where each one is. Pending ones wait for you
+// (approve or reject); approved ones for an agent; in progress shows the agent's plan and step.
 let reqShown = '';
+const REQ_LABEL = { pending: 'WAITING FOR YOU', approved: 'NO AGENT YET', in_progress: 'IN PROGRESS',
+                    done: 'DONE', rejected: 'REJECTED' };
 async function reqPoll() {
   let d;
   try { const r = await fetch('/requests', { cache: 'no-store' }); if (r.ok) d = await r.json(); } catch {}
   if (!d) return;
-  const open = d.requests.filter(q => q.status === 'pending' || q.status === 'approved');
-  const pending = open.filter(q => q.status === 'pending').length;
-  $('reqbtn').hidden = !d.requests.length;
-  $('reqbtn').textContent = pending ? `REQUESTS ${pending}` : 'REQUESTS';
+  const by = st => d.requests.filter(q => q.status === st);
+  const pending = by('pending').length, open = pending + by('approved').length + by('in_progress').length;
+  $('tab-req').textContent = open ? `REQ ${pending ? pending + '!' : open}` : 'REQ';
+  $('tab-req').classList.toggle('sel', pending > 0);
   const key = JSON.stringify([d.requests, d.may]);
   if (key === reqShown) return;
   reqShown = key;
-  const list = [...open, ...d.requests.filter(q => q.status === 'done' || q.status === 'rejected').slice(-3)];
-  $('reqs').replaceChildren(...list.map(q => {
-    const li = document.createElement('li'); li.className = q.status;
-    const t = document.createElement('div'); t.textContent = `#${q.id} ${q.title}`;
-    const w = document.createElement('div'); w.className = 'why'; w.textContent = q.why;
-    const s = document.createElement('div'); s.className = 'st';
-    s.textContent = `${q.status} · bar ${q.bar} · ${ago(q.time)}` + (q.note ? ` · ${q.note}` : '');
-    li.append(t, w, s);
+  const order = ['pending', 'approved', 'in_progress'];
+  const list = [...d.requests.filter(q => order.includes(q.status)).sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status)),
+                ...d.requests.filter(q => !order.includes(q.status)).slice(-5).reverse()];
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  $('reqlist').replaceChildren(...(list.length ? list.map(q => {
+    const li = el('li', q.status);
+    const t = el('div', 'title'); t.append(el('b', null, `#${q.id} ${q.title}`), el('span', 'chip', REQ_LABEL[q.status] || q.status));
+    li.append(t, el('div', 'why', q.why));
+    if (q.status === 'pending') li.append(el('div', 'st', 'Waiting for your answer.'));
+    if (q.status === 'approved') li.append(el('div', 'st', 'Approved. No agent has taken it yet.'));
+    if (q.status === 'in_progress') {
+      const n = q.plan?.length || 0, k = q.step || 1;
+      li.append(el('div', 'st', `${q.agent || 'An agent'} · step ${k} of ${n}: ${q.plan?.[k - 1] || ''}`));
+      const plan = el('ol', 'plan');
+      (q.plan || []).forEach((p, i) => plan.append(el('li', i + 1 === k ? 'now' : '', `${i + 1 < k ? '✓' : i + 1 === k ? '▶' : '○'} ${p}`)));
+      li.append(plan);
+    }
+    if ((q.status === 'done' || q.status === 'rejected') && q.note) li.append(el('div', 'st', q.note));
+    li.append(el('div', 'meta', `filed at bar ${q.bar} · ${ago(q.time)}` + (q.updated ? ` · updated ${ago(q.updated)}` : '')));
     if (q.status === 'pending' && d.may) {
-      const acts = document.createElement('div'); acts.className = 'acts';
+      const acts = el('div', 'acts');
       for (const [label, status] of [['APPROVE', 'approved'], ['REJECT', 'rejected']]) {
-        const b = document.createElement('button'); b.textContent = label;
+        const b = el('button', null, label);
         b.onclick = async () => { await fetch('/requests', { method: 'POST', body: JSON.stringify({ id: q.id, status }) }); reqPoll(); };
         acts.append(b);
       }
       li.append(acts);
     }
     return li;
-  }));
+  }) : [el('li', null, 'Nothing asked yet.')]));
 }
-$('reqbtn').onclick = () => { $('reqs').hidden = !$('reqs').hidden; };
-reqPoll(); setInterval(reqPoll, 10000);
+// Opens just under the REQ tab (the header wraps differently on wide and narrow windows).
+function placeReqMenu() {
+  const r = $('tab-req').getBoundingClientRect(), m = $('reqmenu'), w = m.offsetWidth || 460;
+  m.style.top = `${Math.round(r.bottom + 8)}px`;
+  m.style.left = `${Math.round(Math.max(16, Math.min(r.left, innerWidth - w - 16)))}px`;
+}
+$('tab-req').onclick = () => {
+  $('reqmenu').hidden = !$('reqmenu').hidden;
+  if (!$('reqmenu').hidden) { placeReqMenu(); reqPoll(); }
+};
+addEventListener('resize', () => { if (!$('reqmenu').hidden) placeReqMenu(); });
+$('reqclose').onclick = () => { $('reqmenu').hidden = true; };
+reqPoll(); setInterval(reqPoll, 5000);
 
 // The desktop's resources, every 2 s.
 async function sysPoll() {
