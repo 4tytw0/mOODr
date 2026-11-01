@@ -71,6 +71,11 @@ def part_of(result: str) -> str | None:
     r = result.lower()
     return next((part for prefix, part in RESULT_PARTS if r.startswith(prefix)), None)
 DEFAULT_BARS = 4              # when a plan doesn't come back
+# Automation lanes: the model writes a lane of values, one per step of `beats`, and
+# code glides from each to the next and loops it until the lane is replaced. Plans
+# come a minute or more apart; the lanes are what moves the set in between.
+LANE_MAX_STEPS, LANES_MAX = 16, 8
+LANE_TICKS_PER_BEAT = 8
 
 PLAN_SCHEMA = {
     "type": "object",
@@ -79,9 +84,10 @@ PLAN_SCHEMA = {
         "actions": {"type": "array", "maxItems": 12, "items": {
             "type": "object",
             "properties": {
-                "do": {"enum": ["set", "fader", "sidechain", "bass", "acid", "break", "sample", "fx", "roll"]},
+                "do": {"enum": ["set", "fader", "sidechain", "bass", "acid", "automate", "break", "sample", "fx",
+                                "roll"]},
                 "target": {"type": "string", "maxLength": 60},
-                "value": {"type": "string", "maxLength": 60},
+                "value": {"type": "string", "maxLength": 120},
                 "beats": {"type": "number"}},
             "required": ["do", "target", "value", "beats"]}},
         "next_bars": {"type": "integer", "minimum": 1, "maximum": 16}},
@@ -210,6 +216,12 @@ class Producer:
         self.library, self.catalog_mtime = {}, None
         self.resolver = Resolver([])
         self.rolls: list[float] = []      # when it Rolled, for the prompt
+        self.lanes: dict[str, dict] = {}  # automation, by lane key ("acid cutoff", "fader chords", ...)
+        self.lane_task: asyncio.Task | None = None
+        try:
+            self.sidechain_now = float(json.loads(MIXER_LIVE.read_text())["sidechain"])
+        except (OSError, ValueError, KeyError, TypeError):
+            self.sidechain_now = 0.5
         self._refresh_library()
 
     def _refresh_library(self) -> None:
@@ -255,7 +267,15 @@ fader move takes; 0 = at once; 0 where it doesn't apply):
 - bass: target gate, value legato, a pattern ({', '.join(g for g in GATES if g != 'legato')}) \
 or four hex digits for 16 steps, first step on top (8A28 = x...x.x...x.x...), x = the \
 note re-attacks; or target wobble, value swells per beat (0.125..8)
-- acid: target {', '.join(ACID_CCS)}, value 0..127 (the 303's knobs)
+- acid: target {', '.join(ACID_CCS)}, value 0..127 (the 303's knobs); beats = how long it glides there
+- automate: target acid <knob>, fader <strip>, sidechain or bass wobble; value a lane of 2..16 \
+numbers separated by spaces, in that control's range (acid 0..127, fader and sidechain 0..1, wobble \
+0.125..8); beats = the length of each step (4 = one value a bar). The lane loops, gliding from each \
+value to the next, until you automate that target again; value off stops it where it is, and a \
+one-off move on that target also stops it. Your plans are a minute or more apart and nothing else \
+moves in between: automation is how the set breathes. Keep three or more lanes running so \
+something changes every bar, give them different lengths (say 4, 6 and 8 steps) so they drift \
+against each other, and rewrite them as the sections change.
 - break: target search, value words to find a drum loop in the library; or target \
 fixed, value 0..63 (the built-in breaks)
 - sample: target words to find a sample in the library, value once, loop or stop \
@@ -299,6 +319,7 @@ under, shown with the mixer. A limiter protects the speakers."""
                 f"Bass: gate {self.bass['gate']}, wobble {self.bass['wobble']}. "
                 f"303 knobs you've set: {self.acid or 'none yet'}.\nBreak playing: {brk}\n"
                 f"Samples sounding: {', '.join(n for _, n in self.playing) or 'none'}\n"
+                f"Automation running: {self._lanes_text()}\n"
                 f"Your notes: {self.notes or '(none yet: this is the start of the set)'}\n"
                 f"What your last actions did:\n" + ("\n".join(self.history) or "(nothing yet)")
                 + self._chat_text() + "\nPlan the next stretch.")
@@ -432,6 +453,8 @@ under, shown with the mixer. A limiter protects the speakers."""
     async def stop(self) -> None:
         for task in self.ramps.values():
             task.cancel()
+        if self.lane_task:
+            self.lane_task.cancel()
         for note, _ in self.playing:
             await self._note(FX_CHANNEL, note, 0)
         await self._note(FX_CHANNEL, FX_NOTES["atmos"], 0)
@@ -484,6 +507,7 @@ under, shown with the mixer. A limiter protects the speakers."""
             return f"fader {target} {value!r}: no such strip, or not a level"
         if target in self.ramps:
             self.ramps[target].cancel()
+        self._unlane(f"fader {target}")
         start, ceiling = strip["fader"], strip.get("ceiling")
         self.ramps[target] = asyncio.create_task(self._ramp(target, start, level, beats))
         capped = f" (the human's ceiling {ceiling:.2f} holds it there)" if ceiling is not None and level > ceiling else ""
@@ -503,8 +527,11 @@ under, shown with the mixer. A limiter protects the speakers."""
             amount = min(max(num(value or target), 0.0), 1.0)
         except ValueError:
             return f"sidechain {value!r}: not a number"
-        if not self.args.dry_run:
-            self.sock.sendto(json.dumps({"sidechain": amount}).encode(), MIXER)
+        self._unlane("sidechain")
+        if beats:
+            self.lanes["sidechain"] = self._oneshot("sidechain", self.sidechain_now, amount, beats)
+            return f"sidechain {self.sidechain_now:.2f} -> {amount:.2f} over {beats:g} beats"
+        await self._send_lane("sidechain", amount)
         return f"sidechain = {amount:.2f}"
 
     async def _bass(self, ws, target, value, beats):
@@ -527,9 +554,8 @@ under, shown with the mixer. A limiter protects the speakers."""
                 rate = WOBBLES.get(norm(value)) or num(value)
             except ValueError:
                 return f"bass wobble {value!r}: not a rate"
-            cc = min(max(round(16 * math.log2(max(rate, 1e-3) * 8)), 0), 127)
-            await self._cc(BASS_CHANNEL, WOBBLE_RATE_CC, cc)
-            self.bass["wobble"] = f"{min(8.0, 2 ** (cc / 16) / 8):.3g} swells a beat"
+            self._unlane("bass wobble")
+            await self._send_lane("bass wobble", rate)
             return f"bass wobble {self.bass['wobble']}"
         return f"bass {target}: gate or wobble"
 
@@ -542,9 +568,122 @@ under, shown with the mixer. A limiter protects the speakers."""
             return f"acid {target} {value!r}: not 0..127"
         if cc is None:
             return f"acid {target}: one of {', '.join(ACID_CCS)}"
-        await self._cc(ACID_CHANNEL, cc, v)
-        self.acid[norm(target)] = v
+        key = f"acid {target}"
+        self._unlane(key)
+        if beats:
+            start = self.acid.get(target, v)
+            self.lanes[key] = self._oneshot(key, start, v, beats)
+            return f"acid {target} {start} -> {v} over {beats:g} beats"
+        await self._send_lane(key, v)
         return f"acid {target} = {v}"
+
+    # -- automation ---------------------------------------------------------------
+
+    def _lane_key(self, target: str) -> tuple[str, float, float] | None:
+        """A lane target as the model writes it -> (key, low, high), or None."""
+        words = norm(target).replace(":", " ").replace(".", " ").split()
+        if not words:
+            return None
+        if words[0] in ("sidechain", "sc"):
+            return "sidechain", 0.0, 1.0
+        if "wobble" in words:
+            return "bass wobble", 0.125, 8.0
+        rest = words[1:] if words[0] in ("acid", "303", "fader", "mixer") else words
+        knob = ACID_ALIASES.get(rest[0], rest[0]) if rest else ""
+        if words[0] != "fader" and knob in ACID_CCS:
+            return f"acid {knob}", 0, 127
+        strips = ("chords", "bass", "arp", "fx", "acid", "drums", "breaks")
+        if rest and rest[0] in strips and words[0] != "acid":
+            return f"fader {rest[0]}", 0.0, 1.0
+        return None
+
+    def _oneshot(self, key: str, start: float, end: float, beats: float) -> dict:
+        """A glide from start to end over beats, then it holds (a lane that doesn't loop)."""
+        if self.lane_task is None or self.lane_task.done():
+            self.lane_task = asyncio.create_task(self._run_lanes())
+        return {"points": [start, end], "beats": beats, "pos": 0.0, "loop": False, "last": None}
+
+    def _unlane(self, key: str) -> None:
+        self.lanes.pop(key, None)
+
+    def _lanes_text(self) -> str:
+        lanes = [(k, l) for k, l in self.lanes.items() if l["loop"]]
+        if not lanes:
+            return "none: nothing moves between your plans"
+        return "; ".join(f"{k} [{' '.join(f'{p:g}' for p in l['points'])}] every {l['beats']:g} beats, "
+                         f"step {int(l['pos']) % len(l['points']) + 1} of {len(l['points'])}" for k, l in lanes)
+
+    async def _automate(self, ws, target, value, beats):
+        found = self._lane_key(target)
+        if found is None:
+            return (f"automate {target!r}: target acid <knob> ({', '.join(ACID_CCS)}), fader <strip>, "
+                    f"sidechain or bass wobble")
+        key, low, high = found
+        if norm(value) in ("off", "stop", "none", ""):
+            return f"automate {key}: stopped" if self.lanes.pop(key, None) else f"automate {key}: wasn't running"
+        points = [float(x.replace(",", ".")) for x in re.findall(r"-?\d*[.,]?\d+", value)][:LANE_MAX_STEPS]
+        if len(points) < 2:
+            return f"automate {key} {value!r}: a lane needs 2..{LANE_MAX_STEPS} numbers"
+        clamped = [min(max(p, low), high) for p in points]
+        if key.startswith("acid "):
+            clamped = [round(p) for p in clamped]
+        if key not in self.lanes and sum(1 for l in self.lanes.values() if l["loop"]) >= LANES_MAX:
+            return f"automate {key}: {LANES_MAX} lanes already running; stop one first"
+        if key.startswith("fader ") and key[6:] in self.ramps:
+            self.ramps[key[6:]].cancel()
+        step = min(max(beats or 4, 0.5), 32)
+        self.lanes[key] = {"points": clamped, "beats": step, "pos": 0.0, "loop": True, "last": None}
+        if self.lane_task is None or self.lane_task.done():
+            self.lane_task = asyncio.create_task(self._run_lanes())
+        note = " (clamped to its range)" if clamped != points[:len(clamped)] else ""
+        return (f"automate {key}: {' -> '.join(f'{p:g}' for p in clamped)}, {step:g} beats a step, "
+                f"looping every {step * len(clamped) / 4:g} bars{note}")
+
+    async def _run_lanes(self) -> None:
+        """Plays the lanes: every tick, each lane's value glides from its step's point to the next."""
+        last = time.monotonic()
+        while True:
+            await asyncio.sleep(60 / self.roller.bpm() / LANE_TICKS_PER_BEAT)
+            now = time.monotonic()
+            beats_passed, last = (now - last) * self.roller.bpm() / 60, now
+            for key, lane in list(self.lanes.items()):
+                pts, n = lane["points"], len(lane["points"])
+                lane["pos"] += beats_passed / lane["beats"]
+                if not lane["loop"] and lane["pos"] >= n - 1:
+                    value = pts[-1]
+                    del self.lanes[key]
+                else:
+                    i, frac = int(lane["pos"]) % n, lane["pos"] % 1.0
+                    value = pts[i] + (pts[(i + 1) % n] - pts[i]) * frac
+                try:
+                    await self._send_lane(key, value)
+                except Exception as e:   # one bad lane mustn't stop the others
+                    print(f"producer: lane {key} dropped ({e})", flush=True)
+                    self.lanes.pop(key, None)
+
+    async def _send_lane(self, key: str, value: float) -> None:
+        """Sends one lane value to its control (skipping repeats)."""
+        if key.startswith("acid "):
+            v = min(max(round(value), 0), 127)
+            if self.acid.get(key[5:]) != v:
+                await self._cc(ACID_CHANNEL, ACID_CCS[key[5:]], v)
+                self.acid[key[5:]] = v
+        elif key.startswith("fader "):
+            if not self.args.dry_run:
+                self.sock.sendto(json.dumps({"by": "producer", "strip": key[6:],
+                                             "fader": round(min(max(value, 0.0), 1.0), 4)}).encode(), MIXER)
+        elif key == "sidechain":
+            v = round(min(max(value, 0.0), 1.0), 3)
+            if v != self.sidechain_now:
+                self.sidechain_now = v
+                if not self.args.dry_run:
+                    self.sock.sendto(json.dumps({"sidechain": v}).encode(), MIXER)
+        elif key == "bass wobble":
+            cc = min(max(round(16 * math.log2(max(value, 1e-3) * 8)), 0), 127)
+            if self.bass.get("wobble_cc") != cc:
+                await self._cc(BASS_CHANNEL, WOBBLE_RATE_CC, cc)
+                self.bass["wobble_cc"] = cc
+                self.bass["wobble"] = f"{min(8.0, 2 ** (cc / 16) / 8):.3g} swells a beat"
 
     async def _break(self, ws, target, value, beats):
         r = self.roller
