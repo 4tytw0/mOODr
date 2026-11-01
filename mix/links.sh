@@ -24,6 +24,7 @@ RtMidiOut Client:m00Dr (capture)|m00Dr-FX:fx in (playback)
 m00Drc-Roller:sound out (capture)|m00Dr-FX:fx in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxDrums:drums in (playback)
 RtMidiOut Client:m00Dr (capture)|m00Dr-SunVoxKeys:keys in (playback)
+RtMidiOut Client:m00Dr (capture)|$MIXER:kick
 m00Dr-SunVoxKeys:output_FL|$MIXER:chords_L
 m00Dr-SunVoxKeys:output_FR|$MIXER:chords_R
 m00Dr-SunVoxBass:output_FL|$MIXER:bass_L

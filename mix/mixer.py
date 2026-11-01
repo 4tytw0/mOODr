@@ -27,9 +27,12 @@ or producer) is held at or under that ceiling. Below KNEE the
 fader is plain volume, reaching unity at KNEE; above it the strip blends into
 an asymmetric tanh fuzz that gets harder the higher the fader goes.
 
-Sidechain: the drums strip's low end (mostly the kick), after its fader,
-ducks every strip but the drums and the breaks (SIDECHAIN_DUCKED), with an
-instant attack. The amount (0..1: CC SIDECHAIN_CC, the /mixer page's slider,
+Sidechain: the kick, and only the kick, ducks every strip but the drums and
+the breaks (SIDECHAIN_DUCKED). It's keyed on m00Dr's kick notes (KICK_NOTE on
+KICK_CHANNEL, the "kick" MIDI input, linked by links.sh), not on audio, so no
+snare, tom or 909 boom can trigger it; a note's velocity scales the duck. The
+note arrives before the drum voice's audio does, so the duck is delayed by the
+measured lag (the kick's low end, after the note, in the drums strip). The amount (0..1: CC SIDECHAIN_CC, the /mixer page's slider,
 {"sidechain": 0..1} on CONTROL, the roller) is one control with two
 characters (sidechain_curve):
   0 .. 0.5   mix glue: the duck deepens to 6 dB, recovering in 150 ms;
@@ -65,10 +68,14 @@ SIDECHAIN_KEY = "drums"
 SIDECHAIN_DUCKED = ("chords", "bass", "arp", "acid", "fx")
 SIDECHAIN_DEFAULT = 0.5   # the top of the glue range: 6 dB
 SIDECHAIN_CC = 35         # Launch Control XL middle knob, drums column 7 (factory layout, assumed)
-SIDECHAIN_LPF = 150.0     # Hz: key on the kick, not the hats
-# sidechain_curve's corners: (amount, depth dB, release s, key level that ducks fully)
-SIDECHAIN_GLUE = (0.5, 6.0, 0.15, 0.25)   # the top of the mix-glue range
-SIDECHAIN_FX = (1.0, 30.0, 0.30, 0.45)    # all the way: a deep dip that swells back, for effect
+SIDECHAIN_LPF = 150.0     # Hz: the drums strip's low end, only to measure the kick's lag
+KICK_NOTE, KICK_CHANNEL = 36, 5   # m00Dr's kick: GM note 36 on its SunVox drum channel (ch6)
+KICK_LAG_MAX = 0.2        # s: a lag above this is a missed hit, not latency
+KICK_ONSET = 0.05         # low-end level that marks the kick's audio arriving
+# sidechain_curve's corners: (amount, depth dB, release s, hold s: the duck stays full
+# this long after a kick, its body, before the release)
+SIDECHAIN_GLUE = (0.5, 6.0, 0.15, 0.03)   # the top of the mix-glue range
+SIDECHAIN_FX = (1.0, 30.0, 0.30, 0.06)    # all the way: a deep dip that swells back, for effect
 SIDECHAIN_SMOOTH = 0.002  # s, rounds off the instant attack so the duck doesn't click
 
 # Master limiter (see the docstring): no control reaches these.
@@ -115,45 +122,78 @@ class Strip:
 
 
 def sidechain_curve(amount):
-    """The amount (0..1) -> (depth dB, release s, key level that ducks fully): linear
-    from nothing to SIDECHAIN_GLUE, then from there to SIDECHAIN_FX."""
+    """The amount (0..1) -> (depth dB, release s, hold s): linear from nothing to
+    SIDECHAIN_GLUE, then from there to SIDECHAIN_FX."""
     a = min(max(amount, 0.0), 1.0)
-    glue_at, glue_db, glue_rel, glue_full = SIDECHAIN_GLUE
+    glue_at, glue_db, glue_rel, glue_hold = SIDECHAIN_GLUE
     if a <= glue_at:
-        return glue_db * a / glue_at, glue_rel, glue_full
+        return glue_db * a / glue_at, glue_rel, glue_hold
     t = (a - glue_at) / (SIDECHAIN_FX[0] - glue_at)
     return tuple(g + (f - g) * t for g, f in zip(SIDECHAIN_GLUE[1:], SIDECHAIN_FX[1:]))
 
 
 class Sidechain:
-    """Gain curve for the ducked strips, from the key strip's output."""
+    """Gain curve for the ducked strips, from m00Dr's kick notes."""
 
     def __init__(self, sr, amount):
         self.amount, self.sr = amount, sr
         self.b, self.a = butter(2, SIDECHAIN_LPF, fs=sr)
         self.zi = np.zeros(2)
         self.env = 0.0
+        self.t = 0                      # samples rendered so far
+        self.kicks = collections.deque()   # (sample the duck starts, velocity 0..1), lag applied
+        self.hold_end, self.hold_amp = 0, 0.0
+        self.waiting = collections.deque()  # note times whose audio hasn't been seen yet
+        self.lags = collections.deque(maxlen=9)
+        self.lag = 0                    # samples: the median of the last measured lags
         self.p = np.exp(-1 / (SIDECHAIN_SMOOTH * sr))
         self.szi = np.array([self.p])   # smoother starts settled at unity gain
         self.decay = {}   # (block size, release) -> (r^k, r^-k), k = 1..n
         self.min_gain = 1.0   # deepest duck since the state was last written
 
+    def kick(self, offset, velocity):
+        """A kick note at `offset` samples into the coming block (0..127 velocity)."""
+        self.kicks.append((self.t + offset + self.lag, velocity / 127))
+        self.waiting.append(self.t + offset)
+
+    def _measure(self, key):
+        """The lag from each kick note to its low end arriving in the drums strip."""
+        low, self.zi = lfilter(self.b, self.a, key.mean(0), zi=self.zi)
+        while self.waiting and self.t + len(low) - self.waiting[0] > KICK_LAG_MAX * self.sr:
+            self.waiting.popleft()          # no audio for that one (muted, or the fader is down)
+        if self.waiting:
+            start = max(self.waiting[0] - self.t, 0)
+            hits = np.nonzero(np.abs(low[start:]) > KICK_ONSET)[0]
+            if len(hits):
+                self.lags.append(self.t + start + int(hits[0]) - self.waiting.popleft())
+                self.lag = int(np.median(self.lags))
+
     def gain(self, key):
         n = key.shape[1]
-        depth_db, release, full = sidechain_curve(self.amount)
+        self._measure(key)
+        depth_db, release, hold = sidechain_curve(self.amount)
+        # The key: each kick holds its velocity for `hold`, then the envelope releases.
+        x = np.zeros(n)
+        if self.hold_end > self.t:
+            x[:min(n, self.hold_end - self.t)] = self.hold_amp
+        while self.kicks and self.kicks[0][0] < self.t + n:
+            at, amp = self.kicks.popleft()
+            start = max(at - self.t, 0)
+            self.hold_end, self.hold_amp = at + int(hold * self.sr), amp
+            x[start:min(n, self.hold_end - self.t)] = np.maximum(x[start:min(n, self.hold_end - self.t)], amp)
+        self.t += n
         if (n, release) not in self.decay:
             if len(self.decay) > 64:   # the knob sweeps through many releases
                 self.decay.clear()
             r, k = np.exp(-1 / (release * self.sr)), np.arange(1, n + 1)
             self.decay[(n, release)] = (r ** k, r ** -k)
         down, up = self.decay[(n, release)]
-        low, self.zi = lfilter(self.b, self.a, key.mean(0), zi=self.zi)
         # Peak envelope with instant attack and exponential release, vectorised:
-        # env[n] = r^n * max(env_in, max over k<=n of |x[k]| * r^-k).
-        env = down * np.maximum.accumulate(np.maximum(np.abs(low) * up, self.env))
+        # env[n] = r^n * max(env_in, max over k<=n of x[k] * r^-k).
+        env = down * np.maximum.accumulate(np.maximum(x * up, self.env))
         self.env = float(env[-1])
         # In dB, so the duck sounds even across its depth: 0 dB at no kick, -depth at a full one.
-        g = 10 ** (-depth_db / 20 * np.minimum(env / full, 1.0))
+        g = 10 ** (-depth_db / 20 * np.minimum(env, 1.0))
         g, self.szi = lfilter([1 - self.p], [1, -self.p], g, zi=self.szi)
         self.min_gain = min(self.min_gain, float(g.min()))
         return g
@@ -206,6 +246,7 @@ def main():
     by_channel = {s.channel - 1: s for s in strips}
     by_fader = {s.number - 1: s for s in strips}
     midi = client.midi_inports.register("faders")
+    kick_in = client.midi_inports.register("kick")   # m00Dr's notes: only its kick is read
     controls = client.midi_outports.register("controls")
     # Non-fader CCs from the UDP control thread, written out by process().
     pending = collections.deque(maxlen=256)
@@ -267,6 +308,10 @@ def main():
                 controls.write_midi_event(offset, data)
         while pending:
             controls.write_midi_event(0, pending.popleft())
+        for offset, data in kick_in.incoming_midi_events():
+            data = bytes(data)
+            if (len(data) == 3 and data[0] == 0x90 | KICK_CHANNEL and data[1] == KICK_NOTE and data[2]):
+                sidechain.kick(offset, data[2])
         out = {s: s.process(n) for s in strips}
         duck = sidechain.gain(out[key])
         for s in ducked:
@@ -287,7 +332,9 @@ def main():
             duck, sidechain.min_gain = sidechain.min_gain, 1.0
             state = {"knee": KNEE, "cc": FADER_CC, "last_cc": last_cc[0], "time": time.time(),
                      "sidechain": sidechain.amount, "sidechain_cc": SIDECHAIN_CC,
-                     "sidechain_key": SIDECHAIN_KEY, "strips": [],
+                     "sidechain_key": f"kick (note {KICK_NOTE}, ch{KICK_CHANNEL + 1})",
+                     "kick_lag_ms": round(sidechain.lag / client.samplerate * 1000, 1),
+                     "strips": [],
                      "limiter_db": round(20 * math.log10(max(limiter.lowest, 1e-6)), 1)}
             limiter.lowest = 1.0
             for s in strips:
