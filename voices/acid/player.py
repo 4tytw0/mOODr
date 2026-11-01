@@ -59,10 +59,15 @@ SOUND_CCS = {
     76: ("Acid accent ch5", "OUT max", 9000, 22000),         # how far a hard note kicks the filter (ctl units)
     5:  ("Acid glide ch5", "Response", 900, 300),        # slide time: 900 fast, 300 slow
     77: ("Acid drive", "Power", 60, 220),               # saturation into the 10-bit crush
+    78: ("Acid grit", "Power", 0, 200),                # harsher foldback distortion, starts clean
+    79: ("Acid level", "Volume", 128, 512),            # master level: -6 dB to +6 dB, starts at unity
+    80: ("Acid delay", "Wet", 0, 200),                 # echo mix, starts off
+    81: ("Acid delay", "Feedback", 0, 230),            # echo repeats, kept short of runaway
+    82: ("Acid delay", "Delay", 60, 750),              # echo delay time, ms
 }
 SOUND_GLIDE = 0.5                         # s, time constant for easing to a new CC value
 # What the 303 page calls each one.
-SOUND_LABELS = {74: "Cutoff", 71: "Resonance", 75: "Decay", 76: "Accent", 5: "Glide", 77: "Drive"}
+SOUND_LABELS = {74: "Cutoff", 71: "Resonance", 75: "Decay", 76: "Accent", 5: "Glide", 77: "Drive", 78: "Grit", 79: "Level", 80: "Delay", 81: "Feedback", 82: "Time"}
 
 CONTROL = ("127.0.0.1", 9811)             # the 303 page, via server.py (mixer.py has 9810)
 LIVE = pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "m800dr-acid.json"

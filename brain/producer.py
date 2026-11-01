@@ -46,8 +46,8 @@ FX_CHANNEL = 10
 FX_NOTES = {"riser2": 60, "riser4": 61, "riser8": 62, "down2": 64, "down4": 65, "impact": 67, "atmos": 72}
 GATE_BITS_CCS, WOBBLE_RATE_CC = (25, 26, 27), 28        # sunvoxbass.py
 ACID_CHANNEL = 5
-ACID_CCS = {"cutoff": 74, "resonance": 71, "decay": 75, "accent": 76, "glide": 5, "drive": 77}
-ACID_ALIASES = {"filter": "cutoff", "res": "resonance", "env": "decay", "slide": "glide", "distortion": "drive"}
+ACID_CCS = {"cutoff": 74, "resonance": 71, "decay": 75, "accent": 76, "glide": 5, "drive": 77, "grit": 78, "level": 79, "delay": 80, "feedback": 81, "time": 82}
+ACID_ALIASES = {"filter": "cutoff", "res": "resonance", "env": "decay", "slide": "glide", "distortion": "drive", "volume": "level", "amp": "level", "gain": "level", "echo": "delay", "wet": "delay", "delay time": "time", "delaytime": "time", "fb": "feedback", "dirt": "grit", "crush": "grit"}
 RAMP_STEPS_PER_BEAT = 8
 HISTORY = 16                  # action results kept for the next prompt
 # The producer's notes for the audio page (server.py serves this as /producer): the

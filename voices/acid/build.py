@@ -27,6 +27,7 @@ from rv.modules.base.analoggenerator import BaseAnalogGenerator as AG
 from rv.modules.base.distortion import BaseDistortion
 from rv.modules.base.filter import BaseFilter
 from rv.modules.base.fm import BaseFm
+from rv.modules.base.echo import BaseEcho
 
 DEFAULT_OUT = Path(__file__).resolve().parent / "m00Drc.sunvox"
 DEFAULT_ACID_OUT = DEFAULT_OUT.with_name("acid303.sunvox")
@@ -91,7 +92,24 @@ def add_acid(project: Project, out, x: int, y: int):
     drive = project.new_module(
         m.Distortion, name="Acid drive", x=x + 600, y=y, volume=90,
         type=BaseDistortion.Type.saturation3, power=140, bit_depth=10, freq=22050)
-    glide >> acid >> squelch >> drive >> out
+    # Second, harsher distortion stage. Foldback folds the top of the waveform
+    # back through zero, which doubles the harmonic content of an already
+    # saturated signal and stays articulate where saturation3 just clips.
+    grit = project.new_module(
+        m.Distortion, name="Acid grit", x=x + 800, y=y, volume=128,   # 128 = unity for a Distortion
+        type=BaseDistortion.Type.foldback, power=0)
+    # Master level for the whole acid voice, after distortion so the echoes
+    # follow the drive's level. Starts at unity (256) so the default sound is
+    # unchanged.
+    level = project.new_module(
+        m.Amplifier, name="Acid level", x=x + 1000, y=y, volume=256)
+    # Stereo echo that follows the level. Dry stays full, wet starts at 0 so
+    # the default sound is unchanged; feedback and delay are set to musical
+    # values the producer can tweak.
+    delay = project.new_module(
+        m.Echo, name="Acid delay", x=x + 1200, y=y,
+        dry=256, wet=0, feedback=96, delay_unit=BaseEcho.DelayUnit.ms, delay=375)
+    glide >> acid >> squelch >> drive >> grit >> level >> delay >> out
     kick >> squelch
     return glide
 
