@@ -52,9 +52,14 @@
           max-height:12em; overflow:auto; }
   #pold li { white-space:pre-wrap; overflow-wrap:anywhere; }
   /* Talking to the producer: its next plan reads what you say here. */
-  #chat { display:grid; gap:8px; border-bottom:1px solid var(--line); padding-bottom:14px; }
+  /* A fixed panel over the bottom-right two-thirds of the window (2/3 wide, 2/3 tall); the log fills it. */
+  #chat { position:fixed; right:0; bottom:0; width:66.667vw; height:66.667vh; z-index:5;
+          display:flex; flex-direction:column; gap:8px; padding:14px 16px;
+          background:var(--bg); border-left:1px solid var(--line); border-top:1px solid var(--line);
+          border-top-left-radius:10px; box-shadow:0 0 24px rgba(0,0,0,.18); }
   #chat .head { color:var(--dim); font-size:12px; letter-spacing:.12em; }
-  #chatlog { list-style:none; margin:0; padding:0; display:grid; gap:8px; font-size:13px; max-height:16em; overflow:auto; }
+  #chatlog { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; font-size:13px;
+             flex:1; min-height:0; overflow:auto; }
   #chatlog li { white-space:pre-wrap; overflow-wrap:anywhere; }
   #chatlog li.user { color:var(--dim); }
   #chatlog li.user::before { content:"you · "; color:var(--accent); }
